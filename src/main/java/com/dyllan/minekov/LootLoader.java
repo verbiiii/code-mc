@@ -37,23 +37,16 @@ public class LootLoader {
             Map<String, Double> weights = (Map<String, Double>) raw.get("items");
             List<ItemStack> chosen = chooseWeightedItems(weights, RANDOM.nextInt(maxItems) + 1);
 
-            // Debug output to player
             if (!chosen.isEmpty()) {
                 player.sendSystemMessage(Component.literal("You received:"));
                 for (ItemStack stack : chosen) {
-                    String name = stack.getHoverName().getString();
-                    player.sendSystemMessage(Component.literal("- " + name));
+                    player.sendSystemMessage(Component.literal("- " + stack.getHoverName().getString()));
                 }
             } else {
                 player.sendSystemMessage(Component.literal("No loot selected."));
             }
 
-            SimpleContainer container = new SimpleContainer(27);
-            for (int i = 0; i < chosen.size(); i++) {
-                container.setItem(i, chosen.get(i));
-            }
-
-            AbstractContainerMenu menu = ChestMenu.threeRows(0, player.getInventory(), container);
+            // Now actually show the chest GUI with loot
             player.openMenu(new MenuProvider() {
                 @Override
                 public Component getDisplayName() {
@@ -61,10 +54,15 @@ public class LootLoader {
                 }
 
                 @Override
-                public AbstractContainerMenu createMenu(int id, Inventory inv, net.minecraft.world.entity.player.Player player) {
-                    return menu;
+                public AbstractContainerMenu createMenu(int id, Inventory inv, net.minecraft.world.entity.player.Player playerEntity) {
+                    SimpleContainer container = new SimpleContainer(27);
+                    for (int i = 0; i < chosen.size(); i++) {
+                        container.setItem(i, chosen.get(i));
+                    }
+                    return ChestMenu.threeRows(id, inv, container);
                 }
             });
+
         } catch (Exception e) {
             player.sendSystemMessage(Component.literal("Failed to load loot table: " + e.getMessage()));
             e.printStackTrace();
