@@ -37,6 +37,17 @@ public class LootLoader {
             Map<String, Double> weights = (Map<String, Double>) raw.get("items");
             List<ItemStack> chosen = chooseWeightedItems(weights, RANDOM.nextInt(maxItems) + 1);
 
+            // Debug output to player
+            if (!chosen.isEmpty()) {
+                player.sendSystemMessage(Component.literal("You received:"));
+                for (ItemStack stack : chosen) {
+                    String name = stack.getHoverName().getString();
+                    player.sendSystemMessage(Component.literal("- " + name));
+                }
+            } else {
+                player.sendSystemMessage(Component.literal("No loot selected."));
+            }
+
             SimpleContainer container = new SimpleContainer(27);
             for (int i = 0; i < chosen.size(); i++) {
                 container.setItem(i, chosen.get(i));
@@ -62,18 +73,32 @@ public class LootLoader {
 
     private static List<ItemStack> chooseWeightedItems(Map<String, Double> weights, int count) {
         List<ItemStack> result = new ArrayList<>();
-        List<Map.Entry<String, Double>> entries = new ArrayList<>(weights.entrySet());
 
-        double totalWeight = entries.stream().mapToDouble(Map.Entry::getValue).sum();
+        List<Map.Entry<ResourceLocation, Double>> entries = new ArrayList<>();
+        double totalWeight = 0.0;
+
+        for (Map.Entry<String, Double> entry : weights.entrySet()) {
+            try {
+                ResourceLocation id = ResourceLocation.parse(entry.getKey());
+                Double weight = entry.getValue();
+                if (ForgeRegistries.ITEMS.containsKey(id) && weight > 0) {
+                    entries.add(Map.entry(id, weight));
+                    totalWeight += weight;
+                }
+            } catch (Exception ignored) {
+                // Skip invalid keys
+            }
+        }
+
+        if (entries.isEmpty() || totalWeight <= 0) return result;
 
         for (int i = 0; i < count; i++) {
             double r = RANDOM.nextDouble() * totalWeight;
-            double running = 0;
-            for (Map.Entry<String, Double> entry : entries) {
-                running += entry.getValue();
-                if (r <= running) {
-                    ResourceLocation itemId = new ResourceLocation(entry.getKey());
-                    ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(itemId));
+            double cumulative = 0.0;
+            for (Map.Entry<ResourceLocation, Double> entry : entries) {
+                cumulative += entry.getValue();
+                if (r <= cumulative) {
+                    ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(entry.getKey()));
                     result.add(stack);
                     break;
                 }
