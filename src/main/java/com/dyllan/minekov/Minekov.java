@@ -9,6 +9,9 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraft.server.level.ServerPlayer;
+
+import com.dyllan.minekov.LootLoader;
 
 @Mod(Minekov.MODID)
 public class Minekov {
@@ -27,13 +30,13 @@ public class Minekov {
                 .then(Commands.literal("loot")
                     .then(Commands.argument("table", StringArgumentType.word())
                         .suggests((context, builder) -> {
-                            builder.suggest("weapons_tier1"); // <- autocomplete option
+                            builder.suggest("weaponry_tier1");
                             return builder.buildFuture();
                         })
                         .executes(context -> {
                             String table = StringArgumentType.getString(context, "table");
-                            context.getSource().sendSuccess(() ->
-                                Component.literal("TODO for loot table: " + table), false);
+                            ServerPlayer player = context.getSource().getPlayerOrException();
+                            LootLoader.openLootChest(player, table, context.getSource().getServer());
                             return 1;
                         })
                     )
