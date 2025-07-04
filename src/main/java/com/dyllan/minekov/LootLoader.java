@@ -37,14 +37,14 @@ public class LootLoader {
             Map<String, Double> weights = (Map<String, Double>) raw.get("items");
             List<ItemStack> chosen = chooseWeightedItems(weights, RANDOM.nextInt(maxItems) + 1);
 
-            if (!chosen.isEmpty()) {
-                player.sendSystemMessage(Component.literal("You received:"));
-                for (ItemStack stack : chosen) {
-                    player.sendSystemMessage(Component.literal("- " + stack.getHoverName().getString()));
-                }
-            } else {
-                player.sendSystemMessage(Component.literal("No loot selected."));
-            }
+            // if (!chosen.isEmpty()) {
+                // player.sendSystemMessage(Component.literal("You received:"));
+                // for (ItemStack stack : chosen) {
+                    // player.sendSystemMessage(Component.literal("- " + stack.getHoverName().getString()));
+                // }
+            // } else {
+                // player.sendSystemMessage(Component.literal("No loot selected."));
+            // }
 
             // Now actually show the chest GUI with loot
             player.openMenu(new MenuProvider() {
