@@ -10,10 +10,8 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.MenuProvider;
-
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.io.InputStreamReader;
@@ -28,7 +26,8 @@ public class LootLoader {
         try {
             ResourceLocation fileLoc = new ResourceLocation("minekov", "loot/" + tableId);
             InputStreamReader reader = new InputStreamReader(
-                Objects.requireNonNull(server.getResourceManager().getResource(fileLoc.withPath("loot/" + tableId + ".json")).get().open())
+                Objects.requireNonNull(server.getResourceManager()
+                        .getResource(fileLoc.withPath("loot/" + tableId + ".json")).get().open())
             );
 
             Type type = new TypeToken<Map<String, Object>>() {}.getType();
@@ -38,12 +37,12 @@ public class LootLoader {
             Map<String, Double> weights = (Map<String, Double>) raw.get("items");
             List<ItemStack> chosen = chooseWeightedItems(weights, RANDOM.nextInt(maxItems) + 1);
 
-            SimpleContainer container = new SimpleContainer(54);
+            SimpleContainer container = new SimpleContainer(27);
             for (int i = 0; i < chosen.size(); i++) {
                 container.setItem(i, chosen.get(i));
             }
 
-            AbstractContainerMenu menu = ChestMenu.sixRows(0, player.getInventory(), container);
+            AbstractContainerMenu menu = ChestMenu.threeRows(0, player.getInventory(), container);
             player.openMenu(new MenuProvider() {
                 @Override
                 public Component getDisplayName() {
