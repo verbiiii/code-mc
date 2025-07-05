@@ -1,5 +1,6 @@
 package com.dyllan.minekov.entities;
 
+import com.dyllan.minekov.entities.ai.goals.GunAttackGoal;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.entity.ReloadState;
@@ -15,6 +16,7 @@ import com.tacz.guns.resource.pojo.data.gun.GunData;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -30,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-public class AIOperator extends Monster implements IGunOperator {
+public class AIOperator extends PathfinderMob implements IGunOperator {
     private final LivingEntity shooter = this;
     private final ShooterDataHolder data = new ShooterDataHolder();
     private final LivingEntityDrawGun draw = new LivingEntityDrawGun(shooter, data);
@@ -47,26 +49,36 @@ public class AIOperator extends Monster implements IGunOperator {
 
     private boolean drawn = false;
 
-    public AIOperator(EntityType<? extends Monster> type, Level level) {
+    public AIOperator(EntityType<AIOperator> type, Level level) {
         super(type, level);
         initialData();
-
+    
         // give it a gun
         ResourceLocation itemId = new ResourceLocation("tacz", "modern_kinetic_gun");
         Item gun = ForgeRegistries.ITEMS.getValue(itemId);
-
+    
         if (gun != null) {
             ItemStack stack = new ItemStack(gun);
-
-            // Add NBT: GunId = "tacz:m4a1"
-            CompoundTag nbt = new CompoundTag();
-            nbt.putString("GunId", "tacz:m4a1");
-            stack.setTag(nbt);
-
+    
+            CompoundTag tag = new CompoundTag();
+            tag.putString("GunId", "tacz:m4a1");
+            tag.putInt("GunCurrentAmmoCount", 30);
+            tag.putString("GunFireMode", "AUTO");
+            tag.putBoolean("HasBulletInBarrel", true);
+    
+            stack.setTag(tag);
             this.setItemSlot(EquipmentSlot.MAINHAND, stack);
         } else {
             System.err.println("Could not find item tacz:modern_kinetic_gun — is the mod loaded?");
         }
+    }
+
+    @Override
+    protected void registerGoals() {
+        super.registerGoals();
+
+        // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
+        this.goalSelector.addGoal(1, new GunAttackGoal(this));
     }
 
     public static AttributeSupplier.Builder createAttributes() {
