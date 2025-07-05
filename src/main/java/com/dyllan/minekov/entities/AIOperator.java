@@ -21,11 +21,11 @@ import javax.annotation.Nullable;
 public class AIOperator extends Monster {
     public AIOperator(EntityType<? extends Monster> type, Level level) {
         super(type, level);
+        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.STICK));
     }
 
     public SpawnGroupData finalizeSpawn(ServerLevel level, DifficultyInstance difficulty, MobSpawnType reason,
                                     @Nullable SpawnGroupData spawnData, @Nullable CompoundTag dataTag) {
-        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.STICK));
         return ForgeEventFactory.onFinalizeSpawn(this, level, difficulty, reason, spawnData, dataTag);
     }
 
