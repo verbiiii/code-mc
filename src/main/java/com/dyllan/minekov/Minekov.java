@@ -12,6 +12,8 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraft.server.level.ServerPlayer;
 
 import com.dyllan.minekov.LootLoader;
+import com.dyllan.minekov.ModEntities;
+import com.dyllan.minekov.entities.AIOperator;
 
 @Mod(Minekov.MODID)
 public class Minekov {
@@ -19,6 +21,7 @@ public class Minekov {
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
+        ModEntities.register();
     }
 
     @SubscribeEvent
