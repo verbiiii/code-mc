@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import com.dyllan.minekov.LootLoader;
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.entities.AIOperator;
+import com.dyllan.minekov.client.ClientSetup;
 
 @Mod(Minekov.MODID)
 public class Minekov {

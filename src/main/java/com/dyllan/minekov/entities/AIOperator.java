@@ -7,9 +7,9 @@ import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Monster;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.DifficultyInstance;
@@ -25,9 +25,9 @@ public class AIOperator extends Monster {
 
     public SpawnGroupData finalizeSpawn(ServerLevel level, DifficultyInstance difficulty, MobSpawnType reason,
                                     @Nullable SpawnGroupData spawnData, @Nullable CompoundTag dataTag) {
-    this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.STICK));
-    return super.finalizeSpawn(level, difficulty, reason, spawnData, dataTag);
-}
+        this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.STICK));
+        return ForgeEventFactory.onFinalizeSpawn(this, level, difficulty, reason, spawnData, dataTag);
+    }
 
     public static AttributeSupplier.Builder createAttributes() {
         return Mob.createMobAttributes()
