@@ -159,7 +159,8 @@ dependencies {
 
     implementation fg.deobf("curse.maven:ctm-1218165:6702058") // superb warfare
     implementation fg.deobf("curse.maven:ctm-309927:6418456")  // curios (required by superb warfare)
-    // implementation fg.deobf("curse.maven:ctm-388172:6658942")  // geckolib (required by superb warfare)
+
+    implementation fg.deobf("curse.maven:ctm-1028108:6654541") // tacz
 
     // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
