@@ -1,0 +1,12 @@
+{
+    "required": true,
+    "package": "com.dyllan.minekov.mixin",
+    "compatibilityLevel": "JAVA_8",
+    "refmap": "minekov.refmap.json",
+    "mixins": [],
+    "client": [],
+    "injectors": {
+      "defaultRequire": 1
+    }
+  }
+  
