@@ -24,15 +24,22 @@ public class AIOperator extends Monster {
     public AIOperator(EntityType<? extends Monster> type, Level level) {
         super(type, level);
 
-        // Get the item from the registry using a namespaced ID
-        ResourceLocation itemId = new ResourceLocation("superbwarfare", "m_4");
-        Item m4 = ForgeRegistries.ITEMS.getValue(itemId);
+        ResourceLocation itemId = new ResourceLocation("tacz", "modern_kinetic_gun");
+        Item gun = ForgeRegistries.ITEMS.getValue(itemId);
 
-        if (m4 != null) {
-            this.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(m4));
+        if (gun != null) {
+            ItemStack stack = new ItemStack(gun);
+
+            // Add NBT: GunId = "tacz:m4a1"
+            CompoundTag nbt = new CompoundTag();
+            nbt.putString("GunId", "tacz:m4a1");
+            stack.setTag(nbt);
+
+            this.setItemSlot(EquipmentSlot.MAINHAND, stack);
         } else {
-            System.err.println("Could not find item superbwarfare:m_4 — is the mod loaded?");
+            System.err.println("Could not find item tacz:modern_kinetic_gun — is the mod loaded?");
         }
+
     }
 
     public SpawnGroupData finalizeSpawn(ServerLevel level, DifficultyInstance difficulty, MobSpawnType reason,
