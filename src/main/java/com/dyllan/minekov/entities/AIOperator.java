@@ -12,13 +12,18 @@ import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
 import com.tacz.guns.resource.modifier.AttachmentPropertyManager;
 import com.tacz.guns.resource.pojo.data.gun.BulletData;
 import com.tacz.guns.resource.pojo.data.gun.GunData;
+
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.registries.ForgeRegistries;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,6 +50,23 @@ public class AIOperator extends Monster implements IGunOperator {
     public AIOperator(EntityType<? extends Monster> type, Level level) {
         super(type, level);
         initialData();
+
+        // give it a gun
+        ResourceLocation itemId = new ResourceLocation("tacz", "modern_kinetic_gun");
+        Item gun = ForgeRegistries.ITEMS.getValue(itemId);
+
+        if (gun != null) {
+            ItemStack stack = new ItemStack(gun);
+
+            // Add NBT: GunId = "tacz:m4a1"
+            CompoundTag nbt = new CompoundTag();
+            nbt.putString("GunId", "tacz:m4a1");
+            stack.setTag(nbt);
+
+            this.setItemSlot(EquipmentSlot.MAINHAND, stack);
+        } else {
+            System.err.println("Could not find item tacz:modern_kinetic_gun — is the mod loaded?");
+        }
     }
 
     public static AttributeSupplier.Builder createAttributes() {
