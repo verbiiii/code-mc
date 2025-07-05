@@ -61,7 +61,7 @@ public class GunAttackGoal extends Goal {
 
         if (--cooldown <= 0) {
             tryFireGun();
-            cooldown = 20 + mob.getRandom().nextInt(10); // tap fire every ~1-1.5s
+            cooldown = 3 + mob.getRandom().nextInt(5); // tap fire every ~1-1.5s
         }
     }
 
