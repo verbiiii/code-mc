@@ -14,6 +14,6 @@ public class AIOperatorRenderer extends HumanoidMobRenderer<AIOperator, Humanoid
 
     @Override
     public ResourceLocation getTextureLocation(AIOperator entity) {
-        return ResourceLocation.parse("minecraft:textures/entity/steve.png");
+        return ResourceLocation.fromNamespaceAndPath("minekov", "textures/entity/ai_operator.png");
     }
 }
