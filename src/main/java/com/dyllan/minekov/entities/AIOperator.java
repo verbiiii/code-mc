@@ -1,84 +1,214 @@
 package com.dyllan.minekov.entities;
 
-
-import com.dyllan.minekov.entities.ai.goals.GunAttackGoal;
-import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
+import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
-
-import net.minecraft.nbt.CompoundTag;
+import com.tacz.guns.api.entity.ReloadState;
+import com.tacz.guns.api.entity.ShootResult;
+import com.tacz.guns.entity.shooter.*;
+import com.tacz.guns.entity.sync.ModSyncedEntityData;
+import com.tacz.guns.item.ModernKineticGunItem;
+import com.tacz.guns.resource.index.CommonGunIndex;
+import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
+import com.tacz.guns.resource.modifier.AttachmentPropertyManager;
+import com.tacz.guns.resource.pojo.data.gun.BulletData;
+import com.tacz.guns.resource.pojo.data.gun.GunData;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.DifficultyInstance;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.MobSpawnType;
-import net.minecraft.world.entity.SpawnGroupData;
+import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Monster;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.event.ForgeEventFactory;
-import net.minecraftforge.registries.ForgeRegistries;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.annotation.Nullable;
+import java.util.Optional;
+import java.util.function.Supplier;
 
-public class AIOperator extends Monster {
+public class AIOperator extends Monster implements IGunOperator {
+    private final LivingEntity shooter = this;
+    private final ShooterDataHolder data = new ShooterDataHolder();
+    private final LivingEntityDrawGun draw = new LivingEntityDrawGun(shooter, data);
+    private final LivingEntityAim aim = new LivingEntityAim(shooter, data);
+    private final LivingEntityCrawl crawl = new LivingEntityCrawl(shooter, data);
+    private final LivingEntityAmmoCheck ammoCheck = new LivingEntityAmmoCheck(shooter);
+    private final LivingEntityFireSelect fireSelect = new LivingEntityFireSelect(shooter, data);
+    private final LivingEntityMelee melee = new LivingEntityMelee(shooter, data, draw);
+    private final LivingEntityShoot shoot = new LivingEntityShoot(shooter, data, draw);
+    private final LivingEntityBolt bolt = new LivingEntityBolt(data, shooter, draw, shoot);
+    private final LivingEntityReload reload = new LivingEntityReload(shooter, data, draw, shoot);
+    private final LivingEntitySpeedModifier speed = new LivingEntitySpeedModifier(shooter, data);
+    private final LivingEntitySprint sprint = new LivingEntitySprint(shooter, data);
+
+    private boolean drawn = false;
+
     public AIOperator(EntityType<? extends Monster> type, Level level) {
         super(type, level);
-
-        ResourceLocation itemId = new ResourceLocation("tacz", "modern_kinetic_gun");
-        Item gun = ForgeRegistries.ITEMS.getValue(itemId);
-
-        if (gun != null) {
-            ItemStack stack = new ItemStack(gun);
-
-            // Add NBT: GunId = "tacz:m4a1"
-            CompoundTag nbt = new CompoundTag();
-            nbt.putString("GunId", "tacz:m4a1");
-            stack.setTag(nbt);
-
-            this.setItemSlot(EquipmentSlot.MAINHAND, stack);
-        } else {
-            System.err.println("Could not find item tacz:modern_kinetic_gun — is the mod loaded?");
-        }
-
-    }
-
-    public SpawnGroupData finalizeSpawn(ServerLevel level, DifficultyInstance difficulty, MobSpawnType reason,
-                                        @Nullable SpawnGroupData spawnData, @Nullable CompoundTag dataTag) {
-        return ForgeEventFactory.onFinalizeSpawn(this, level, difficulty, reason, spawnData, dataTag);
+        initialData();
     }
 
     public static AttributeSupplier.Builder createAttributes() {
-        return Mob.createMobAttributes()
-                .add(Attributes.MAX_HEALTH, 20.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.25D)
-                .add(Attributes.ATTACK_DAMAGE, 2.0D);
+        return Monster.createMonsterAttributes()
+                .add(Attributes.MAX_HEALTH, 20.0)
+                .add(Attributes.MOVEMENT_SPEED, 0.3)
+                .add(Attributes.FOLLOW_RANGE, 32.0);
     }
 
     @Override
-    public boolean isPersistenceRequired() {
-        return true;
+    public void tick() {
+        super.tick();
+        if (!level().isClientSide) {
+            if (getMainHandItem().getItem() instanceof ModernKineticGunItem) {
+                if (!drawn) {
+                    draw(() -> getMainHandItem());
+                }
+                bolt();
+                reload.tickReloadState();
+                aim.tickAimingProgress();
+                aim.tickSprint();
+                crawl.tickCrawling();
+                bolt.tickBolt();
+                melee.scheduleTickMelee();
+                speed.updateSpeedModifier();
+                shooter.setSprinting(sprint.getProcessedSprintStatus(shooter.isSprinting()));
+                syncGunData();
+            }
+        }
     }
 
-    @Override
-    protected void registerGoals() {
-        super.registerGoals();
-
-        // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
-        this.goalSelector.addGoal(1, new GunAttackGoal(this));
+    private void syncGunData() {
+        ModSyncedEntityData.SHOOT_COOL_DOWN_KEY.setValue(shooter, shoot.getShootCoolDown());
+        ModSyncedEntityData.MELEE_COOL_DOWN_KEY.setValue(shooter, melee.getMeleeCoolDown());
+        ModSyncedEntityData.DRAW_COOL_DOWN_KEY.setValue(shooter, draw.getDrawCoolDown());
+        ModSyncedEntityData.IS_BOLTING_KEY.setValue(shooter, data.isBolting);
+        ModSyncedEntityData.RELOAD_STATE_KEY.setValue(shooter, reload.tickReloadState());
+        ModSyncedEntityData.AIMING_PROGRESS_KEY.setValue(shooter, data.aimingProgress);
+        ModSyncedEntityData.IS_AIMING_KEY.setValue(shooter, data.isAiming);
+        ModSyncedEntityData.SPRINT_TIME_KEY.setValue(shooter, data.sprintTimeS);
     }
 
-    @SuppressWarnings("override")
+    public void initialData() {
+        data.initialData();
+        AttachmentPropertyManager.postChangeEvent(shooter, shooter.getMainHandItem());
+    }
+
+    public void draw(Supplier<ItemStack> gunItemSupplier) {
+        draw.draw(gunItemSupplier);
+        drawn = true;
+    }
+
+    public void aim(boolean isAim) {
+        aim.aim(isAim);
+    }
+
+    public void crawl(boolean isCrawl) {
+        crawl.crawl(isCrawl);
+    }
+
+    public void fireSelect() {
+        fireSelect.fireSelect();
+    }
+
+    public void bolt() {
+        bolt.bolt();
+    }
+
+    public void reload() {
+        reload.reload();
+    }
+
+    public void cancelReload() {
+        reload.cancelReload();
+    }
+
+    public void melee() {
+        melee.melee();
+    }
+
+    public ShootResult shoot(Supplier<Float> pitch, Supplier<Float> yaw) {
+        return shoot(pitch, yaw, System.currentTimeMillis() - data.baseTimestamp);
+    }
+
+    public ShootResult shoot(Supplier<Float> pitch, Supplier<Float> yaw, long timestamp) {
+        return shoot.shoot(pitch, yaw, timestamp);
+    }
+
     public boolean consumesAmmoOrNot() {
-        return false;
+        return ammoCheck.consumesAmmoOrNot();
     }
 
-    @SuppressWarnings("override")
-    public boolean needCheckAmmo() {
-        return false;
+    public boolean nextBulletIsTracer(int tracerCountInterval) {
+        ++data.shootCount;
+        return tracerCountInterval != -1 && data.shootCount % (tracerCountInterval + 1) == 0;
     }
+
+    public void updateCacheProperty(@Nullable AttachmentCacheProperty property) {
+        data.cacheProperty = property;
+    }
+
+    @Nullable
+    public AttachmentCacheProperty getCacheProperty() {
+        return data.cacheProperty;
+    }
+
+    public ShooterDataHolder getDataHolder() {
+        return data;
+    }
+
+    @Override
+    public long getSynShootCoolDown() {
+        return shoot.getShootCoolDown();
+    }
+
+    @Override
+    public long getSynMeleeCoolDown() {
+        return melee.getMeleeCoolDown();
+    }
+
+    @Override
+    public long getSynDrawCoolDown() {
+        return draw.getDrawCoolDown();
+    }
+
+    @Override
+    public boolean getSynIsBolting() {
+        return data.isBolting;
+    }
+
+    @Override
+    public ReloadState getSynReloadState() {
+        return (ReloadState)ModSyncedEntityData.RELOAD_STATE_KEY.getValue(shooter);
+    }
+
+    @Override
+    public float getSynAimingProgress() {
+        return data.aimingProgress;
+    }
+
+    @Override
+    public boolean getSynIsAiming() {
+        return data.isAiming;
+    }
+
+    @Override
+    public float getSynSprintTime() {
+        return data.sprintTimeS;
+    }
+
+    @Override
+    public boolean getProcessedSprintStatus(boolean sprinting) {
+        return sprint.getProcessedSprintStatus(sprinting);
+    }
+
+    @Override
+    public boolean needCheckAmmo() {
+        return ammoCheck.needCheckAmmo();
+    }
+
+    @Override
+    public void zoom() {
+        // Optional: implement if your AI needs scope zoom control
+        // For now we can just leave this empty
+    }
+
 }

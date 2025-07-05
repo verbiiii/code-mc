@@ -1,6 +1,8 @@
 package com.dyllan.minekov.entities.ai.goals;
 
 import com.dyllan.minekov.entities.AIOperator;
+import com.tacz.guns.api.entity.IGunOperator;
+
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -86,21 +88,24 @@ public class GunAttackGoal extends Goal {
     }
 
     private void tryFireGun() {
+        if (target == null) return;
+
         System.err.println("[GunAttackGoal] Attempting to fire");
-        ItemStack gun = mob.getMainHandItem();
 
-        if (gun == null) return;
-
-        Item item = gun.getItem();
-        ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
-
-        if (id != null && id.getNamespace().equals("tacz")) {
-            try {
-                item.getClass().getMethod("fireGun", Level.class, LivingEntity.class, InteractionHand.class)
-                    .invoke(item, mob.level(), mob, InteractionHand.MAIN_HAND);
-            } catch (Exception e) {
-                System.err.println("[GunAttackGoal] Failed to fire gun: " + e.getMessage());
-            }
+        // Calculate pitch and yaw from mob to target
+        double dx = target.getX() - mob.getX();
+        double dy = (target.getEyeY()) - (mob.getEyeY());
+        double dz = target.getZ() - mob.getZ();
+        double distXZ = Math.sqrt(dx * dx + dz * dz);
+    
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, distXZ));
+        float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0F;
+    
+        try {
+            mob.shoot(() -> pitch, () -> yaw);
+        } catch (Exception e) {
+            System.err.println("[GunAttackGoal] shoot() failed: " + e.getMessage());
         }
     }
+    
 }
