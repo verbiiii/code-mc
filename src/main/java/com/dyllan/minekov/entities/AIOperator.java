@@ -1,7 +1,9 @@
 package com.dyllan.minekov.entities;
 
 
+import com.dyllan.minekov.entities.ai.goals.GunAttackGoal;
 import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
+import com.tacz.guns.api.entity.IGunOperator;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -66,6 +68,17 @@ public class AIOperator extends Monster {
     protected void registerGoals() {
         super.registerGoals();
 
-        this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
+        // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
+        this.goalSelector.addGoal(1, new GunAttackGoal(this));
+    }
+
+    @SuppressWarnings("override")
+    public boolean consumesAmmoOrNot() {
+        return false;
+    }
+
+    @SuppressWarnings("override")
+    public boolean needCheckAmmo() {
+        return false;
     }
 }
