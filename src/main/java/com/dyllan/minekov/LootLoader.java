@@ -77,7 +77,7 @@ public class LootLoader {
 
         for (Map.Entry<String, Double> entry : weights.entrySet()) {
             try {
-                ResourceLocation id = ResourceLocation.parse(entry.getKey());
+                ResourceLocation id = new ResourceLocation(entry.getKey());
                 Double weight = entry.getValue();
                 if (ForgeRegistries.ITEMS.containsKey(id) && weight > 0) {
                     entries.add(Map.entry(id, weight));
