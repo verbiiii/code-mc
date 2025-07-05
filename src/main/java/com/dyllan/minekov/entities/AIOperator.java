@@ -1,5 +1,8 @@
 package com.dyllan.minekov.entities;
 
+
+import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
+
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -57,5 +60,12 @@ public class AIOperator extends Monster {
     @Override
     public boolean isPersistenceRequired() {
         return true;
+    }
+
+    @Override
+    protected void registerGoals() {
+        super.registerGoals();
+
+        this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
     }
 }
