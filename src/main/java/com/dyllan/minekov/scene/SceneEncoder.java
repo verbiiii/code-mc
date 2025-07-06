@@ -5,9 +5,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class SceneEncoder {
-    private static final int SIZE_X = 20;
-    private static final int SIZE_Y = 20;
-    private static final int SIZE_Z = 20;
+    private static final int SIZE_X = 256;
+    private static final int SIZE_Y = 256;
+    private static final int SIZE_Z = 10;
 
     private final byte[] buffer = new byte[SIZE_X * SIZE_Y * SIZE_Z];
 

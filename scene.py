@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from flask import Flask, request
 import threading
 
-scene_shape = (20, 20, 20)  # Z, Y, X
+scene_shape = (256, 10, 256)  # Z, Y, X
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = threading.Lock()
 new_data_flag = False
@@ -64,10 +64,10 @@ def refresh_scene(_, camera):
     if coords.size == 0:
         coords = np.zeros((1, 3))
 
-    # Fix axis: treat Y as up
-    x = coords[:, 2]
-    y = coords[:, 0]  # Z becomes Y
-    z = coords[:, 1]
+    # Proper axis mapping
+    z = coords[:, 0]  # Depth
+    y = coords[:, 1]  # Vertical (height)
+    x = coords[:, 2]  # Width
 
     fig = go.Figure(data=go.Scatter3d(
         x=x,
@@ -75,9 +75,9 @@ def refresh_scene(_, camera):
         z=z,
         mode='markers',
         marker=dict(
-            size=8,
+            size=5,
             color='gray',
-            symbol='square',  # fake voxel shape
+            symbol='square',
             opacity=0.8,
         ),
     ))
@@ -87,7 +87,8 @@ def refresh_scene(_, camera):
             xaxis_title="X",
             yaxis_title="Y",
             zaxis_title="Z",
-            aspectmode='cube',
+            aspectmode='manual',
+            aspectratio=dict(x=1, y=0.1, z=1),  # squash Y for realistic scale
         ),
         margin=dict(l=0, r=0, b=0, t=30),
     )
@@ -98,6 +99,6 @@ def refresh_scene(_, camera):
     fig.update_layout(**layout)
     return fig
 
+
 if __name__ == "__main__":
-    print("Server running at http://localhost:8050/")
     app.run(debug=True, host="0.0.0.0", port=8050)
