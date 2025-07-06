@@ -50,7 +50,13 @@ public class GunAttackGoal extends Goal {
 
     @Override
     public void tick() {
-        if (target == null) return;
+        if (target == null) {
+            mob.aim(false); // no target, no aiming necessary
+            return;
+        }
+
+        // if there's a target, aim down sights
+        mob.aim(true);
 
         this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
 

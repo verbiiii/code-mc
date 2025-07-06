@@ -84,7 +84,7 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 20.0)
+                .add(Attributes.MAX_HEALTH, 100.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.3);
                 // .add(Attributes.FOLLOW_RANGE, 32.0);
     }
