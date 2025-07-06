@@ -25,7 +25,7 @@ public class GunAttackGoal extends Goal {
 
     public GunAttackGoal(AIOperator mob) {
         this.mob = mob;
-        this.range = 256.0D;
+        this.range = AIOperator.MAX_DISTANCE;
         this.setFlags(EnumSet.of(Goal.Flag.TARGET, Goal.Flag.LOOK));
     }
 

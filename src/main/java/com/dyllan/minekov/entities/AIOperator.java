@@ -34,6 +34,8 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public class AIOperator extends PathfinderMob implements IGunOperator {
+    public static final double MAX_DISTANCE = 1024.0D; // Maximum distance for AI to interact with players and remain active
+    
     private final LivingEntity shooter = this;
     private final ShooterDataHolder data = new ShooterDataHolder();
     private final LivingEntityDrawGun draw = new LivingEntityDrawGun(shooter, data);
@@ -57,6 +59,19 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
         // give them an M4
         ItemStack gun = GunCustomization.getM4();
         this.setItemSlot(EquipmentSlot.MAINHAND, gun);
+
+        // don't allow automatic despawns
+        this.setPersistenceRequired();
+    }
+
+    @Override
+    public void checkDespawn() {
+        // Fully disable despawn logic
+    }
+
+    @Override
+    public boolean removeWhenFarAway(double distanceToClosestPlayer) {
+        return false;
     }
 
     @Override
@@ -70,8 +85,8 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
-                .add(Attributes.MOVEMENT_SPEED, 0.3)
-                .add(Attributes.FOLLOW_RANGE, 32.0);
+                .add(Attributes.MOVEMENT_SPEED, 0.3);
+                // .add(Attributes.FOLLOW_RANGE, 32.0);
     }
 
     @Override

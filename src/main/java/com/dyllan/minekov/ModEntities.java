@@ -19,9 +19,9 @@ public class ModEntities {
 
     public static final RegistryObject<EntityType<AIOperator>> AI_OPERATOR =
         ENTITY_TYPES.register("ai_operator",
-            () -> EntityType.Builder.of(AIOperator::new, MobCategory.MONSTER)
+            () -> EntityType.Builder.of(AIOperator::new, MobCategory.MISC)
                 .sized(0.6f, 1.8f)
-                .clientTrackingRange(512) // how far the client can see this entity
+                .clientTrackingRange((int) AIOperator.MAX_DISTANCE) // how far the client can see this entity
                 .updateInterval(1)
                 .build(new ResourceLocation("minekov", "ai_operator").toString()));
 
