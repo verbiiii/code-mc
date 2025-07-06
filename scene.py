@@ -1,19 +1,17 @@
 import dash
 import dash_html_components as html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import dash_core_components as dcc
 import numpy as np
 import plotly.graph_objects as go
 from flask import Flask, request
 import threading
 
-# Scene shape: Z, Y, X
-scene_shape = (20, 20, 20)
+scene_shape = (20, 20, 20)  # Z, Y, X
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = threading.Lock()
 new_data_flag = False
 
-# Flask app
 flask_server = Flask(__name__)
 
 @flask_server.route("/scene", methods=["POST"])
@@ -30,20 +28,31 @@ def receive_scene():
     else:
         return f"Invalid size: got {arr.size}, expected {np.prod(scene_shape)}", 400
 
-# Dash app
 app = dash.Dash(__name__, server=flask_server, routes_pathname_prefix="/")
 
 app.layout = html.Div([
     html.H3("Minekov Scene Visualizer"),
     dcc.Graph(id="scene-graph"),
-    dcc.Interval(id="refresh-timer", interval=500, n_intervals=0)
+    dcc.Interval(id="refresh-timer", interval=500, n_intervals=0),
+    dcc.Store(id="camera-store"),
 ])
 
 @app.callback(
-    Output("scene-graph", "figure"),
-    Input("refresh-timer", "n_intervals")
+    Output("camera-store", "data"),
+    Input("scene-graph", "relayoutData"),
+    prevent_initial_call=True
 )
-def refresh_scene(_):
+def store_camera(relayout):
+    if relayout and "scene.camera" in relayout:
+        return relayout["scene.camera"]
+    return dash.no_update
+
+@app.callback(
+    Output("scene-graph", "figure"),
+    Input("refresh-timer", "n_intervals"),
+    State("camera-store", "data")
+)
+def refresh_scene(_, camera):
     global new_data_flag
     with volume_lock:
         if not new_data_flag:
@@ -55,15 +64,25 @@ def refresh_scene(_):
     if coords.size == 0:
         coords = np.zeros((1, 3))
 
+    # Fix axis: treat Y as up
+    x = coords[:, 2]
+    y = coords[:, 0]  # Z becomes Y
+    z = coords[:, 1]
+
     fig = go.Figure(data=go.Scatter3d(
-        x=coords[:, 2],
-        y=coords[:, 1],
-        z=coords[:, 0],
+        x=x,
+        y=y,
+        z=z,
         mode='markers',
-        marker=dict(size=4, color='gray', opacity=0.8),
+        marker=dict(
+            size=8,
+            color='gray',
+            symbol='square',  # fake voxel shape
+            opacity=0.8,
+        ),
     ))
 
-    fig.update_layout(
+    layout = dict(
         scene=dict(
             xaxis_title="X",
             yaxis_title="Y",
@@ -72,6 +91,11 @@ def refresh_scene(_):
         ),
         margin=dict(l=0, r=0, b=0, t=30),
     )
+
+    if camera:
+        layout["scene"]["camera"] = camera
+
+    fig.update_layout(**layout)
     return fig
 
 if __name__ == "__main__":
