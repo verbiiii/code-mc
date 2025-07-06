@@ -31,11 +31,11 @@ def receive_scene():
 app = dash.Dash(__name__, server=flask_server, routes_pathname_prefix="/")
 
 app.layout = html.Div([
-    html.H3("Minekov Scene Visualizer"),
-    dcc.Graph(id="scene-graph"),
+    dcc.Graph(id="scene-graph", style={"width": "100vw", "height": "100vh"}),
     dcc.Interval(id="refresh-timer", interval=500, n_intervals=0),
     dcc.Store(id="camera-store"),
-])
+], style={"margin": 0, "padding": 0, "overflow": "hidden"})
+
 
 @app.callback(
     Output("camera-store", "data"),
