@@ -72,7 +72,7 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
     // }
 
     public static AttributeSupplier.Builder createAttributes() {
-        return Monster.createMonsterAttributes()
+        return PathfinderMob.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 100.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.3);
                 // .add(Attributes.FOLLOW_RANGE, 32.0);
@@ -158,7 +158,8 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
     }
 
     public boolean consumesAmmoOrNot() {
-        return ammoCheck.consumesAmmoOrNot();
+        // return ammoCheck.consumesAmmoOrNot();
+        return false;
     }
 
     public boolean nextBulletIsTracer(int tracerCountInterval) {
@@ -234,5 +235,38 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
         // Optional: implement if your AI needs scope zoom control
         // For now we can just leave this empty
     }
+
+    // === Movement control ===
+    public void setMoveForward(boolean forward) {
+        this.zza = forward ? 1.0f : 0.0f;
+    }
+
+    public void setMoveBackward(boolean backward) {
+        this.zza = backward ? -1.0f : 0.0f;
+    }
+
+    public void setStrafeLeft(boolean left) {
+        this.xxa = left ? -1.0f : 0.0f;
+    }
+
+    public void setStrafeRight(boolean right) {
+        this.xxa = right ? 1.0f : 0.0f;
+    }
+
+    // === Combat control ===
+    public void tryShootNearestTarget() {
+        LivingEntity target = this.level().getEntitiesOfClass(LivingEntity.class, this.getBoundingBox().inflate(64))
+            .stream()
+            .filter(e -> e != this && e.isAlive() && this.hasLineOfSight(e))
+            .min((a, b) -> Double.compare(this.distanceToSqr(a), this.distanceToSqr(b)))
+            .orElse(null);
+
+        if (target != null) {
+            float yaw = (float) Math.toDegrees(Math.atan2(target.getX() - getX(), target.getZ() - getZ()));
+            float pitch = (float) Math.toDegrees(-Math.atan2(target.getY() - getEyeY(), Math.sqrt(Math.pow(target.getX() - getX(), 2) + Math.pow(target.getZ() - getZ(), 2))));
+            shoot(() -> pitch, () -> yaw);
+        }
+    }
+
 
 }
