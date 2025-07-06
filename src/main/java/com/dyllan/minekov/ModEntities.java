@@ -1,6 +1,8 @@
 package com.dyllan.minekov;
 
 import com.dyllan.minekov.entities.AIOperator;
+import com.dyllan.minekov.entities.DumbOperator;
+
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
@@ -17,13 +19,23 @@ public class ModEntities {
     public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =
         DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, "minekov");
 
+    // Register DumbOperator
+    public static final RegistryObject<EntityType<DumbOperator>> DUMB_OPERATOR =
+        ENTITY_TYPES.register("dumb_operator",
+            () -> EntityType.Builder.of(DumbOperator::new, MobCategory.MISC)
+                .sized(0.6f, 1.8f)
+                .clientTrackingRange((int) DumbOperator.MAX_DISTANCE)
+                .updateInterval(1)
+                .build(new ResourceLocation("minekov", "dumb_operator").toString()));
+
+    // Register AIOperator
     public static final RegistryObject<EntityType<AIOperator>> AI_OPERATOR =
-        ENTITY_TYPES.register("ai_operator",
+        ENTITY_TYPES.register("rl_operator",
             () -> EntityType.Builder.of(AIOperator::new, MobCategory.MISC)
                 .sized(0.6f, 1.8f)
-                .clientTrackingRange((int) AIOperator.MAX_DISTANCE) // how far the client can see this entity
+                .clientTrackingRange((int) AIOperator.MAX_DISTANCE)
                 .updateInterval(1)
-                .build(new ResourceLocation("minekov", "ai_operator").toString()));
+                .build(new ResourceLocation("minekov", "rl_operator").toString()));
 
     public static void register() {
         ENTITY_TYPES.register(FMLJavaModLoadingContext.get().getModEventBus());
@@ -31,6 +43,7 @@ public class ModEntities {
 
     @SubscribeEvent
     public static void onEntityAttributeCreate(EntityAttributeCreationEvent event) {
+        event.put(DUMB_OPERATOR.get(), DumbOperator.createAttributes().build());
         event.put(AI_OPERATOR.get(), AIOperator.createAttributes().build());
     }
 }

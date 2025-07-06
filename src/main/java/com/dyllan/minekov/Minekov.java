@@ -11,10 +11,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraft.server.level.ServerPlayer;
 
-import com.dyllan.minekov.LootLoader;
-import com.dyllan.minekov.ModEntities;
-import com.dyllan.minekov.entities.AIOperator;
-import com.dyllan.minekov.client.ClientSetup;
 import com.dyllan.minekov.scene.SceneEncoder;
 
 @Mod(Minekov.MODID)

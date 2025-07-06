@@ -10,7 +10,7 @@ import net.minecraft.world.entity.LivingEntity;
 import java.util.EnumSet;
 import java.util.List;
 
-public class GunAttackGoal extends Goal {
+public class DumbGunAttackGoal extends Goal {
     public static final boolean TARGET_PLAYERS = false; // Set to true to attack players, false to attack other AIOperators
 
     private final AIOperator mob;
@@ -18,7 +18,7 @@ public class GunAttackGoal extends Goal {
     private int cooldown = 0;
     private final double range;
 
-    public GunAttackGoal(AIOperator mob) {
+    public DumbGunAttackGoal(AIOperator mob) {
         this.mob = mob;
         this.range = AIOperator.MAX_DISTANCE;
         this.setFlags(EnumSet.of(Goal.Flag.TARGET, Goal.Flag.LOOK));

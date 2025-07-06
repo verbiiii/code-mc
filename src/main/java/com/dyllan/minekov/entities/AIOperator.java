@@ -1,36 +1,24 @@
 package com.dyllan.minekov.entities;
 
-import com.dyllan.minekov.entities.ai.goals.GunAttackGoal;
-import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.entity.ReloadState;
 import com.tacz.guns.api.entity.ShootResult;
 import com.tacz.guns.entity.shooter.*;
 import com.tacz.guns.entity.sync.ModSyncedEntityData;
 import com.tacz.guns.item.ModernKineticGunItem;
-import com.tacz.guns.resource.index.CommonGunIndex;
 import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
 import com.tacz.guns.resource.modifier.AttachmentPropertyManager;
-import com.tacz.guns.resource.pojo.data.gun.BulletData;
-import com.tacz.guns.resource.pojo.data.gun.GunData;
 
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Monster;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.registries.ForgeRegistries;
 import com.dyllan.minekov.loadouts.GunCustomization;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Optional;
 import java.util.function.Supplier;
 
 public class AIOperator extends PathfinderMob implements IGunOperator {
@@ -52,7 +40,7 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
 
     private boolean drawn = false;
 
-    public AIOperator(EntityType<AIOperator> type, Level level) {
+    public AIOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
         initialData();
     
@@ -74,13 +62,14 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
         return false;
     }
 
-    @Override
-    protected void registerGoals() {
-        super.registerGoals();
+    // @Override
+    // protected void registerGoals() {
+    //     super.registerGoals();
 
-        // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
-        this.goalSelector.addGoal(1, new GunAttackGoal(this));
-    }
+    //     // Moved goals to dumb operator for dumb goals
+    //     // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
+    //     // this.goalSelector.addGoal(1, new GunAttackGoal(this));
+    // }
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
