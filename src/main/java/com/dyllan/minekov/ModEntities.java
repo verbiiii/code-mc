@@ -29,7 +29,7 @@ public class ModEntities {
                 .build(new ResourceLocation("minekov", "dumb_operator").toString()));
 
     // Register AIOperator
-    public static final RegistryObject<EntityType<AIOperator>> AI_OPERATOR =
+    public static final RegistryObject<EntityType<AIOperator>> RL_OPERATOR =
         ENTITY_TYPES.register("rl_operator",
             () -> EntityType.Builder.of(AIOperator::new, MobCategory.MISC)
                 .sized(0.6f, 1.8f)
@@ -44,6 +44,6 @@ public class ModEntities {
     @SubscribeEvent
     public static void onEntityAttributeCreate(EntityAttributeCreationEvent event) {
         event.put(DUMB_OPERATOR.get(), DumbOperator.createAttributes().build());
-        event.put(AI_OPERATOR.get(), AIOperator.createAttributes().build());
+        event.put(RL_OPERATOR.get(), AIOperator.createAttributes().build());
     }
 }

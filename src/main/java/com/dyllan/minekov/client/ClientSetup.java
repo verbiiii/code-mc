@@ -11,6 +11,7 @@ import com.dyllan.minekov.ModEntities;
 public class ClientSetup {
     @SubscribeEvent
     public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
-        event.registerEntityRenderer(ModEntities.AI_OPERATOR.get(), AIOperatorRenderer::new);
+        event.registerEntityRenderer(ModEntities.DUMB_OPERATOR.get(), AIOperatorRenderer::new);
+        event.registerEntityRenderer(ModEntities.RL_OPERATOR.get(), AIOperatorRenderer::new);
     }
 }
