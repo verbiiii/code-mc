@@ -25,6 +25,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.registries.ForgeRegistries;
+import com.dyllan.minekov.loadouts.GunCustomization;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,24 +54,9 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
         super(type, level);
         initialData();
     
-        // give it a gun
-        ResourceLocation itemId = new ResourceLocation("tacz", "modern_kinetic_gun");
-        Item gun = ForgeRegistries.ITEMS.getValue(itemId);
-    
-        if (gun != null) {
-            ItemStack stack = new ItemStack(gun);
-    
-            CompoundTag tag = new CompoundTag();
-            tag.putString("GunId", "tacz:m4a1");
-            tag.putInt("GunCurrentAmmoCount", 30);
-            tag.putString("GunFireMode", "AUTO");
-            tag.putBoolean("HasBulletInBarrel", true);
-    
-            stack.setTag(tag);
-            this.setItemSlot(EquipmentSlot.MAINHAND, stack);
-        } else {
-            System.err.println("Could not find item tacz:modern_kinetic_gun — is the mod loaded?");
-        }
+        // give them an M4
+        ItemStack gun = GunCustomization.getM4();
+        this.setItemSlot(EquipmentSlot.MAINHAND, gun);
     }
 
     @Override
