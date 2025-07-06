@@ -15,6 +15,7 @@ import com.dyllan.minekov.LootLoader;
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.client.ClientSetup;
+import com.dyllan.minekov.scene.SceneEncoder;
 
 @Mod(Minekov.MODID)
 public class Minekov {
@@ -44,6 +45,21 @@ public class Minekov {
                             return 1;
                         })
                     )
+                )
+                .then(Commands.literal("scene")
+                    .executes(context -> {
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        SceneEncoder encoder = new SceneEncoder();
+                        byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
+
+                        int solidCount = 0;
+                        for (byte b : volume) {
+                            if (b == 1) solidCount++;
+                        }
+
+                        player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks"));
+                        return 1;
+                    })
                 )
         );
     }
