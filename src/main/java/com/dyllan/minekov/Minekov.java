@@ -47,20 +47,23 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("scene")
-                    .executes(context -> {
-                        ServerPlayer player = context.getSource().getPlayerOrException();
-                        SceneEncoder encoder = new SceneEncoder();
-                        byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
+                .executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    SceneEncoder encoder = new SceneEncoder();
+                    byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
 
-                        int solidCount = 0;
-                        for (byte b : volume) {
-                            if (b == 1) solidCount++;
-                        }
+                    int solidCount = 0;
+                    for (byte b : volume) {
+                        if (b == 1) solidCount++;
+                    }
 
-                        player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks"));
-                        return 1;
-                    })
-                )
+                    // ✅ Send to Python Dash server
+                    PythonBridge.sendSceneVolume(volume);
+
+                    player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks (sent to dashboard)"));
+                    return 1;
+                })
+            )
         );
     }
 }
