@@ -24,29 +24,27 @@ public class RLOperator extends AIOperator {
         // this.goalSelector.addGoal(1, new DumbGunAttackGoal(this));
     }
 
-    @Override
-    public void tick() {
-        super.tick();
+    // @Override
+    // public void tick() {
+    //     super.tick();
 
-        this.setSprinting(true);
+    //     this.setSprinting(true);
 
-        double dx = this.getLookControl().getWantedX() - this.getX();
-        double dz = this.getLookControl().getWantedZ() - this.getZ();
+    //     double dx = this.getLookControl().getWantedX() - this.getX();
+    //     double dz = this.getLookControl().getWantedZ() - this.getZ();
 
-        Vec3 dir = new Vec3(dx, 0, dz);
-        if (dir.lengthSqr() > 1e-6) {
-            dir = dir.normalize();
-        } else {
-            dir = Vec3.ZERO;
-        }
+    //     Vec3 dir = new Vec3(dx, 0, dz);
+    //     if (dir.lengthSqr() > 1e-6) {
+    //         dir = dir.normalize();
+    //     } else {
+    //         dir = Vec3.ZERO;
+    //     }
 
-        // Match vanilla player sprint speed (0.13 blocks/tick)
-        double targetSpeed = 0.13;
-        Vec3 targetVelocity = new Vec3(dir.x * targetSpeed, this.getDeltaMovement().y, dir.z * targetSpeed);
-
-        // Smooth it out to avoid snapping (blend)
-        this.setDeltaMovement(targetVelocity);
-    }
+    //     // Match vanilla player sprint speed (0.13 blocks/tick)
+    //     double targetSpeed = 0.13;
+    //     Vec3 targetVelocity = new Vec3(dir.x * targetSpeed, this.getDeltaMovement().y, dir.z * targetSpeed);
+    //     this.setDeltaMovement(targetVelocity);
+    // }
 
     // @Override
     // public void tick() {
