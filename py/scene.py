@@ -1,10 +1,10 @@
-from dash import Dash, dcc, html, Input, Output, State, ctx
+from dash import Dash, dcc, html, Input, Output, State
 import dash
 import numpy as np
 import plotly.graph_objects as go
 from fastapi import FastAPI, Request, WebSocket
 from starlette.middleware.wsgi import WSGIMiddleware
-from starlette.routing import Mount, WebSocketRoute
+from starlette.responses import Response
 from threading import Lock
 import json
 
@@ -12,11 +12,11 @@ scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = Lock()
 connected_websockets = set()
-
-# Flag store (only accessed via Dash)
 latest_update_flag = 0
 
+# ---------------- Dash (WSGI App) ----------------
 dash_app = Dash(__name__, routes_pathname_prefix="/")
+server = WSGIMiddleware(dash_app.server)
 
 dash_app.layout = html.Div([
     html.Div([
@@ -98,7 +98,7 @@ def refresh_scene(_, camera):
     fig.update_layout(**layout)
     return fig
 
-# ---------------- FastAPI Host ----------------
+# ---------------- ASGI App (manual dispatch) ----------------
 asgi_app = FastAPI()
 
 @asgi_app.post("/scene")
@@ -110,16 +110,16 @@ async def receive_scene(request: Request):
         with volume_lock:
             volume = arr.reshape(scene_shape)
         print("Scene updated.")
-        # increment the trigger value — Dash watches this
         latest_update_flag += 1
-        # manually update the dcc.Store
         dash_app.callback_map["scene-refresh-trigger.data"]["state"][0]["value"] = latest_update_flag
         return {"status": "ok"}
     else:
         return {"error": f"Expected {np.prod(scene_shape)}, got {arr.size}"}
 
+@asgi_app.websocket("/socket")
 async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print("✅ Java connected")
     connected_websockets.add(websocket)
     try:
         while True:
@@ -130,8 +130,12 @@ async def ws_endpoint(websocket: WebSocket):
     finally:
         connected_websockets.discard(websocket)
 
-asgi_app.mount("/", WSGIMiddleware(dash_app.server))
-asgi_app.router.routes.append(WebSocketRoute("/socket", ws_endpoint))
+# manually dispatch HTTP traffic to WSGI
+@asgi_app.middleware("http")
+async def dispatch_wsgi_requests(request: Request, call_next):
+    if request.url.path.startswith("/"):  # route all HTTP to Dash
+        return Response(server, status_code=200)(request.scope, request.receive, request.send)
+    return await call_next(request)
 
 if __name__ == "__main__":
     import uvicorn
