@@ -64,10 +64,10 @@ def refresh_scene(_, camera):
     if coords.size == 0:
         coords = np.zeros((1, 3))
 
-    # Proper axis mapping
-    z = coords[:, 0]  # Depth
-    y = coords[:, 1]  # Vertical (height)
-    x = coords[:, 2]  # Width
+    # Swap Minecraft Y (vertical) to Z (Plotly vertical)
+    z = coords[:, 1]  # Y (Minecraft up) → Z (Plotly up)
+    y = coords[:, 0]  # Z (Minecraft depth) → Y
+    x = coords[:, 2]  # X (unchanged)
 
     fig = go.Figure(data=go.Scatter3d(
         x=x,
@@ -84,11 +84,11 @@ def refresh_scene(_, camera):
 
     layout = dict(
         scene=dict(
-            xaxis_title="X",
-            yaxis_title="Y",
-            zaxis_title="Z",
+            xaxis_title="X",  # Minecraft X
+            yaxis_title="Z",  # Minecraft Z
+            zaxis_title="Y",  # Minecraft Y (up)
             aspectmode='manual',
-            aspectratio=dict(x=1, y=0.1, z=1),  # squash Y for realistic scale
+            aspectratio=dict(x=1, y=1, z=0.1),  # Z is now vertical → squash that
         ),
         margin=dict(l=0, r=0, b=0, t=30),
     )

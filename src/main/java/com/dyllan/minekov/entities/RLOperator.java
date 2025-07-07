@@ -76,7 +76,8 @@ public class RLOperator extends AIOperator {
     public void tick() {
         super.tick();
 
-        this.moveTowards(0, 0.13f);
+        // this.moveTowards(0, 0.13f); // always moving forward (holding W)
+        // this.moveTowards(180, 0.13f); // always moving backward (holding S)
 
         // if (!level().isClientSide) {
         //     // Simple forward movement
