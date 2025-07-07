@@ -71,7 +71,7 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
 
         double distSq = mob.distanceToSqr(target);
-        if (distSq < 2 * 2) {
+        if (distSq < 10*10) {
             return; // close enough
         }
 
