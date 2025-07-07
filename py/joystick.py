@@ -60,10 +60,23 @@ app.clientside_callback(
 
         canvas.addEventListener('mousedown', e => {
             const rect = canvas.getBoundingClientRect();
-            const dx = e.clientX - rect.left - x;
-            const dy = e.clientY - rect.top - y;
-            if (dx * dx + dy * dy <= radius * radius) {
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            const dx = mx - center.x;
+            const dy = my - center.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = canvas.width / 2 - radius;
+            if (dist <= canvas.width / 2) {
                 dragging = true;
+                if (dist > maxDist) {
+                    const scale = maxDist / dist;
+                    x = center.x + dx * scale;
+                    y = center.y + dy * scale;
+                } else {
+                    x = mx;
+                    y = my;
+                }
+                draw();
             }
         });
 
