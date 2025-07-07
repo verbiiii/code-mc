@@ -117,16 +117,32 @@ public class PythonControlClient {
     }
 
     public void send(String message) {
-        if (isConnected()) {
-            byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
-            int length = bytes.length;
+        if (!isConnected()) return;
 
-            ByteBuf frame = Unpooled.buffer(length + 2);
-            frame.writeByte(0x81); // FIN + text opcode
-            frame.writeByte(length); // no masking
-            frame.writeBytes(bytes);
+        byte[] payload = message.getBytes(StandardCharsets.UTF_8);
+        byte[] mask = new byte[4];
+        new SecureRandom().nextBytes(mask);
 
-            channel.writeAndFlush(frame);
+        ByteBuf frame = Unpooled.buffer();
+        frame.writeByte(0x81); // FIN + text frame
+
+        int payloadLen = payload.length;
+        if (payloadLen <= 125) {
+            frame.writeByte(0x80 | payloadLen); // 0x80 = masked
+        } else if (payloadLen <= 0xFFFF) {
+            frame.writeByte(0x80 | 126);
+            frame.writeShort(payloadLen);
+        } else {
+            frame.writeByte(0x80 | 127);
+            frame.writeLong(payloadLen);
         }
+
+        frame.writeBytes(mask);
+
+        for (int i = 0; i < payloadLen; i++) {
+            frame.writeByte(payload[i] ^ mask[i % 4]); // apply mask
+        }
+
+        channel.writeAndFlush(frame);
     }
 }
