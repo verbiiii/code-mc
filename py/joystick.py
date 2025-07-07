@@ -14,7 +14,7 @@ def create_joystick_component(canvas_id="joystick", output_id="joystick-output",
     ])
     return layout
 
-def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-output", store_id="joystick-refresh"):
+def register_joystick_callback(app, canvas_id, output_id, store_id):
     app.clientside_callback(
         f"""
         function(n) {{
@@ -33,20 +33,22 @@ def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-ou
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.beginPath();
                 ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                ctx.fillStyle = "#7CFC00";  // light green
+                ctx.fillStyle = "#7CFC00";
                 ctx.fill();
+
                 const dx = x - center.x;
                 const dy = y - center.y;
                 const maxDist = canvas.width / 2 - radius;
                 const normX = +(dx / maxDist).toFixed(1);
                 const normY = +(dy / maxDist).toFixed(1);
+
                 if (dx === 0 && dy === 0) {{
-                    output.textContent = `Vector: (0.0, 0.0)\nAngle: None`;
+                    output.textContent = `Vector: (0.0, 0.0)\\nAngle: None`;
                 }} else {{
                     let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
                     angleDeg = (angleDeg + 360) % 360;
                     angleDeg = (angleDeg + 90) % 360;
-                    output.textContent = `Vector: (${{normX}}, ${{normY}})\nAngle: ${{angleDeg.toFixed(1)}}\u00B0`;
+                    output.textContent = `Vector: (${{normX}}, ${{normY}})\\nAngle: ${{angleDeg.toFixed(1)}}°`;
                 }}
             }}
 
@@ -123,11 +125,27 @@ def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-ou
         Input(store_id, "data")
     )
 
+# Run it
 if __name__ == "__main__":
     app = Dash(__name__)
     app.layout = html.Div([
         html.H3("Joystick Demo", style={"color": "white", "textAlign": "center"}),
-        create_joystick_component(),
+
+        html.Div([
+            html.Div([
+                html.H4("Joystick A", style={"color": "white", "textAlign": "center"}),
+                create_joystick_component("joyA", "outA", "storeA"),
+            ], style={"margin": "20px"}),
+
+            html.Div([
+                html.H4("Joystick B", style={"color": "white", "textAlign": "center"}),
+                create_joystick_component("joyB", "outB", "storeB"),
+            ], style={"margin": "20px"})
+        ], style={"display": "flex", "justifyContent": "center"}),
+
     ], style={"backgroundColor": "#121212", "height": "100vh", "paddingTop": "40px"})
-    register_joystick_callback(app)
+
+    register_joystick_callback(app, "joyA", "outA", "storeA")
+    register_joystick_callback(app, "joyB", "outB", "storeB")
+
     app.run(debug=True)
