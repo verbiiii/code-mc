@@ -4,6 +4,7 @@ import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
 
 public class RLOperator extends AIOperator {
@@ -19,7 +20,7 @@ public class RLOperator extends AIOperator {
         // this.goalSelector.addGoal(1, new RandomStrollGoal(this, 0.5D));
 
         // TODO: RL goal
-        // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
+        this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
         // this.goalSelector.addGoal(1, new DumbGunAttackGoal(this));
     }
 
@@ -28,8 +29,15 @@ public class RLOperator extends AIOperator {
         super.tick();
 
         this.setSprinting(true);
-        // set delta movement to forward
-        this.setDeltaMovement(this.getDeltaMovement().add(0, 0, 0.1)); // Adjust forward speed as needed
+
+        double speed = this.getAttributeValue(Attributes.MOVEMENT_SPEED); // multiplier if needed
+
+        // Convert yaw to direction vector
+        float yaw = this.getYRot();
+        double x = -Math.sin(Math.toRadians(yaw)) * speed;
+        double z = Math.cos(Math.toRadians(yaw)) * speed;
+
+        this.setDeltaMovement(x, this.getDeltaMovement().y, z);
     }
 
     // @Override
