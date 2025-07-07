@@ -14,7 +14,7 @@ app.layout = html.Div([
         })
     ]),
     dcc.Store(id="joystick-refresh", data=0),
-    html.Div(id="joystick-output", style={"textAlign": "center", "color": "#ccc", "marginTop": "10px"})
+    html.Div(id="joystick-output", style={"textAlign": "center", "color": "#ccc", "marginTop": "10px", "whiteSpace": "pre-line"})
 ], style={"backgroundColor": "#121212", "height": "100vh", "paddingTop": "40px"})
 
 app.clientside_callback(
@@ -42,9 +42,10 @@ app.clientside_callback(
             const maxDist = canvas.width / 2 - radius;
             const normX = +(dx / maxDist).toFixed(1);
             const normY = +(dy / maxDist).toFixed(1);
-            let angleDeg = Math.atan2(-dy, dx) * (180 / Math.PI);
-            angleDeg = (angleDeg + 450) % 360; // make 0° point up
-            output.textContent = `Vector: (${normX}, ${normY}) | Angle: ${angleDeg.toFixed(1)}°`;
+            let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI); // flipped Y axis
+            angleDeg = (angleDeg + 360) % 360;
+            angleDeg = (angleDeg + 90) % 360; // make 0° point up
+            output.textContent = `Vector: (${normX}, ${normY})\nAngle: ${angleDeg.toFixed(1)}°`;
         }
 
         function animateReturn() {
