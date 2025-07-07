@@ -42,7 +42,9 @@ def say_hello(n_clicks):
     for ws in connected_websockets.copy():
         try:
             import asyncio
-            asyncio.create_task(ws.send_text(payload))
+            asyncio.get_event_loop().call_soon_threadsafe(
+                lambda: asyncio.create_task(ws.send_text(payload))
+            )
         except Exception:
             connected_websockets.discard(ws)
     return "Hello sent to Java!"
@@ -130,12 +132,8 @@ async def ws_endpoint(websocket: WebSocket):
     finally:
         connected_websockets.discard(websocket)
 
-# manually dispatch HTTP traffic to WSGI
-@asgi_app.middleware("http")
-async def dispatch_wsgi_requests(request: Request, call_next):
-    if request.url.path.startswith("/"):  # route all HTTP to Dash
-        return Response(server, status_code=200)(request.scope, request.receive, request.send)
-    return await call_next(request)
+server = WSGIMiddleware(dash_app.server)
+asgi_app.mount("/", server)
 
 if __name__ == "__main__":
     import uvicorn
