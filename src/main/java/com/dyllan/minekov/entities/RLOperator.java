@@ -1,8 +1,9 @@
 package com.dyllan.minekov.entities;
 
+import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
+
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
-import net.minecraft.world.entity.ai.goal.RandomStrollGoal;
 import net.minecraft.world.level.Level;
 
 public class RLOperator extends AIOperator {
@@ -15,19 +16,21 @@ public class RLOperator extends AIOperator {
         super.registerGoals();
 
         // entity wander
-        this.goalSelector.addGoal(1, new RandomStrollGoal(this, 0.5D));
+        // this.goalSelector.addGoal(1, new RandomStrollGoal(this, 0.5D));
 
         // TODO: RL goal
         // this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
         // this.goalSelector.addGoal(1, new DumbGunAttackGoal(this));
     }
 
-    // @Override
-    // public void tick() {
-    //     this.setMoveForward(true);
-    //     this.setSprinting(true);
-    //     super.tick();
-    // }
+    @Override
+    public void tick() {
+        super.tick();
+
+        this.setSprinting(true);
+        // set delta movement to forward
+        this.setDeltaMovement(this.getDeltaMovement().add(0, 0, 0.1)); // Adjust forward speed as needed
+    }
 
     // @Override
     // public void tick() {

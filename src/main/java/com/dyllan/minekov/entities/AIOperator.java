@@ -12,7 +12,6 @@ import com.tacz.guns.resource.modifier.AttachmentPropertyManager;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import com.dyllan.minekov.loadouts.GunCustomization;
