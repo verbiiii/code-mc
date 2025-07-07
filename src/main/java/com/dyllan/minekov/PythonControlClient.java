@@ -55,33 +55,86 @@ public class PythonControlClient {
                                      ctx.writeAndFlush(Unpooled.copiedBuffer(request, StandardCharsets.US_ASCII));
                                  }
 
-                                 @Override
-                                 protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
-                                     if (!handshakeComplete) {
-                                         String response = msg.toString(StandardCharsets.US_ASCII);
-                                         if (response.contains("101 Switching Protocols")) {
-                                             System.out.println("✅ WebSocket connected to Python backend.");
-                                             handshakeComplete = true;
+                                @Override
+                                protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                                    int len = msg.readableBytes();
+                                    byte[] raw = new byte[len];
+                                    msg.getBytes(msg.readerIndex(), raw);
 
-                                             // 🔥 test message
-                                             send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
-                                         } else {
-                                             System.err.println("❌ Handshake failed:\n" + response);
-                                             ctx.close();
-                                         }
-                                         return;
-                                     }
+                                    System.out.println("📡 Raw frame (" + len + " bytes):");
+                                    System.out.println(bytesToHex(raw));
+                                    System.out.println(new String(raw, StandardCharsets.UTF_8).replaceAll("[^\\x20-\\x7E]", "."));
 
-                                     // Read text frames only (0x1)
-                                     byte opcode = msg.getByte(0);
-                                     if ((opcode & 0x0F) == 0x1) {
-                                         int payloadLen = msg.getByte(1) & 0x7F;
-                                         String message = msg.slice(2, payloadLen).toString(StandardCharsets.UTF_8);
-                                         System.out.println("📩 Received command: " + message);
-                                     } else {
-                                         System.out.println("📎 Received non-text frame");
-                                     }
-                                 }
+                                    if (!handshakeComplete) {
+                                        String response = new String(raw, StandardCharsets.US_ASCII);
+                                        if (response.contains("101 Switching Protocols")) {
+                                            System.out.println("✅ WebSocket connected to Python backend.");
+                                            handshakeComplete = true;
+                                            send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
+                                        } else {
+                                            System.err.println("❌ Handshake failed:\n" + response);
+                                            ctx.close();
+                                        }
+                                        return;
+                                    }
+
+                                    byte opcode = (byte) (raw[0] & 0x0F);
+                                    int payloadLen = raw[1] & 0x7F;
+                                    int offset = 2;
+
+                                    if (opcode == 0x9) { // Ping
+                                        System.out.println("📶 Ping received — sending Pong.");
+
+                                        byte[] payload = new byte[payloadLen];
+                                        System.arraycopy(raw, offset, payload, 0, payloadLen);
+
+                                        byte[] mask = new byte[4];
+                                        new SecureRandom().nextBytes(mask);
+
+                                        ByteBuf pong = Unpooled.buffer();
+                                        pong.writeByte(0x8A); // FIN + PONG opcode
+                                        pong.writeByte(0x80 | payloadLen); // masked bit + payloadLen
+                                        pong.writeBytes(mask);
+                                        for (int i = 0; i < payloadLen; i++) {
+                                            pong.writeByte(payload[i] ^ mask[i % 4]);
+                                        }
+                                        ctx.writeAndFlush(pong);
+                                        return;
+                                    }
+
+                                    if (opcode == 0x8) { // Close
+                                        int code = (payloadLen >= 2)
+                                            ? ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF)
+                                            : 1000;
+                                        String reason = (payloadLen > 2)
+                                            ? new String(raw, offset + 2, payloadLen - 2, StandardCharsets.UTF_8)
+                                            : "(no reason)";
+                                        System.out.println("❌ Close frame received: code=" + code + ", reason=" + reason);
+                                        ctx.close();
+                                        return;
+                                    }
+
+                                    if (opcode == 0x1) { // Text
+                                        if (len >= offset + payloadLen) {
+                                            String text = new String(raw, offset, payloadLen, StandardCharsets.UTF_8);
+                                            System.out.println("📩 Received command: " + text);
+                                        } else {
+                                            System.out.println("⚠️ Text frame too short");
+                                        }
+                                    } else {
+                                        System.out.println("📎 Received non-text frame (opcode=" + opcode + ")");
+                                    }
+                                }
+
+                                private static String bytesToHex(byte[] bytes) {
+                                    StringBuilder sb = new StringBuilder();
+                                    for (int i = 0; i < bytes.length; i++) {
+                                        sb.append(String.format("%02X ", bytes[i]));
+                                        if ((i + 1) % 16 == 0) sb.append("\n");
+                                    }
+                                    return sb.toString();
+                                }
+
 
                                  @Override
                                  public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
