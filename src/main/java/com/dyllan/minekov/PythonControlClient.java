@@ -165,9 +165,21 @@ public class PythonControlClient {
         group.shutdownGracefully();
     }
 
+    // Might not refresh if python server force closes without the close packet
+    // public boolean isConnected() {
+    //     return channel != null && channel.isOpen();
+    // }
+
     public boolean isConnected() {
-        return channel != null && channel.isOpen();
+        if (channel == null || !channel.isActive()) return false;
+        try {
+            channel.writeAndFlush(Unpooled.EMPTY_BUFFER).sync(); // trigger I/O
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
+
 
     public void send(String message) {
         if (!isConnected()) return;

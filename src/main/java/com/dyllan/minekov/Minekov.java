@@ -5,20 +5,27 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 
 import java.net.URI;
 
 import com.dyllan.minekov.scene.SceneEncoder;
 
 @Mod(Minekov.MODID)
+@EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
 public class Minekov {
     public static final String MODID = "minekov";
+
     private static PythonControlClient pythonSocket;
+    private static int tickCounter = 0;
+    private static final int RECONNECT_INTERVAL = 20; // try every second
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -47,23 +54,23 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("scene")
-                .executes(context -> {
-                    ServerPlayer player = context.getSource().getPlayerOrException();
-                    SceneEncoder encoder = new SceneEncoder();
-                    byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
+                    .executes(context -> {
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        SceneEncoder encoder = new SceneEncoder();
+                        byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
 
-                    int solidCount = 0;
-                    for (byte b : volume) {
-                        if (b == 1) solidCount++;
-                    }
+                        int solidCount = 0;
+                        for (byte b : volume) {
+                            if (b == 1) solidCount++;
+                        }
 
-                    // ✅ Send to Python Dash server
-                    PythonBridge.sendSceneVolume(volume);
+                        // ✅ Send to Python Dash server
+                        PythonBridge.sendSceneVolume(volume);
 
-                    player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks (sent to dashboard)"));
-                    return 1;
-                })
-            )
+                        player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks (sent to dashboard)"));
+                        return 1;
+                    })
+                )
         );
     }
 
@@ -75,6 +82,27 @@ public class Minekov {
         } catch (Exception e) {
             System.err.println("[Minekov] Failed to connect to Python dashboard:");
             e.printStackTrace();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
+        tickCounter++;
+        if (tickCounter >= RECONNECT_INTERVAL) {
+            tickCounter = 0;
+
+            if (pythonSocket == null || !pythonSocket.isConnected()) {
+                System.out.println("[Minekov] Attempting to reconnect to Python dashboard...");
+                try {
+                    URI uri = new URI("ws://127.0.0.1:8050/socket");
+                    pythonSocket = new PythonControlClient(uri);
+                    pythonSocket.connect();
+                } catch (Exception e) {
+                    System.err.println("[Minekov] Reconnect failed: " + e.getMessage());
+                }
+            }
         }
     }
 
