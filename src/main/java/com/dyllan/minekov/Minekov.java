@@ -136,6 +136,7 @@ public class Minekov {
             info.put("x", op.getX());
             info.put("y", op.getY());
             info.put("z", op.getZ());
+            info.put("health", op.getHealth());
 
             operators.add(info);
         }
