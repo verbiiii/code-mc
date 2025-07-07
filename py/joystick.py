@@ -39,7 +39,12 @@ app.clientside_callback(
             ctx.fill();
             const dx = x - center.x;
             const dy = y - center.y;
-            output.textContent = `Vector: (${dx.toFixed(1)}, ${dy.toFixed(1)})`;
+            const maxDist = canvas.width / 2 - radius;
+            const normX = +(dx / maxDist).toFixed(1);
+            const normY = +(dy / maxDist).toFixed(1);
+            let angleDeg = Math.atan2(-dy, dx) * (180 / Math.PI);
+            angleDeg = (angleDeg + 450) % 360; // make 0° point up
+            output.textContent = `Vector: (${normX}, ${normY}) | Angle: ${angleDeg.toFixed(1)}°`;
         }
 
         function animateReturn() {
