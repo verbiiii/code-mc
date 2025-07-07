@@ -107,13 +107,33 @@ def refresh_operator_list(_):
             html.Div(f"{oid}", style={"color": dark_theme["secondary"], "fontSize": "11px", "marginBottom": "2px"}),
             html.Div(f"XYZ: ({x}, {y}, {z})"),
             html.Div(f"HP: {health}", style={"color": "#ff5555" if isinstance(health, (int, float)) and health < 10 else dark_theme["text"]}),
-            html.Canvas(id={"type": "joystick", "index": oid}, width=80, height=80, style={
-                "backgroundColor": dark_theme["card_bg"],
-                "borderRadius": "50%",
-                "border": f"1px solid {dark_theme['border']}",
+            html.Div([
+                html.Div(style={
+                    "position": "absolute",
+                    "top": "28px",
+                    "left": "28px",
+                    "width": "24px",
+                    "height": "24px",
+                    "backgroundColor": dark_theme["accent"],
+                    "borderRadius": "50%",
+                    "zIndex": "2",
+                    "pointerEvents": "none",
+                    "transform": "translate(-50%, -50%)"
+                }),
+                html.Canvas(id={"type": "joystick", "index": oid}, width=80, height=80, style={
+                    "backgroundColor": dark_theme["card_bg"],
+                    "borderRadius": "50%",
+                    "border": f"1px solid {dark_theme['border']}",
+                    "touchAction": "none",
+                    "position": "relative",
+                    "zIndex": "1"
+                })
+            ], style={
+                "position": "relative",
+                "width": "80px",
+                "height": "80px",
                 "marginTop": "10px",
-                "marginBottom": "10px",
-                "touchAction": "none"
+                "marginBottom": "10px"
             }),
             html.Hr(style={"border": f"0.5px solid {dark_theme['border']}"})
         ], style={"padding": "6px 4px"}))
