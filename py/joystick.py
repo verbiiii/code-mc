@@ -29,7 +29,7 @@ def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-ou
             let y = center.y;
             let dragging = false;
 
-            function draw() {{
+            function draw(showAngle = true) {{
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.beginPath();
                 ctx.arc(x, y, radius, 0, 2 * Math.PI);
@@ -40,10 +40,14 @@ def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-ou
                 const maxDist = canvas.width / 2 - radius;
                 const normX = +(dx / maxDist).toFixed(1);
                 const normY = +(dy / maxDist).toFixed(1);
-                let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
-                angleDeg = (angleDeg + 360) % 360;
-                angleDeg = (angleDeg + 90) % 360;
-                output.textContent = `Vector: (${{normX}}, ${{normY}})\nAngle: ${{angleDeg.toFixed(1)}}\u00B0`;
+                if (dx === 0 && dy === 0) {{
+                    output.textContent = `Vector: (0.0, 0.0)\nAngle: None`;
+                }} else {{
+                    let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+                    angleDeg = (angleDeg + 360) % 360;
+                    angleDeg = (angleDeg + 90) % 360;
+                    output.textContent = `Vector: (${{normX}}, ${{normY}})\nAngle: ${{angleDeg.toFixed(1)}}\u00B0`;
+                }}
             }}
 
             function animateReturn() {{
@@ -53,12 +57,12 @@ def register_joystick_callback(app, canvas_id="joystick", output_id="joystick-ou
                 if (dist < 1) {{
                     x = center.x;
                     y = center.y;
-                    draw();
+                    draw(false);
                     return;
                 }}
                 x += dx * 0.2;
                 y += dy * 0.2;
-                draw();
+                draw(false);
                 requestAnimationFrame(animateReturn);
             }}
 
