@@ -3,6 +3,7 @@ package com.dyllan.minekov.entities.ai.goals;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
@@ -71,9 +72,7 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
 
         double distSq = mob.distanceToSqr(target);
         if (distSq < 2 * 2) {
-            // Close enough — stop moving
-            mob.setDeltaMovement(Vec3.ZERO);
-            return;
+            return; // close enough
         }
 
         double dx = mob.getLookControl().getWantedX() - mob.getX();
@@ -83,17 +82,21 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
         if (dir.lengthSqr() > 1e-6) {
             dir = dir.normalize();
         } else {
-            dir = Vec3.ZERO;
+            return;
         }
 
-        double speed = 0.13; // Match player sprint
-        Vec3 velocity = new Vec3(dir.x * speed, mob.getDeltaMovement().y, dir.z * speed);
-        mob.setDeltaMovement(velocity);
+        float speed = 0.13f;
 
-        // Optional: rotate body to face movement
+        // Let Minecraft handle knockback, collision, etc.
+        mob.setSpeed(speed);
+        mob.moveRelative(speed, dir); // scaled directional movement
+        mob.move(MoverType.SELF, mob.getDeltaMovement()); // apply physics-safe motion
+
+        // Body rotation alignment
         float yaw = (float)(Mth.atan2(-dir.x, dir.z) * (180F / Math.PI));
         mob.setYRot(yaw);
         mob.yBodyRot = yaw;
         mob.yHeadRot = yaw;
     }
+
 }
