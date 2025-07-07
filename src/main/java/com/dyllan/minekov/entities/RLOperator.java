@@ -4,8 +4,8 @@ import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
-import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 public class RLOperator extends AIOperator {
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
@@ -30,14 +30,22 @@ public class RLOperator extends AIOperator {
 
         this.setSprinting(true);
 
-        double speed = this.getAttributeValue(Attributes.MOVEMENT_SPEED); // multiplier if needed
+        double dx = this.getLookControl().getWantedX() - this.getX();
+        double dz = this.getLookControl().getWantedZ() - this.getZ();
 
-        // Convert yaw to direction vector
-        float yaw = this.getYRot();
-        double x = -Math.sin(Math.toRadians(yaw)) * speed;
-        double z = Math.cos(Math.toRadians(yaw)) * speed;
+        Vec3 dir = new Vec3(dx, 0, dz);
+        if (dir.lengthSqr() > 1e-6) {
+            dir = dir.normalize();
+        } else {
+            dir = Vec3.ZERO;
+        }
 
-        this.setDeltaMovement(x, this.getDeltaMovement().y, z);
+        // Match vanilla player sprint speed (0.13 blocks/tick)
+        double targetSpeed = 0.13;
+        Vec3 targetVelocity = new Vec3(dir.x * targetSpeed, this.getDeltaMovement().y, dir.z * targetSpeed);
+
+        // Smooth it out to avoid snapping (blend)
+        this.setDeltaMovement(targetVelocity);
     }
 
     // @Override
