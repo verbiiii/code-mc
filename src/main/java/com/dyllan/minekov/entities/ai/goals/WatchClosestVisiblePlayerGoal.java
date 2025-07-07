@@ -15,11 +15,16 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
     private final Mob mob;
     private final double range;
     private Player target;
+    private Vec3 currentDirection = Vec3.ZERO; // <-- store direction
 
     public WatchClosestVisiblePlayerGoal(Mob mob, double range) {
         this.mob = mob;
         this.range = range;
         this.setFlags(EnumSet.of(Flag.LOOK, Flag.MOVE));
+    }
+
+    public Vec3 getCurrentDirection() {
+        return currentDirection;
     }
 
     @Override
@@ -62,6 +67,7 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
     public void stop() {
         target = null;
         mob.setDeltaMovement(Vec3.ZERO);
+        currentDirection = Vec3.ZERO; // clear direction
     }
 
     @Override
@@ -71,8 +77,9 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
 
         double distSq = mob.distanceToSqr(target);
-        if (distSq < 10*10) {
-            return; // close enough
+        if (distSq < 2*2) {
+            currentDirection = Vec3.ZERO;
+            return;
         }
 
         double dx = mob.getLookControl().getWantedX() - mob.getX();
@@ -82,21 +89,21 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
         if (dir.lengthSqr() > 1e-6) {
             dir = dir.normalize();
         } else {
+            currentDirection = Vec3.ZERO;
             return;
         }
 
-        float speed = 0.13f;
+        currentDirection = dir; // <-- update direction
 
-        // Let Minecraft handle knockback, collision, etc.
-        mob.setSpeed(speed);
-        mob.moveRelative(speed, dir); // scaled directional movement
-        mob.move(MoverType.SELF, mob.getDeltaMovement()); // apply physics-safe motion
+        // float speed = 0.13f;
+        // mob.setSpeed(speed);
+        // mob.moveRelative(speed, dir);
+        // mob.move(MoverType.SELF, mob.getDeltaMovement());
 
-        // Body rotation alignment
+        // set body rotation to face the direction
         float yaw = (float)(Mth.atan2(-dir.x, dir.z) * (180F / Math.PI));
         mob.setYRot(yaw);
         mob.yBodyRot = yaw;
         mob.yHeadRot = yaw;
     }
-
 }

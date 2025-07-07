@@ -5,9 +5,12 @@ import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
 public class RLOperator extends AIOperator {
+    private WatchClosestVisiblePlayerGoal watchGoal;
+
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
     }
@@ -16,12 +19,8 @@ public class RLOperator extends AIOperator {
     protected void registerGoals() {
         super.registerGoals();
 
-        // entity wander
-        // this.goalSelector.addGoal(1, new RandomStrollGoal(this, 0.5D));
-
-        // TODO: RL goal
-        this.goalSelector.addGoal(1, new WatchClosestVisiblePlayerGoal(this, 64.0D));
-        // this.goalSelector.addGoal(1, new DumbGunAttackGoal(this));
+        watchGoal = new WatchClosestVisiblePlayerGoal(this, 64.0D);
+        this.goalSelector.addGoal(1, watchGoal);
     }
 
     // @Override
@@ -46,18 +45,47 @@ public class RLOperator extends AIOperator {
     //     this.setDeltaMovement(targetVelocity);
     // }
 
-    // @Override
-    // public void tick() {
-    //     super.tick();
+    /**
+     * Moves the entity in the direction relative to the current goal's direction vector.
+     *
+     * @param thetaDeg Relative angle in degrees (0 = forward, ±90 = strafe, 180 = backward)
+     * @param speed    Desired movement speed (e.g., 0.0 to movement speed attribute)
+     */
+    public void moveTowards(float thetaDeg, float speed) {
+        Vec3 baseDir = this.watchGoal != null ? this.watchGoal.getCurrentDirection() : Vec3.ZERO;
 
-    //     if (!level().isClientSide) {
-    //         // Simple forward movement
-    //         this.zza = 1.0f; // forward
-    //         this.xxa = 0.0f; // no strafe
-    //         this.setYRot(90); // face east, or rotate as needed
-    //         this.setSprinting(true); // affects speed multiplier
-    //     }
-    // }
+        if (baseDir.lengthSqr() < 1e-6) {
+            return; // no valid direction, skip movement
+        }
+
+        // Normalize and flatten the base direction
+        Vec3 forward = new Vec3(baseDir.x, 0, baseDir.z).normalize();
+        Vec3 right = new Vec3(forward.z, 0, -forward.x); // 90° rotated vector for strafe
+
+        double thetaRad = Math.toRadians(thetaDeg);
+
+        // Combine forward + right based on relative angle
+        Vec3 moveVec = forward.scale(Math.cos(thetaRad)).add(right.scale(Math.sin(thetaRad))).normalize().scale(speed);
+
+        // Preserve Y velocity
+        this.setDeltaMovement(moveVec.x, this.getDeltaMovement().y, moveVec.z);
+    }
+
+
+    @Override
+    public void tick() {
+        super.tick();
+
+        this.moveTowards(0, 0.13f);
+
+        // if (!level().isClientSide) {
+        //     // Simple forward movement
+        //     this.zza = 1.0f; // forward
+        //     this.xxa = 0.0f; // no strafe
+        //     this.setYRot(90); // face east, or rotate as needed
+        //     this.setSprinting(true); // affects speed multiplier
+        // }
+    }
 
     // @Override
     // public void travel(Vec3 travelVector) {

@@ -236,23 +236,6 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
         // For now we can just leave this empty
     }
 
-    // === Movement control ===
-    // public void setMoveForward(boolean forward) {
-    //     this.zza = forward ? 1.0f : 0.0f;
-    // }
-
-    // public void setMoveBackward(boolean backward) {
-    //     this.zza = backward ? -1.0f : 0.0f;
-    // }
-
-    // public void setStrafeLeft(boolean left) {
-    //     this.xxa = left ? -1.0f : 0.0f;
-    // }
-
-    // public void setStrafeRight(boolean right) {
-    //     this.xxa = right ? 1.0f : 0.0f;
-    // }
-
     // === Combat control ===
     public void tryShootNearestTarget() {
         LivingEntity target = this.level().getEntitiesOfClass(LivingEntity.class, this.getBoundingBox().inflate(64))
