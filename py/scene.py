@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html, Input, Output, State, MATCH, ALL
+from dash import Dash, dcc, html, Input, Output, State
 import dash
 import numpy as np
 import plotly.graph_objects as go
@@ -8,6 +8,8 @@ from threading import Lock
 import json
 import asyncio
 
+from joystick import create_joystick_component, register_joystick_callback
+
 # ---------------- State ----------------
 event_loop = None
 operator_state = {}
@@ -16,6 +18,7 @@ scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = Lock()
 latest_update_flag = 0
+joysticks_registered = set()
 
 # ---------------- Dash (WSGI App) ----------------
 dash_app = Dash(__name__, routes_pathname_prefix="/")
@@ -103,37 +106,15 @@ def refresh_operator_list(_):
         x = round(data.get("x", 0))
         y = round(data.get("y", 0))
         z = round(data.get("z", 0))
+        jid = f"joystick-{oid}"
+        if jid not in joysticks_registered:
+            register_joystick_callback(dash_app, jid)
+            joysticks_registered.add(jid)
         rows.append(html.Div([
             html.Div(f"{oid}", style={"color": dark_theme["secondary"], "fontSize": "11px", "marginBottom": "2px"}),
             html.Div(f"XYZ: ({x}, {y}, {z})"),
             html.Div(f"HP: {health}", style={"color": "#ff5555" if isinstance(health, (int, float)) and health < 10 else dark_theme["text"]}),
-            html.Div([
-                html.Div(id={"type": "joystick-handle", "index": oid}, style={
-                    "position": "absolute",
-                    "top": "50%",
-                    "left": "50%",
-                    "width": "24px",
-                    "height": "24px",
-                    "backgroundColor": dark_theme["accent"],
-                    "borderRadius": "50%",
-                    "zIndex": "2",
-                    "transform": "translate(-50%, -50%)",
-                }),
-                html.Canvas(id={"type": "joystick", "index": oid}, width=80, height=80, style={
-                    "backgroundColor": dark_theme["card_bg"],
-                    "borderRadius": "50%",
-                    "border": f"1px solid {dark_theme['border']}",
-                    "touchAction": "none",
-                    "position": "relative",
-                    "zIndex": "1"
-                })
-            ], style={
-                "position": "relative",
-                "width": "80px",
-                "height": "80px",
-                "marginTop": "10px",
-                "marginBottom": "10px"
-            }),
+            create_joystick_component(jid),
             html.Hr(style={"border": f"0.5px solid {dark_theme['border']}"})
         ], style={"padding": "6px 4px"}))
     return rows
