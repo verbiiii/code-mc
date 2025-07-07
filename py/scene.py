@@ -7,6 +7,9 @@ from starlette.middleware.wsgi import WSGIMiddleware
 from starlette.responses import Response
 from threading import Lock
 import json
+import asyncio
+
+event_loop = None  # will be set at startup
 
 scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
@@ -38,15 +41,26 @@ dash_app.layout = html.Div([
     prevent_initial_call=True
 )
 def say_hello(n_clicks):
+    global event_loop
     payload = json.dumps({"type": "ping", "msg": "hello"})
+
+    print("clicked")
+
+    if not connected_websockets:
+        print("⚠️ No active WebSocket connections to send to.")
+        return "No Java clients connected."
+
     for ws in connected_websockets.copy():
         try:
-            import asyncio
-            asyncio.get_event_loop().call_soon_threadsafe(
-                lambda: asyncio.create_task(ws.send_text(payload))
-            )
-        except Exception:
+            if event_loop is not None:
+                asyncio.run_coroutine_threadsafe(ws.send_text(payload), event_loop)
+                print("✅ Sent payload to Java via WebSocket.")
+            else:
+                print("❌ Event loop not available.")
+        except Exception as e:
+            print(f"❌ Failed to send to WS: {e}")
             connected_websockets.discard(ws)
+
     return "Hello sent to Java!"
 
 @dash_app.callback(
@@ -136,5 +150,12 @@ server = WSGIMiddleware(dash_app.server)
 asgi_app.mount("/", server)
 
 if __name__ == "__main__":
+    import asyncio
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
+
     import uvicorn
-    uvicorn.run(asgi_app, host="0.0.0.0", port=8050)
+    config = uvicorn.Config(asgi_app, host="0.0.0.0", port=8050, loop="asyncio")
+    server = uvicorn.Server(config)
+
+    event_loop.run_until_complete(server.serve())
