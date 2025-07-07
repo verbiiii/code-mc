@@ -14,13 +14,14 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+
 import com.dyllan.minekov.loadouts.GunCustomization;
 
 import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Supplier;
 
-public class AIOperator extends PathfinderMob implements IGunOperator {
+public abstract class AIOperator extends PathfinderMob implements IGunOperator {
     public static final double MAX_DISTANCE = 1024.0D; // Maximum distance for AI to interact with players and remain active
     
     private final LivingEntity shooter = this;
@@ -236,21 +237,21 @@ public class AIOperator extends PathfinderMob implements IGunOperator {
     }
 
     // === Movement control ===
-    public void setMoveForward(boolean forward) {
-        this.zza = forward ? 1.0f : 0.0f;
-    }
+    // public void setMoveForward(boolean forward) {
+    //     this.zza = forward ? 1.0f : 0.0f;
+    // }
 
-    public void setMoveBackward(boolean backward) {
-        this.zza = backward ? -1.0f : 0.0f;
-    }
+    // public void setMoveBackward(boolean backward) {
+    //     this.zza = backward ? -1.0f : 0.0f;
+    // }
 
-    public void setStrafeLeft(boolean left) {
-        this.xxa = left ? -1.0f : 0.0f;
-    }
+    // public void setStrafeLeft(boolean left) {
+    //     this.xxa = left ? -1.0f : 0.0f;
+    // }
 
-    public void setStrafeRight(boolean right) {
-        this.xxa = right ? 1.0f : 0.0f;
-    }
+    // public void setStrafeRight(boolean right) {
+    //     this.xxa = right ? 1.0f : 0.0f;
+    // }
 
     // === Combat control ===
     public void tryShootNearestTarget() {
