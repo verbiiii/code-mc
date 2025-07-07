@@ -69,7 +69,7 @@ public class Minekov {
 
     private void initPythonConnection() {
         try {
-            URI uri = new URI("ws://localhost:8765");
+            URI uri = new URI("ws://127.0.0.1:8050/socket");
             pythonSocket = new PythonControlClient(uri);
             pythonSocket.connect();
         } catch (Exception e) {
