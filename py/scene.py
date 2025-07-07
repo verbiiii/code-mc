@@ -108,17 +108,16 @@ def refresh_operator_list(_):
             html.Div(f"XYZ: ({x}, {y}, {z})"),
             html.Div(f"HP: {health}", style={"color": "#ff5555" if isinstance(health, (int, float)) and health < 10 else dark_theme["text"]}),
             html.Div([
-                html.Div(style={
+                html.Div(id={"type": "joystick-handle", "index": oid}, style={
                     "position": "absolute",
-                    "top": "28px",
-                    "left": "28px",
+                    "top": "50%",
+                    "left": "50%",
                     "width": "24px",
                     "height": "24px",
                     "backgroundColor": dark_theme["accent"],
                     "borderRadius": "50%",
                     "zIndex": "2",
-                    "pointerEvents": "none",
-                    "transform": "translate(-50%, -50%)"
+                    "transform": "translate(-50%, -50%)",
                 }),
                 html.Canvas(id={"type": "joystick", "index": oid}, width=80, height=80, style={
                     "backgroundColor": dark_theme["card_bg"],
