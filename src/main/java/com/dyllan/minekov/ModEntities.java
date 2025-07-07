@@ -2,6 +2,7 @@ package com.dyllan.minekov;
 
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
+import com.dyllan.minekov.entities.RLOperator;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
@@ -29,11 +30,11 @@ public class ModEntities {
                 .build(new ResourceLocation("minekov", "dumb_operator").toString()));
 
     // Register AIOperator
-    public static final RegistryObject<EntityType<AIOperator>> RL_OPERATOR =
+    public static final RegistryObject<EntityType<RLOperator>> RL_OPERATOR =
         ENTITY_TYPES.register("rl_operator",
-            () -> EntityType.Builder.of(AIOperator::new, MobCategory.MISC)
+            () -> EntityType.Builder.of(RLOperator::new, MobCategory.MISC)
                 .sized(0.6f, 1.8f)
-                .clientTrackingRange((int) AIOperator.MAX_DISTANCE)
+                .clientTrackingRange((int) RLOperator.MAX_DISTANCE)
                 .updateInterval(1)
                 .build(new ResourceLocation("minekov", "rl_operator").toString()));
 
