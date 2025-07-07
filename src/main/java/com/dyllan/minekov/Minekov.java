@@ -15,7 +15,13 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+import com.dyllan.minekov.entities.RLOperator;
+import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
 
 @Mod(Minekov.MODID)
@@ -102,6 +108,8 @@ public class Minekov {
                 } catch (Exception e) {
                     System.err.println("[Minekov] Reconnect failed: " + e.getMessage());
                 }
+            } else {
+                syncRLOperatorsToPython();
             }
         }
     }
@@ -113,4 +121,36 @@ public class Minekov {
             System.err.println("[Minekov] Python WebSocket is not open.");
         }
     }
+
+    private static void syncRLOperatorsToPython() {
+        if (!pythonSocket.isConnected()) return;
+
+        List<Map<String, Object>> operators = new ArrayList<>();
+
+        for (RLOperator op : RLOperatorRegistry.getAll()) {
+            if (op.isRemoved() || !op.isAlive()) continue;
+
+            Map<String, Object> info = new HashMap<>();
+            info.put("id", op.getUUID().toString());
+            info.put("name", op.getName().getString());
+            info.put("x", op.getX());
+            info.put("y", op.getY());
+            info.put("z", op.getZ());
+
+            operators.add(info);
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "sync_operators");
+        payload.put("agents", operators);
+
+        try {
+            String json = new com.google.gson.Gson().toJson(payload);
+            pythonSocket.send(json);
+        } catch (Exception e) {
+            System.err.println("[Minekov] Failed to send operator sync:");
+            e.printStackTrace();
+        }
+    }
+
 }

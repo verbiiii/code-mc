@@ -4,17 +4,16 @@ import numpy as np
 import plotly.graph_objects as go
 from fastapi import FastAPI, Request, WebSocket
 from starlette.middleware.wsgi import WSGIMiddleware
-from starlette.responses import Response
 from threading import Lock
 import json
 import asyncio
 
-event_loop = None  # will be set at startup
-
+event_loop = None
+operator_state = {}
+connected_websockets = set()
 scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = Lock()
-connected_websockets = set()
 latest_update_flag = 0
 
 # ---------------- Dash (WSGI App) ----------------
@@ -25,14 +24,17 @@ dash_app.layout = html.Div([
     html.Div([
         html.H3("Controls"),
         html.Button("Say Hello", id="say-hello", n_clicks=0),
-        html.Div(id="hello-output")
-    ], style={"width": "10%", "display": "inline-block", "verticalAlign": "top", "padding": "10px"}),
+        html.Div(id="hello-output"),
+        html.H4("Active RLOperators"),
+        html.Ul(id="operator-list")
+    ], style={"width": "20%", "display": "inline-block", "verticalAlign": "top", "padding": "10px"}),
 
     html.Div([
         dcc.Graph(id="scene-graph", style={"height": "100vh"}),
         dcc.Store(id="scene-refresh-trigger", data=0),
         dcc.Store(id="camera-store"),
-    ], style={"width": "90%", "display": "inline-block"})
+        dcc.Interval(id="operator-refresh", interval=2000, n_intervals=0)
+    ], style={"width": "80%", "display": "inline-block"})
 ])
 
 @dash_app.callback(
@@ -43,7 +45,6 @@ dash_app.layout = html.Div([
 def say_hello(n_clicks):
     global event_loop
     payload = json.dumps({"type": "ping", "msg": "hello"})
-
     print("clicked")
 
     if not connected_websockets:
@@ -62,6 +63,13 @@ def say_hello(n_clicks):
             connected_websockets.discard(ws)
 
     return "Hello sent to Java!"
+
+@dash_app.callback(
+    Output("operator-list", "children"),
+    Input("operator-refresh", "n_intervals")
+)
+def refresh_operator_list(_):
+    return [html.Li(f"RLOperator: {oid}") for oid in operator_state.keys()]
 
 @dash_app.callback(
     Output("camera-store", "data"),
@@ -141,6 +149,20 @@ async def ws_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             print("Received from Java:", data)
+            try:
+                payload = json.loads(data)
+                if payload.get("type") == "sync_operators":
+                    agents = payload.get("agents", [])
+                    operator_state.clear()
+                    for agent in agents:
+                        agent_id = agent.get("id")
+                        if agent_id:
+                            operator_state[agent_id] = agent
+                    print(f"✅ Synced {len(operator_state)} RLOperators.")
+                else:
+                    print("⚠️ Unhandled message:", payload)
+            except json.JSONDecodeError:
+                print("❌ Failed to parse JSON:", data)
     except Exception as e:
         print("WebSocket closed:", e)
     finally:
@@ -150,12 +172,10 @@ server = WSGIMiddleware(dash_app.server)
 asgi_app.mount("/", server)
 
 if __name__ == "__main__":
-    import asyncio
     event_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(event_loop)
 
     import uvicorn
     config = uvicorn.Config(asgi_app, host="0.0.0.0", port=8050, loop="asyncio")
     server = uvicorn.Server(config)
-
     event_loop.run_until_complete(server.serve())

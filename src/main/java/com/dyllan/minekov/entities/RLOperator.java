@@ -88,6 +88,18 @@ public class RLOperator extends AIOperator {
         // }
     }
 
+    @Override
+    public void onAddedToWorld() {
+        super.onAddedToWorld();
+        RLOperatorRegistry.register(this);
+    }
+
+    @Override
+    public void onRemovedFromWorld() {
+        super.onRemovedFromWorld();
+        RLOperatorRegistry.unregister(this);
+    }
+
     // @Override
     // public void travel(Vec3 travelVector) {
     //     this.setSpeed((float) this.getAttributeValue(Attributes.MOVEMENT_SPEED));
