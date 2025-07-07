@@ -1,43 +1,53 @@
+from dash import Dash, dcc, html, Input, Output, State, ctx
 import dash
-import dash_html_components as html
-from dash.dependencies import Input, Output, State
-import dash_core_components as dcc
 import numpy as np
 import plotly.graph_objects as go
-from flask import Flask, request
-import threading
+from fastapi import FastAPI, Request, WebSocket
+from starlette.middleware.wsgi import WSGIMiddleware
+from starlette.routing import Mount, WebSocketRoute
+from threading import Lock
+import json
 
-scene_shape = (256, 10, 256)  # Z, Y, X
+scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
-volume_lock = threading.Lock()
-new_data_flag = False
+volume_lock = Lock()
+connected_websockets = set()
 
-flask_server = Flask(__name__)
+# Flag store (only accessed via Dash)
+latest_update_flag = 0
 
-@flask_server.route("/scene", methods=["POST"])
-def receive_scene():
-    global volume, new_data_flag
-    raw = request.data
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    if arr.size == np.prod(scene_shape):
-        with volume_lock:
-            volume = arr.reshape(scene_shape)
-            new_data_flag = True
-        print("Scene updated.")
-        return "OK", 200
-    else:
-        return f"Invalid size: got {arr.size}, expected {np.prod(scene_shape)}", 400
+dash_app = Dash(__name__, routes_pathname_prefix="/")
 
-app = dash.Dash(__name__, server=flask_server, routes_pathname_prefix="/")
+dash_app.layout = html.Div([
+    html.Div([
+        html.H3("Controls"),
+        html.Button("Say Hello", id="say-hello", n_clicks=0),
+        html.Div(id="hello-output")
+    ], style={"width": "10%", "display": "inline-block", "verticalAlign": "top", "padding": "10px"}),
 
-app.layout = html.Div([
-    dcc.Graph(id="scene-graph", style={"width": "100vw", "height": "100vh"}),
-    dcc.Interval(id="refresh-timer", interval=500, n_intervals=0),
-    dcc.Store(id="camera-store"),
-], style={"margin": 0, "padding": 0, "overflow": "hidden"})
+    html.Div([
+        dcc.Graph(id="scene-graph", style={"height": "100vh"}),
+        dcc.Store(id="scene-refresh-trigger", data=0),
+        dcc.Store(id="camera-store"),
+    ], style={"width": "90%", "display": "inline-block"})
+])
 
+@dash_app.callback(
+    Output("hello-output", "children"),
+    Input("say-hello", "n_clicks"),
+    prevent_initial_call=True
+)
+def say_hello(n_clicks):
+    payload = json.dumps({"type": "ping", "msg": "hello"})
+    for ws in connected_websockets.copy():
+        try:
+            import asyncio
+            asyncio.create_task(ws.send_text(payload))
+        except Exception:
+            connected_websockets.discard(ws)
+    return "Hello sent to Java!"
 
-@app.callback(
+@dash_app.callback(
     Output("camera-store", "data"),
     Input("scene-graph", "relayoutData"),
     prevent_initial_call=True
@@ -47,48 +57,37 @@ def store_camera(relayout):
         return relayout["scene.camera"]
     return dash.no_update
 
-@app.callback(
+@dash_app.callback(
     Output("scene-graph", "figure"),
-    Input("refresh-timer", "n_intervals"),
-    State("camera-store", "data")
+    Input("scene-refresh-trigger", "data"),
+    State("camera-store", "data"),
+    prevent_initial_call=True
 )
 def refresh_scene(_, camera):
-    global new_data_flag
     with volume_lock:
-        if not new_data_flag:
-            raise dash.exceptions.PreventUpdate
-        new_data_flag = False
         vol_copy = volume.copy()
 
     coords = np.argwhere(vol_copy == 1)
     if coords.size == 0:
         coords = np.zeros((1, 3))
 
-    # Swap Minecraft Y (vertical) to Z (Plotly vertical)
-    z = coords[:, 1]  # Y (Minecraft up) → Z (Plotly up)
-    y = coords[:, 0]  # Z (Minecraft depth) → Y
-    x = coords[:, 2]  # X (unchanged)
+    z = coords[:, 1]
+    y = coords[:, 0]
+    x = coords[:, 2]
 
     fig = go.Figure(data=go.Scatter3d(
-        x=x,
-        y=y,
-        z=z,
+        x=x, y=y, z=z,
         mode='markers',
-        marker=dict(
-            size=5,
-            color='gray',
-            symbol='square',
-            opacity=0.8,
-        ),
+        marker=dict(size=5, color='gray', symbol='square', opacity=0.8),
     ))
 
     layout = dict(
         scene=dict(
-            xaxis_title="X",  # Minecraft X
-            yaxis_title="Z",  # Minecraft Z
-            zaxis_title="Y",  # Minecraft Y (up)
+            xaxis_title="X",
+            yaxis_title="Z",
+            zaxis_title="Y",
             aspectmode='manual',
-            aspectratio=dict(x=1, y=1, z=0.1),  # Z is now vertical → squash that
+            aspectratio=dict(x=1, y=1, z=0.1),
         ),
         margin=dict(l=0, r=0, b=0, t=30),
     )
@@ -99,6 +98,41 @@ def refresh_scene(_, camera):
     fig.update_layout(**layout)
     return fig
 
+# ---------------- FastAPI Host ----------------
+asgi_app = FastAPI()
+
+@asgi_app.post("/scene")
+async def receive_scene(request: Request):
+    global volume, latest_update_flag
+    raw = await request.body()
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    if arr.size == np.prod(scene_shape):
+        with volume_lock:
+            volume = arr.reshape(scene_shape)
+        print("Scene updated.")
+        # increment the trigger value — Dash watches this
+        latest_update_flag += 1
+        # manually update the dcc.Store
+        dash_app.callback_map["scene-refresh-trigger.data"]["state"][0]["value"] = latest_update_flag
+        return {"status": "ok"}
+    else:
+        return {"error": f"Expected {np.prod(scene_shape)}, got {arr.size}"}
+
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    connected_websockets.add(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print("Received from Java:", data)
+    except Exception as e:
+        print("WebSocket closed:", e)
+    finally:
+        connected_websockets.discard(websocket)
+
+asgi_app.mount("/", WSGIMiddleware(dash_app.server))
+asgi_app.router.routes.append(WebSocketRoute("/socket", ws_endpoint))
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8050)
+    import uvicorn
+    uvicorn.run(asgi_app, host="0.0.0.0", port=8050)

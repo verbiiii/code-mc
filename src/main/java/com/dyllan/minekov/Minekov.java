@@ -11,15 +11,19 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.net.URI;
+
 import com.dyllan.minekov.scene.SceneEncoder;
 
 @Mod(Minekov.MODID)
 public class Minekov {
     public static final String MODID = "minekov";
+    private static PythonControlClient pythonSocket;
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
         ModEntities.register();
+        initPythonConnection();
     }
 
     @SubscribeEvent
@@ -61,5 +65,24 @@ public class Minekov {
                 })
             )
         );
+    }
+
+    private void initPythonConnection() {
+        try {
+            URI uri = new URI("ws://localhost:8765");
+            pythonSocket = new PythonControlClient(uri);
+            pythonSocket.connect();
+        } catch (Exception e) {
+            System.err.println("[Minekov] Failed to connect to Python dashboard:");
+            e.printStackTrace();
+        }
+    }
+
+    public static void sendToPython(String message) {
+        if (pythonSocket != null && pythonSocket.isConnected()) {
+            pythonSocket.send(message);
+        } else {
+            System.err.println("[Minekov] Python WebSocket is not open.");
+        }
     }
 }
