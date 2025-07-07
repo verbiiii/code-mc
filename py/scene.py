@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html, Input, Output, State
+from dash import Dash, dcc, html, Input, Output, State, MATCH, ALL
 import dash
 import numpy as np
 import plotly.graph_objects as go
@@ -21,6 +21,7 @@ latest_update_flag = 0
 dash_app = Dash(__name__, routes_pathname_prefix="/")
 server = WSGIMiddleware(dash_app.server)
 
+# Dark theme
 dark_theme = {
     "background": "#121212",
     "text": "#f1f1f1",
@@ -31,7 +32,6 @@ dark_theme = {
 }
 
 # Layout
-
 dash_app.layout = html.Div([
     html.Div([
         html.H3("Minekov Dashboard", style={"margin": "0", "color": dark_theme["text"]}),
@@ -91,9 +91,7 @@ def say_hello(n_clicks):
         try:
             if event_loop:
                 asyncio.run_coroutine_threadsafe(ws.send_text(payload), event_loop)
-            else:
-                print("No loop")
-        except Exception as e:
+        except Exception:
             connected_websockets.discard(ws)
     return "Hello sent to Java!"
 
@@ -102,10 +100,21 @@ def refresh_operator_list(_):
     rows = []
     for oid, data in operator_state.items():
         health = data.get("health", "???")
+        x = round(data.get("x", 0))
+        y = round(data.get("y", 0))
+        z = round(data.get("z", 0))
         rows.append(html.Div([
             html.Div(f"{oid}", style={"color": dark_theme["secondary"], "fontSize": "11px", "marginBottom": "2px"}),
-            html.Div(f"XYZ: ({round(data.get('x', '?'))}, {round(data.get('y', '?'))}, {round(data.get('z', '?'))})"),
+            html.Div(f"XYZ: ({x}, {y}, {z})"),
             html.Div(f"HP: {health}", style={"color": "#ff5555" if isinstance(health, (int, float)) and health < 10 else dark_theme["text"]}),
+            html.Canvas(id={"type": "joystick", "index": oid}, width=80, height=80, style={
+                "backgroundColor": dark_theme["card_bg"],
+                "borderRadius": "50%",
+                "border": f"1px solid {dark_theme['border']}",
+                "marginTop": "10px",
+                "marginBottom": "10px",
+                "touchAction": "none"
+            }),
             html.Hr(style={"border": f"0.5px solid {dark_theme['border']}"})
         ], style={"padding": "6px 4px"}))
     return rows
@@ -184,9 +193,17 @@ server = WSGIMiddleware(dash_app.server)
 asgi_app.mount("/", server)
 
 if __name__ == "__main__":
-    event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(event_loop)
     import uvicorn
-    config = uvicorn.Config(asgi_app, host="0.0.0.0", port=8050, loop="asyncio")
-    server = uvicorn.Server(config)
-    event_loop.run_until_complete(server.serve())
+
+    async def main():
+        global event_loop
+        config = uvicorn.Config(asgi_app, host="0.0.0.0", port=8050, loop="asyncio")
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    try:
+        event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(event_loop)
+        event_loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("\n[Server shut down cleanly]")
