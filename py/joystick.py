@@ -1,20 +1,28 @@
 from dash import Dash, html, dcc, Output, Input
 
-def create_joystick_component(canvas_id="joystick", output_id="joystick-output", store_id="joystick-refresh"):
-    layout = html.Div([
-        html.Canvas(id=canvas_id, width=100, height=100, style={
+def create_joystick_component(joystick_id="joystick"):
+    return html.Div([
+        html.Canvas(id=f"{joystick_id}-canvas", width=100, height=100, style={
             "backgroundColor": "#1e1e1e",
             "border": "2px solid #2c2c2c",
             "borderRadius": "50%",
             "display": "block",
             "margin": "auto"
         }),
-        dcc.Store(id=store_id, data=0),
-        html.Div(id=output_id, style={"textAlign": "center", "color": "#ccc", "marginTop": "10px", "whiteSpace": "pre-line"})
+        dcc.Store(id=f"{joystick_id}-store", data=0),
+        html.Div(id=f"{joystick_id}-output", style={
+            "textAlign": "center",
+            "color": "#ccc",
+            "marginTop": "10px",
+            "whiteSpace": "pre-line"
+        })
     ])
-    return layout
 
-def register_joystick_callback(app, canvas_id, output_id, store_id):
+def register_joystick_callback(app, joystick_id):
+    canvas_id = f"{joystick_id}-canvas"
+    output_id = f"{joystick_id}-output"
+    store_id = f"{joystick_id}-store"
+
     app.clientside_callback(
         f"""
         function(n) {{
@@ -134,18 +142,18 @@ if __name__ == "__main__":
         html.Div([
             html.Div([
                 html.H4("Joystick A", style={"color": "white", "textAlign": "center"}),
-                create_joystick_component("joyA", "outA", "storeA"),
+                create_joystick_component("joyA"),
             ], style={"margin": "20px"}),
 
             html.Div([
                 html.H4("Joystick B", style={"color": "white", "textAlign": "center"}),
-                create_joystick_component("joyB", "outB", "storeB"),
+                create_joystick_component("joyB"),
             ], style={"margin": "20px"})
         ], style={"display": "flex", "justifyContent": "center"}),
 
     ], style={"backgroundColor": "#121212", "height": "100vh", "paddingTop": "40px"})
 
-    register_joystick_callback(app, "joyA", "outA", "storeA")
-    register_joystick_callback(app, "joyB", "outB", "storeB")
+    register_joystick_callback(app, "joyA")
+    register_joystick_callback(app, "joyB")
 
     app.run(debug=True)
