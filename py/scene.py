@@ -8,8 +8,6 @@ from threading import Lock
 import json
 import asyncio
 
-from joystick import create_joystick_component, register_joystick_callback, get_joystick_data
-
 # ---------------- State ----------------
 event_loop = None
 operator_state = {}
@@ -18,7 +16,6 @@ scene_shape = (256, 10, 256)
 volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = Lock()
 latest_update_flag = 0
-joysticks_registered = set()
 
 # ---------------- Dash (WSGI App) ----------------
 dash_app = Dash(__name__, routes_pathname_prefix="/")
@@ -34,7 +31,20 @@ dark_theme = {
     "border": "#2c2c2c"
 }
 
-# Layout
+def create_arrow_controls(operator_id):
+    def button(direction, label):
+        return html.Button(label, id={"type": "move-btn", "oid": operator_id, "dir": direction}, n_clicks=0,
+                           style={"width": "40px", "margin": "2px"})
+
+    return html.Div([
+        html.Div([button("up", "↑")], style={"textAlign": "center"}),
+        html.Div([
+            button("left", "←"),
+            button("right", "→")
+        ], style={"textAlign": "center"}),
+        html.Div([button("down", "↓")], style={"textAlign": "center"})
+    ])
+
 dash_app.layout = html.Div([
     html.Div([
         html.H3("Minekov Dashboard", style={"margin": "0", "color": dark_theme["text"]}),
@@ -77,12 +87,11 @@ dash_app.layout = html.Div([
             dcc.Graph(id="scene-graph", style={"height": "90vh"}),
             dcc.Store(id="scene-refresh-trigger", data=0),
             dcc.Store(id="camera-store"),
-            dcc.Interval(id="operator-refresh", interval=2000, n_intervals=0)
+            dcc.Interval(id="operator-refresh", interval=2000, n_intervals=0),
+            html.Div(id="dummy", style={"display": "none"})
         ], style={"width": "90%", "display": "inline-block"})
     ], style={"display": "flex", "backgroundColor": dark_theme["background"]})
 ], style={"backgroundColor": dark_theme["background"], "height": "100vh", "margin": "0"})
-
-# ---------------- Callbacks ----------------
 
 @dash_app.callback(Output("hello-output", "children"), Input("say-hello", "n_clicks"), prevent_initial_call=True)
 def say_hello(n_clicks):
@@ -106,39 +115,15 @@ def refresh_operator_list(_):
         x = round(data.get("x", 0))
         y = round(data.get("y", 0))
         z = round(data.get("z", 0))
-        jid = f"joystick-{oid}"
-        if jid not in joysticks_registered:
-            register_joystick_callback(dash_app, jid)
-            joysticks_registered.add(jid)
-
-        # Send joystick packet
-        vector = get_joystick_data(jid)
-        packet = {
-            "type": "joystick_vector",
-            "id": oid,
-            "vector": vector
-        }
-        for ws in connected_websockets.copy():
-            try:
-                if event_loop:
-                    asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
-            except Exception:
-                connected_websockets.discard(ws)
 
         rows.append(html.Div([
             html.Div(f"{oid}", style={"color": dark_theme["secondary"], "fontSize": "11px", "marginBottom": "2px"}),
             html.Div(f"XYZ: ({x}, {y}, {z})"),
             html.Div(f"HP: {health}", style={"color": "#ff5555" if isinstance(health, (int, float)) and health < 10 else dark_theme["text"]}),
-            create_joystick_component(jid),
+            create_arrow_controls(oid),
             html.Hr(style={"border": f"0.5px solid {dark_theme['border']}"})
         ], style={"padding": "6px 4px"}))
     return rows
-
-@dash_app.callback(Output("camera-store", "data"), Input("scene-graph", "relayoutData"), prevent_initial_call=True)
-def store_camera(relayout):
-    if relayout and "scene.camera" in relayout:
-        return relayout["scene.camera"]
-    return dash.no_update
 
 @dash_app.callback(Output("scene-graph", "figure"), Input("scene-refresh-trigger", "data"), State("camera-store", "data"), prevent_initial_call=True)
 def refresh_scene(_, camera):
@@ -162,6 +147,34 @@ def refresh_scene(_, camera):
         layout["scene"]["camera"] = camera
     fig.update_layout(**layout)
     return fig
+
+# Remove broken event-type logic
+@dash_app.callback(Output("dummy", "children"),
+    Input({"type": "move-btn", "dir": ALL, "oid": ALL}, "n_clicks"),
+    State({"type": "move-btn", "dir": ALL, "oid": ALL}, "id"),
+    prevent_initial_call=True)
+def send_movement_events(clicks, ids):
+    global event_loop
+    for n, btn_id in zip(clicks, ids):
+        if n > 0:
+            direction = btn_id["dir"]
+            oid = btn_id["oid"]
+            angle = {"up": 0, "right": 90, "down": 180, "left": 270}.get(direction, 0)
+
+            packet = {
+                "type": "joystick_vector",
+                "id": oid,
+                "vector": {"x": 0.0, "y": 1.0, "angle": angle},
+                "event": "mousedown"
+            }
+
+            for ws in connected_websockets.copy():
+                try:
+                    if event_loop:
+                        asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
+                except Exception:
+                    connected_websockets.discard(ws)
+    return dash.no_update
 
 # ---------------- FastAPI Server ----------------
 asgi_app = FastAPI()
