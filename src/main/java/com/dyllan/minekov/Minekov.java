@@ -1,6 +1,7 @@
 package com.dyllan.minekov;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -61,24 +62,53 @@ public class Minekov {
                 )
                 .then(Commands.literal("scene")
                     .executes(context -> {
-                        ServerPlayer player = context.getSource().getPlayerOrException();
-                        SceneEncoder encoder = new SceneEncoder(256, 10, 256);
-                        byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
-
-                        int solidCount = 0;
-                        for (byte b : volume) {
-                            if (b == 1) solidCount++;
-                        }
-
-                        // ✅ Send to Python Dash server
-                        PythonBridge.sendSceneVolume(encoder);
-
-                        player.sendSystemMessage(Component.literal("Scene scan: " + solidCount + " solid blocks (sent to dashboard)"));
-                        return 1;
+                        return runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32);
                     })
+                    .then(Commands.argument("x_length", IntegerArgumentType.integer(1))
+                        .executes(context -> {
+                            int x = IntegerArgumentType.getInteger(context, "x_length");
+                            return runSceneCommand(context.getSource().getPlayerOrException(), x, 8, 32);
+                        })
+                        .then(Commands.argument("y_length", IntegerArgumentType.integer(1))
+                            .executes(context -> {
+                                int x = IntegerArgumentType.getInteger(context, "x_length");
+                                int y = IntegerArgumentType.getInteger(context, "y_length");
+                                return runSceneCommand(context.getSource().getPlayerOrException(), x, y, 32);
+                            })
+                            .then(Commands.argument("z_length", IntegerArgumentType.integer(1))
+                                .executes(context -> {
+                                    int x = IntegerArgumentType.getInteger(context, "x_length");
+                                    int y = IntegerArgumentType.getInteger(context, "y_length");
+                                    int z = IntegerArgumentType.getInteger(context, "z_length");
+                                    return runSceneCommand(context.getSource().getPlayerOrException(), x, y, z);
+                                })
+                            )
+                        )
+                    )
                 )
         );
     }
+
+    private static int runSceneCommand(ServerPlayer player, int xLength, int yLength, int zLength) {
+        SceneEncoder encoder = new SceneEncoder(xLength, yLength, zLength);
+        byte[] volume = encoder.encodeScene(player.level(), player.blockPosition());
+
+        int solidCount = 0;
+        for (byte b : volume) {
+            if (b == 1) solidCount++;
+        }
+
+        PythonBridge.sendSceneVolume(encoder);
+
+        player.sendSystemMessage(Component.literal(
+            "Scene scan: " + solidCount + " solid blocks (sent to dashboard @ "
+            + xLength + "×" + yLength + "×" + zLength + ")"
+        ));
+
+        return 1;
+    }
+
+
 
     private void initPythonConnection() {
         try {
