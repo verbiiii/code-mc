@@ -3,6 +3,8 @@ package com.dyllan.minekov.training;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.entity.player.Player;
 
 
@@ -20,13 +22,20 @@ public class TrainingState {
     }
 
     public void tick() {
-        // no need to tick if we're completed.
-        if (isComplete()) {
-            return;
-        }
-
         for (TrainingGroup group : groups) {
             group.tick();
+        }
+
+        if (isComplete()) {
+            // kill everything
+            for (TrainingGroup group : groups) {
+                group.getTeams().forEach(team -> team.getOperators().forEach(op -> op.kill()));
+            }
+
+            // notify the player
+            MutableComponent message = Component.literal("§aTraining complete!");
+            provisioningPlayer.sendSystemMessage(message);
+            System.out.println("Training complete.");
         }
     }
 

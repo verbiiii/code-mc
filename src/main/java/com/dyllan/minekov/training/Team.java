@@ -25,4 +25,8 @@ public class Team {
     public boolean isAlive() {
         return operators.stream().anyMatch(AIOperator::isAlive);
     }
+
+    public List<AIOperator> getOperators() {
+        return operators;
+    }
 }

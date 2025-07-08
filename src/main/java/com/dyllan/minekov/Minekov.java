@@ -195,9 +195,8 @@ public class Minekov {
         if (trainingState != null) {
             trainingState.tick();
 
+            // clear instance if we're done
             if (trainingState.isComplete()) {
-                Player player = trainingState.getProvisioningPlayer();
-                player.sendSystemMessage(Component.literal("§aTraining complete!"));
                 trainingState = null;
             }
         }

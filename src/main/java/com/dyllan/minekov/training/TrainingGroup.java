@@ -23,16 +23,15 @@ public class TrainingGroup {
         for (Team team : teams) {
             team.tick();  // delegate control logic
         }
-
-        // Check for end conditions
-        if (isComplete()) {
-            System.out.println("Training session complete after " + currentTick + " ticks.");
-        }
     }
 
     public boolean isComplete() {
         // e.g., only one team alive or time is up
         long aliveTeams = teams.stream().filter(Team::isAlive).count();
         return aliveTeams <= 1 || currentTick >= maxTicks;
+    }
+
+    public List<Team> getTeams() {
+        return teams;
     }
 }
