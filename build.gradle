@@ -191,6 +191,19 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
+    // Netty's http and websocket support
+    minecraftLibrary(group: 'io.netty', name: 'netty-codec-http', version: project.netty_version) {
+    	exclude(group: 'io.netty')
+    }
+
+    // Pack io.netty:netty-codec-http in the mod jar
+    jarJar(group: 'io.netty', name: 'netty-codec-http', version: "[${project.netty_version_min}, ${project.netty_version_max})") {
+    	jarJar.pin(it, project.netty_version)
+    	exclude(group: 'io.netty')
+    }
+
+    implementation 'com.google.code.gson:gson:2.10.1'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
@@ -229,6 +242,7 @@ tasks.named('jar', Jar).configure {
     // This is the preferred method to reobfuscate your jar file
     finalizedBy 'reobfJar'
 }
+jar.archiveClassifier = 'forge-slim';
 
 // However if you are in a multi-project build, dev time needs unobfed jar files, so you can delay the obfuscation until publishing by doing:
 // tasks.named('publish').configure {
@@ -251,4 +265,9 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+}
+
+jarJar.enable()
+tasks.jarJar {
+    archiveClassifier.set('forge')
 }
