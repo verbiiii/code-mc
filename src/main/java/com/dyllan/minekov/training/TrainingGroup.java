@@ -30,7 +30,7 @@ public class TrainingGroup {
         }
     }
 
-    private boolean isComplete() {
+    public boolean isComplete() {
         // e.g., only one team alive or time is up
         long aliveTeams = teams.stream().filter(Team::isAlive).count();
         return aliveTeams <= 1 || currentTick >= maxTicks;

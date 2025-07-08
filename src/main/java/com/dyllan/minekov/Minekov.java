@@ -8,6 +8,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -35,6 +36,8 @@ import com.dyllan.minekov.training.TrainingTickHandler;
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
 public class Minekov {
     public static final String MODID = "minekov";
+
+    private static TrainingState trainingState = null;
 
     private static PythonWebSocketClient pythonSocket;
     private static int tickCounter = 0;
@@ -95,7 +98,9 @@ public class Minekov {
             .then(Commands.literal("train")
                 .executes(ctx -> {
                     ServerLevel world = ctx.getSource().getLevel();
-                    TrainingState state = new TrainingState();
+
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    trainingState = new TrainingState((Player) player);
 
                     TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20 tps
 
@@ -123,9 +128,7 @@ public class Minekov {
                     // === Group + training ===
                     group.addTeam(team1);
                     group.addTeam(team2);
-                    state.addGroup(group);
-
-                    MinecraftForge.EVENT_BUS.register(new TrainingTickHandler(state));
+                    trainingState.addGroup(group);
 
                     ctx.getSource().sendSuccess(() -> Component.literal("Training initialized."), false);
                     return 1;
@@ -187,6 +190,17 @@ public class Minekov {
 
         if (pythonSocket != null && pythonSocket.isConnected()) {
             syncRLOperatorsToPython();
+        }
+
+        // ✅ TICK THE TRAINING STATE IF ACTIVE
+        if (trainingState.isComplete()) {
+            Player player = trainingState.getProvisioningPlayer();
+
+            if (player != null) {
+                player.sendSystemMessage(Component.literal("§aTraining complete!"));
+            }
+
+            trainingState = null;
         }
     }
 
