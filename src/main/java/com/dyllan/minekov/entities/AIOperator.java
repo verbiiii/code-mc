@@ -237,18 +237,9 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
     }
 
     // === Combat control ===
-    public void tryShootNearestTarget() {
-        LivingEntity target = this.level().getEntitiesOfClass(LivingEntity.class, this.getBoundingBox().inflate(64))
-            .stream()
-            .filter(e -> e != this && e.isAlive() && this.hasLineOfSight(e))
-            .min((a, b) -> Double.compare(this.distanceToSqr(a), this.distanceToSqr(b)))
-            .orElse(null);
-
-        if (target != null) {
-            float yaw = (float) Math.toDegrees(Math.atan2(target.getX() - getX(), target.getZ() - getZ()));
-            float pitch = (float) Math.toDegrees(-Math.atan2(target.getY() - getEyeY(), Math.sqrt(Math.pow(target.getX() - getX(), 2) + Math.pow(target.getZ() - getZ(), 2))));
-            shoot(() -> pitch, () -> yaw);
-        }
+    public void shootForward() {
+        this.aim(true);
+        this.shoot(null, null);
     }
 
 

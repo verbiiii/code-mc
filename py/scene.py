@@ -36,14 +36,19 @@ def create_arrow_controls(operator_id):
         return html.Button(label, id={"type": "move-btn", "oid": operator_id, "dir": direction}, n_clicks=0,
                            style={"width": "40px", "margin": "2px"})
 
+    fire_btn = html.Button("🔥", id={"type": "fire-btn", "oid": operator_id}, n_clicks=0,
+                           style={"marginTop": "4px", "padding": "4px 10px", "backgroundColor": "#b22222", "color": "#fff", "border": "none", "borderRadius": "4px", "cursor": "pointer"})
+
     return html.Div([
         html.Div([button("up", "↑")], style={"textAlign": "center"}),
         html.Div([
             button("left", "←"),
             button("right", "→")
         ], style={"textAlign": "center"}),
-        html.Div([button("down", "↓")], style={"textAlign": "center"})
+        html.Div([button("down", "↓")], style={"textAlign": "center"}),
+        html.Div(fire_btn, style={"textAlign": "center"})
     ])
+
 
 dash_app.layout = html.Div([
     html.Div([
@@ -149,6 +154,35 @@ def refresh_scene(_, camera):
     return fig
 
 import time
+
+@dash_app.callback(Output("dummy", "style"),  # dummy output to trigger
+    Input({"type": "fire-btn", "oid": ALL}, "n_clicks_timestamp"),
+    State({"type": "fire-btn", "oid": ALL}, "id"),
+    prevent_initial_call=True)
+def fire_weapon(timestamps, ids):
+    global event_loop
+    filtered = [(ts, btn_id) for ts, btn_id in zip(timestamps, ids) if ts is not None]
+    if not filtered:
+        return dash.no_update
+
+    _, btn_id = max(filtered, key=lambda x: x[0])
+    oid = btn_id["oid"]
+
+    packet = {
+        "type": "fire",
+        "id": oid,
+        "timestamp": int(time.time() * 1000)
+    }
+
+    for ws in connected_websockets.copy():
+        try:
+            if event_loop:
+                asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
+        except Exception:
+            connected_websockets.discard(ws)
+
+    return {"display": "none"}
+
 
 @dash_app.callback(Output("dummy", "children"),
     Input({"type": "move-btn", "dir": ALL, "oid": ALL}, "n_clicks_timestamp"),

@@ -3,6 +3,7 @@ package com.dyllan.minekov.entities;
 import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -70,6 +71,13 @@ public class RLOperator extends AIOperator {
         this.setDeltaMovement(moveVec.x, this.getDeltaMovement().y, moveVec.z);
     }
 
+    @Override
+    public LivingEntity getTarget() {
+        if (watchGoal != null) {
+            return this.watchGoal.getTarget();
+        }
+        return null;
+    }
 
     @Override
     public void tick() {

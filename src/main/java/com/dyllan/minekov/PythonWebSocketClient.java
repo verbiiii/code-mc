@@ -159,23 +159,29 @@ public class PythonWebSocketClient {
 
                                                 if (obj == null || !obj.has("type")) continue;
 
-                                                if ("joystick_vector".equals(obj.get("type").getAsString())) {
-                                                    String id = obj.get("id").getAsString();
-                                                    JsonObject vector = obj.getAsJsonObject("vector");
+                                                String type = obj.get("type").getAsString();
+                                                String id = obj.has("id") ? obj.get("id").getAsString() : null;
 
-                                                    if (vector != null && vector.has("angle")) {
-                                                        float angle = vector.get("angle").getAsFloat();
+                                                if (id == null) return;
 
-                                                        // Optional deduplication (to reduce spam):
-                                                        // lastAngleMap.put(id, angle);
-                                                        for (RLOperator op : RLOperatorRegistry.getAll()) {
-                                                            if (op.getUUID().toString().equals(id)) {
+                                                for (RLOperator op : RLOperatorRegistry.getAll()) {
+                                                    if (!op.getUUID().toString().equals(id)) continue;
+
+                                                    switch (type) {
+                                                        case "joystick_vector" -> {
+                                                            JsonObject vector = obj.getAsJsonObject("vector");
+                                                            if (vector != null && vector.has("angle")) {
+                                                                float angle = vector.get("angle").getAsFloat();
                                                                 op.moveTowards(angle, 0.13f);
                                                                 System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
-                                                                break;
                                                             }
                                                         }
+                                                        case "fire" -> {
+                                                            op.shootForward();
+                                                            System.out.println("🔫 Operator " + id + " fired their weapon!");
+                                                        }
                                                     }
+                                                    break; // operator found
                                                 }
                                             } catch (Exception e) {
                                                 System.err.println("❌ Failed to parse joystick_vector:");
