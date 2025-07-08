@@ -98,7 +98,7 @@ public class Minekov {
                 .executes(ctx -> {
                     ServerLevel world = ctx.getSource().getLevel();
 
-                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    ServerPlayer player = ctx.getSource().getPlayer();
                     trainingState = new TrainingState((Player) player, world.getServer());
 
                     TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20 tps
@@ -129,7 +129,7 @@ public class Minekov {
                     group.addTeam(team2);
                     trainingState.addGroup(group);
 
-                    ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(
+                    world.getServer().getPlayerList().broadcastSystemMessage(
                         Component.literal("Training initialized."), false
                     );
 

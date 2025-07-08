@@ -3,7 +3,6 @@ package com.dyllan.minekov.training;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
