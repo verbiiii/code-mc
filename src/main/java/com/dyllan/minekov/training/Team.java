@@ -25,13 +25,4 @@ public class Team {
     public boolean isAlive() {
         return operators.stream().anyMatch(AIOperator::isAlive);
     }
-
-    public void reset() {
-        // for (AIOperator op : operators) {
-        //     op.reset();
-        // }
-
-        // throw error todo
-        throw new UnsupportedOperationException("Reset not implemented for Team");
-    }
 }

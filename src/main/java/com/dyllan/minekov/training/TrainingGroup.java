@@ -26,7 +26,7 @@ public class TrainingGroup {
 
         // Check for end conditions
         if (isComplete()) {
-            reset();
+            System.out.println("Training session complete after " + currentTick + " ticks.");
         }
     }
 
@@ -34,12 +34,5 @@ public class TrainingGroup {
         // e.g., only one team alive or time is up
         long aliveTeams = teams.stream().filter(Team::isAlive).count();
         return aliveTeams <= 1 || currentTick >= maxTicks;
-    }
-
-    private void reset() {
-        currentTick = 0;
-        for (Team team : teams) {
-            team.reset();
-        }
     }
 }
