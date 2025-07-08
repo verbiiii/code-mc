@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
@@ -21,9 +22,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
+import com.dyllan.minekov.training.Team;
+import com.dyllan.minekov.training.TrainingGroup;
+import com.dyllan.minekov.training.TrainingState;
+import com.dyllan.minekov.training.TrainingTickHandler;
 
 @Mod(Minekov.MODID)
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
@@ -86,6 +92,44 @@ public class Minekov {
                         )
                     )
                 )
+            .then(Commands.literal("train")
+                .executes(ctx -> {
+                    ServerLevel world = ctx.getSource().getLevel();
+                    TrainingState state = new TrainingState();
+
+                    TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20 tps
+
+                    // === Spawn positions ===
+                    double rlX = -7.5, rlY = -59.5, rlZ = 28.5;
+                    double dumbX = -7.5, dumbY = -59.5, dumbZ = 20.5;
+
+                    // === Spawn RLOperator ===
+                    RLOperator rl = ModEntities.RL_OPERATOR.get().create(world);
+                    rl.moveTo(rlX, rlY, rlZ, 180.0f, 0.0f);
+                    world.addFreshEntity(rl);
+
+                    // === Spawn DumbOperator ===
+                    DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
+                    dumb.moveTo(dumbX, dumbY, dumbZ, 0.0f, 0.0f);
+                    world.addFreshEntity(dumb);
+
+                    // === Wrap into teams ===
+                    Team team1 = new Team();
+                    team1.addOperator(rl);
+
+                    Team team2 = new Team();
+                    team2.addOperator(dumb);
+
+                    // === Group + training ===
+                    group.addTeam(team1);
+                    group.addTeam(team2);
+                    state.addGroup(group);
+
+                    MinecraftForge.EVENT_BUS.register(new TrainingTickHandler(state));
+
+                    ctx.getSource().sendSuccess(() -> Component.literal("Training initialized."), false);
+                    return 1;
+                }))
         );
     }
 
