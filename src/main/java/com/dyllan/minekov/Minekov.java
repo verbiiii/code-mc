@@ -192,7 +192,7 @@ public class Minekov {
         }
 
         // ✅ TICK THE TRAINING STATE IF ACTIVE
-        if (trainingState.isComplete()) {
+        if (trainingState != null && trainingState.isComplete()) {
             Player player = trainingState.getProvisioningPlayer();
 
             if (player != null) {
