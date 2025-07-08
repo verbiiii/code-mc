@@ -61,106 +61,106 @@ public class PythonWebSocketClient {
                                      ctx.writeAndFlush(Unpooled.copiedBuffer(request, StandardCharsets.US_ASCII));
                                  }
 
-                                 @Override
-                                 protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
-                                     int len = msg.readableBytes();
-                                     byte[] raw = new byte[len];
-                                     msg.getBytes(msg.readerIndex(), raw);
+                                @Override
+                                protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                                    int len = msg.readableBytes();
+                                    byte[] raw = new byte[len];
+                                    msg.getBytes(msg.readerIndex(), raw);
 
-                                     System.out.println("📡 Raw frame (" + len + " bytes):");
-                                     System.out.println(bytesToHex(raw));
-                                     System.out.println(new String(raw, StandardCharsets.UTF_8).replaceAll("[^\\x20-\\x7E]", "."));
+                                    System.out.println("📡 Raw frame (" + len + " bytes):");
+                                    System.out.println(bytesToHex(raw));
+                                    System.out.println(new String(raw, StandardCharsets.UTF_8).replaceAll("[^\\x20-\\x7E]", "."));
 
-                                     if (!handshakeComplete) {
-                                         String response = new String(raw, StandardCharsets.US_ASCII);
-                                         if (response.contains("101 Switching Protocols")) {
-                                             System.out.println("✅ WebSocket connected to Python backend.");
-                                             handshakeComplete = true;
-                                             send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
-                                         } else {
-                                             System.err.println("❌ Handshake failed:\n" + response);
-                                             ctx.close();
-                                         }
-                                         return;
-                                     }
+                                    // Handle handshake first
+                                    if (!handshakeComplete) {
+                                        String response = new String(raw, StandardCharsets.US_ASCII);
+                                        if (response.contains("101 Switching Protocols")) {
+                                            System.out.println("✅ WebSocket connected to Python backend.");
+                                            handshakeComplete = true;
+                                            send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
+                                        } else {
+                                            System.err.println("❌ Handshake failed:\n" + response);
+                                            ctx.close();
+                                        }
+                                        return;
+                                    }
 
-                                     byte opcode = (byte) (raw[0] & 0x0F);
-                                     int payloadLen = raw[1] & 0x7F;
-                                     int offset = 2;
+                                    byte opcode = (byte) (raw[0] & 0x0F);
+                                    boolean masked = (raw[1] & 0x80) != 0;
+                                    int payloadLen = raw[1] & 0x7F;
+                                    int offset = 2;
 
-                                     if (opcode == 0x9) { // Ping
-                                         System.out.println("📶 Ping received — sending Pong.");
-                                         byte[] payload = new byte[payloadLen];
-                                         System.arraycopy(raw, offset, payload, 0, payloadLen);
+                                    if (payloadLen == 126) {
+                                        payloadLen = ((raw[2] & 0xFF) << 8) | (raw[3] & 0xFF);
+                                        offset += 2;
+                                    } else if (payloadLen == 127) {
+                                        payloadLen = 0;
+                                        for (int i = 0; i < 8; i++) {
+                                            payloadLen = (payloadLen << 8) | (raw[offset + i] & 0xFF);
+                                        }
+                                        offset += 8;
+                                    }
 
-                                         byte[] mask = new byte[4];
-                                         new SecureRandom().nextBytes(mask);
+                                    byte[] payload;
 
-                                         ByteBuf pong = Unpooled.buffer();
-                                         pong.writeByte(0x8A);
-                                         pong.writeByte(0x80 | payloadLen);
-                                         pong.writeBytes(mask);
-                                         for (int i = 0; i < payloadLen; i++) {
-                                             pong.writeByte(payload[i] ^ mask[i % 4]);
-                                         }
-                                         ctx.writeAndFlush(pong);
-                                         return;
-                                     }
+                                    if (masked) {
+                                        byte[] mask = new byte[4];
+                                        System.arraycopy(raw, offset, mask, 0, 4);
+                                        offset += 4;
 
-                                     if (opcode == 0x8) { // Close
-                                         int code = (payloadLen >= 2)
-                                                 ? ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF)
-                                                 : 1000;
-                                         String reason = (payloadLen > 2)
-                                                 ? new String(raw, offset + 2, payloadLen - 2, StandardCharsets.UTF_8)
-                                                 : "(no reason)";
-                                         System.out.println("❌ Close frame received: code=" + code + ", reason=" + reason);
-                                         ctx.close();
-                                         return;
-                                     }
+                                        payload = new byte[payloadLen];
+                                        for (int i = 0; i < payloadLen; i++) {
+                                            payload[i] = (byte) (raw[offset + i] ^ mask[i % 4]);
+                                        }
+                                    } else {
+                                        payload = new byte[payloadLen];
+                                        System.arraycopy(raw, offset, payload, 0, payloadLen);
+                                    }
 
-                                     if (opcode == 0x1) { // Text
-                                         if (len >= offset + payloadLen) {
-                                             String text = new String(raw, offset, payloadLen, StandardCharsets.UTF_8);
-                                             System.out.println("📩 Received command: " + text);
+                                    if (opcode == 0x1) { // Text
+                                        String text = new String(payload, StandardCharsets.UTF_8);
+                                        System.out.println("📩 Received command: " + text);
 
-                                             try {
-                                                 JsonObject json = gson.fromJson(text, JsonObject.class);
-                                                 if (json == null || !json.has("type")) return;
+                                        try {
+                                            JsonObject json = gson.fromJson(text, JsonObject.class);
+                                            if (json == null || !json.has("type")) return;
 
-                                                 if ("joystick_vector".equals(json.get("type").getAsString())) {
-                                                     String id = json.get("id").getAsString();
-                                                     JsonObject vector = json.getAsJsonObject("vector");
+                                            if ("joystick_vector".equals(json.get("type").getAsString())) {
+                                                String id = json.get("id").getAsString();
+                                                JsonObject vector = json.getAsJsonObject("vector");
 
-                                                     if (vector != null && vector.has("angle")) {
-                                                         float angle = vector.get("angle").getAsFloat();
+                                                if (vector != null && vector.has("angle")) {
+                                                    float angle = vector.get("angle").getAsFloat();
 
-                                                         for (RLOperator op : RLOperatorRegistry.getAll()) {
-                                                             if (op.getUUID().toString().equals(id)) {
-                                                                 op.moveTowards(angle, 0.13f);
-                                                                 System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
-                                                                 break;
-                                                             }
-                                                         }
-                                                     }
-                                                 }
+                                                    for (RLOperator op : RLOperatorRegistry.getAll()) {
+                                                        if (op.getUUID().toString().equals(id)) {
+                                                            op.moveTowards(angle, 0.13f);
+                                                            System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
 
-                                             } catch (Exception e) {
-                                                 System.err.println("❌ Failed to parse joystick_vector:");
-                                                 e.printStackTrace();
-                                             }
+                                        } catch (Exception e) {
+                                            System.err.println("❌ Failed to parse joystick_vector:");
+                                            e.printStackTrace();
+                                        }
 
-                                         } else {
-                                             System.out.println("⚠️ Text frame too short");
-                                         }
-                                     }
+                                    } else if (opcode == 0x8) { // Close
+                                        System.out.println("❌ Close frame received");
+                                        ctx.close();
+                                    } else if (opcode == 0x9) { // Ping
+                                        System.out.println("📶 Ping received — sending Pong.");
+                                        ByteBuf pong = Unpooled.buffer();
+                                        pong.writeByte(0x8A); // Pong
+                                        pong.writeByte(0); // No payload
+                                        ctx.writeAndFlush(pong);
+                                    } else {
+                                        System.out.println("🔍 Unhandled opcode: " + Integer.toHexString(opcode));
+                                    }
+                                }
 
-                                     if (opcode == 0x2) {
-                                         System.out.println("📦 Binary frame received, length: " + payloadLen);
-                                     }
-
-                                     System.out.println("🔍 Unhandled opcode: " + Integer.toHexString(opcode));
-                                 }
 
                                  private static String bytesToHex(byte[] bytes) {
                                      StringBuilder sb = new StringBuilder();
