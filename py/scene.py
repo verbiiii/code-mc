@@ -97,6 +97,7 @@ dash_app.layout = html.Div([
             dcc.Store(id="scene-refresh-trigger", data=0),
             dcc.Store(id="camera-store"),
             dcc.Interval(id="operator-refresh", interval=2000, n_intervals=0),
+            dcc.Interval(id="scene-poll", interval=1000, n_intervals=0),
             html.Div(id="dummy", style={"display": "none"})
         ], style={"width": "90%", "display": "inline-block"})
     ], style={"display": "flex", "backgroundColor": dark_theme["background"]})
