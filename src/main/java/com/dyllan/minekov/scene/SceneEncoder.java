@@ -5,17 +5,23 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class SceneEncoder {
-    private static final int SIZE_X = 256;
-    private static final int SIZE_Y = 10;
-    private static final int SIZE_Z = 256;
+    private final int sizeX;
+    private final int sizeY;
+    private final int sizeZ;
+    private byte[] buffer;
 
-    private final byte[] buffer = new byte[SIZE_X * SIZE_Y * SIZE_Z];
+    public SceneEncoder(int sizeX, int sizeY, int sizeZ) {
+        this.sizeX = sizeX;
+        this.sizeY = sizeY;
+        this.sizeZ = sizeZ;
+        this.buffer = new byte[sizeX * sizeY * sizeZ];
+    }
 
     public byte[] encodeScene(Level level, BlockPos center) {
         int idx = 0;
-        for (int dx = -SIZE_X / 2; dx < SIZE_X / 2; dx++) {
-            for (int dy = -SIZE_Y / 2; dy < SIZE_Y / 2; dy++) {
-                for (int dz = -SIZE_Z / 2; dz < SIZE_Z / 2; dz++) {
+        for (int dx = -sizeX / 2; dx < sizeX / 2; dx++) {
+            for (int dy = -sizeY / 2; dy < sizeY / 2; dy++) {
+                for (int dz = -sizeZ / 2; dz < sizeZ / 2; dz++) {
                     BlockPos pos = center.offset(dx, dy, dz);
                     BlockState state = level.getBlockState(pos);
                     buffer[idx++] = (byte)(state.isSolidRender(level, pos) ? 1 : 0);
@@ -23,5 +29,21 @@ public class SceneEncoder {
             }
         }
         return buffer;
+    }
+
+    public byte[] getBuffer() {
+        return buffer;
+    }
+
+    public int getSizeX() {
+        return sizeX;
+    }
+
+    public int getSizeY() {
+        return sizeY;
+    }
+
+    public int getSizeZ() {
+        return sizeZ;
     }
 }

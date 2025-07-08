@@ -16,10 +16,9 @@ from dash import ctx
 event_loop = None
 operator_state = {}
 connected_websockets = set()
-scene_shape = (256, 10, 256)
-volume = np.zeros(scene_shape, dtype=np.uint8)
 volume_lock = Lock()
 latest_update_flag = 0
+volume = None
 
 # ---------------- Dash (WSGI App) ----------------
 dash_app = Dash(__name__, routes_pathname_prefix="/")
@@ -229,16 +228,39 @@ asgi_app = FastAPI()
 
 @asgi_app.post("/scene")
 async def receive_scene(request: Request):
-    print('got scene update')
     global volume, latest_update_flag
+
+    print("[/scene] hit", flush=True)
+
+    shape_header = request.headers.get("X-Scene-Shape")
+    if not shape_header:
+        print("❌ Missing X-Scene-Shape header", flush=True)
+        return {"error": "Missing X-Scene-Shape header"}
+
+    try:
+        shape = tuple(map(int, shape_header.split(",")))
+        print(f"✅ Parsed shape: {shape}", flush=True)
+    except Exception as e:
+        print(f"❌ Failed to parse shape header '{shape_header}': {e}", flush=True)
+        return {"error": f"Invalid shape format: {shape_header}"}
+
     raw = await request.body()
+    print(f"📦 Received {len(raw)} bytes from request body", flush=True)
+
     arr = np.frombuffer(raw, dtype=np.uint8)
-    if arr.size == np.prod(scene_shape):
+    expected_size = np.prod(shape)
+
+    if arr.size == expected_size:
         with volume_lock:
-            volume = arr.reshape(scene_shape)
+            volume = arr.reshape(shape)
         latest_update_flag += 1
+        print(f"✅ Scene volume accepted: shape={shape} size={arr.size} sum={arr.sum()}", flush=True)
         return {"status": "ok"}
-    return {"error": f"Expected {np.prod(scene_shape)}, got {arr.size}"}
+    else:
+        print(f"❌ Size mismatch: expected={expected_size}, got={arr.size}", flush=True)
+        return {"error": f"Expected {expected_size}, got {arr.size}"}
+
+
 
 @dash_app.callback(
     Output("scene-refresh-trigger", "data"),
