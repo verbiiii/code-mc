@@ -20,6 +20,11 @@ public class TrainingState {
     }
 
     public void tick() {
+        // no need to tick if we're completed.
+        if (isComplete()) {
+            return;
+        }
+
         for (TrainingGroup group : groups) {
             group.tick();
         }
