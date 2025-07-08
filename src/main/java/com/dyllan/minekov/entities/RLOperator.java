@@ -54,9 +54,9 @@ public class RLOperator extends AIOperator {
     public void moveTowards(float thetaDeg, float speed) {
         Vec3 baseDir = this.watchGoal != null ? this.watchGoal.getCurrentDirection() : Vec3.ZERO;
 
-        if (baseDir.lengthSqr() < 1e-6) {
-            return; // no valid direction, skip movement
-        }
+        // if (baseDir.lengthSqr() < 1e-6) {
+        //     return;
+        // }
 
         // Normalize and flatten the base direction
         Vec3 forward = new Vec3(baseDir.x, 0, baseDir.z).normalize();
