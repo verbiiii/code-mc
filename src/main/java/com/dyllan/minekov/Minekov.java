@@ -30,7 +30,6 @@ import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.Team;
 import com.dyllan.minekov.training.TrainingGroup;
 import com.dyllan.minekov.training.TrainingState;
-import com.dyllan.minekov.training.TrainingTickHandler;
 
 @Mod(Minekov.MODID)
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
