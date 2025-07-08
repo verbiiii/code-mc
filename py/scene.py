@@ -148,32 +148,41 @@ def refresh_scene(_, camera):
     fig.update_layout(**layout)
     return fig
 
-# Remove broken event-type logic
+import time
+
 @dash_app.callback(Output("dummy", "children"),
-    Input({"type": "move-btn", "dir": ALL, "oid": ALL}, "n_clicks"),
+    Input({"type": "move-btn", "dir": ALL, "oid": ALL}, "n_clicks_timestamp"),
     State({"type": "move-btn", "dir": ALL, "oid": ALL}, "id"),
     prevent_initial_call=True)
-def send_movement_events(clicks, ids):
+def send_movement_events(timestamps, ids):
     global event_loop
-    for n, btn_id in zip(clicks, ids):
-        if n > 0:
-            direction = btn_id["dir"]
-            oid = btn_id["oid"]
-            angle = {"up": 0, "right": 90, "down": 180, "left": 270}.get(direction, 0)
 
-            packet = {
-                "type": "joystick_vector",
-                "id": oid,
-                "vector": {"x": 0.0, "y": 1.0, "angle": angle},
-                "event": "mousedown"
-            }
+    # Zip and filter out unclicked buttons
+    filtered = [(ts, btn_id) for ts, btn_id in zip(timestamps, ids) if ts is not None]
+    if not filtered:
+        return dash.no_update
 
-            for ws in connected_websockets.copy():
-                try:
-                    if event_loop:
-                        asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
-                except Exception:
-                    connected_websockets.discard(ws)
+    # Pick the most recently clicked one
+    latest_ts, btn_id = max(filtered, key=lambda x: x[0])
+
+    direction = btn_id["dir"]
+    oid = btn_id["oid"]
+    angle = {"up": 0, "right": 90, "down": 180, "left": 270}.get(direction, 0)
+
+    packet = {
+        "type": "joystick_vector",
+        "id": oid,
+        "vector": {"x": 0.0, "y": 1.0, "angle": angle},
+        "timestamp": int(time.time() * 100) * 10  # rounded to nearest 10ms
+    }
+
+    for ws in connected_websockets.copy():
+        try:
+            if event_loop:
+                asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
+        except Exception:
+            connected_websockets.discard(ws)
+
     return dash.no_update
 
 # ---------------- FastAPI Server ----------------
