@@ -1,15 +1,14 @@
 package com.dyllan.minekov.entities;
 
-import com.dyllan.minekov.entities.ai.goals.WatchClosestVisiblePlayerGoal;
+import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
 public class RLOperator extends AIOperator {
-    private WatchClosestVisiblePlayerGoal watchGoal;
+    private WatchClosestTargetGoal watchGoal;
 
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -19,7 +18,7 @@ public class RLOperator extends AIOperator {
     protected void registerGoals() {
         super.registerGoals();
 
-        watchGoal = new WatchClosestVisiblePlayerGoal(this, 64.0D);
+        watchGoal = new WatchClosestTargetGoal(this, 64.0D);
         this.goalSelector.addGoal(1, watchGoal);
     }
 

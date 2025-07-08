@@ -1,9 +1,7 @@
 package com.dyllan.minekov.entities.ai.goals;
 
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.util.Mth;
@@ -11,13 +9,15 @@ import net.minecraft.util.Mth;
 import java.util.EnumSet;
 import java.util.List;
 
-public class WatchClosestVisiblePlayerGoal extends Goal {
+import com.dyllan.minekov.entities.AIOperator;
+
+public class WatchClosestTargetGoal extends Goal {
     private final Mob mob;
     private final double range;
-    private Player target;
+    private AIOperator target;
     private Vec3 currentDirection = Vec3.ZERO; // <-- store direction
 
-    public WatchClosestVisiblePlayerGoal(Mob mob, double range) {
+    public WatchClosestTargetGoal(Mob mob, double range) {
         this.mob = mob;
         this.range = range;
         this.setFlags(EnumSet.of(Flag.LOOK, Flag.MOVE));
@@ -29,32 +29,34 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        List<Player> players = mob.level().getEntitiesOfClass(Player.class, new AABB(
+        List<AIOperator> operators = mob.level().getEntitiesOfClass(AIOperator.class, new AABB(
                 mob.getX() - range, mob.getY() - range, mob.getZ() - range,
                 mob.getX() + range, mob.getY() + range, mob.getZ() + range
         ));
 
         double closestDist = Double.MAX_VALUE;
-        Player closestVisible = null;
+        AIOperator closestTarget = null;
 
-        for (Player player : players) {
-            if (!player.isAlive()) continue;
-            if (!mob.hasLineOfSight(player)) continue;
+        for (AIOperator operator : operators) {
+            // make sure we don't target ourselves
+            if (operator == mob) continue;
+            if (!operator.isAlive()) continue;
+            // if (!mob.hasLineOfSight(operator)) continue;
 
-            double dist = mob.distanceToSqr(player);
+            double dist = mob.distanceToSqr(operator);
             if (dist < closestDist) {
                 closestDist = dist;
-                closestVisible = player;
+                closestTarget = operator;
             }
         }
 
-        this.target = closestVisible;
+        this.target = closestTarget;
         return target != null;
     }
 
     @Override
     public boolean canContinueToUse() {
-        return target != null && target.isAlive() && mob.hasLineOfSight(target)
+        return target != null && target.isAlive()// && mob.hasLineOfSight(target)
                 && mob.distanceToSqr(target) < range * range;
     }
 
@@ -75,12 +77,6 @@ public class WatchClosestVisiblePlayerGoal extends Goal {
         if (target == null) return;
 
         mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
-
-        double distSq = mob.distanceToSqr(target);
-        if (distSq < 2*2) {
-            currentDirection = Vec3.ZERO;
-            return;
-        }
 
         double dx = mob.getLookControl().getWantedX() - mob.getX();
         double dz = mob.getLookControl().getWantedZ() - mob.getZ();
