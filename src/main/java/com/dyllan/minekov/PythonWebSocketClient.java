@@ -12,13 +12,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 
-public class PythonControlClient {
+public class PythonWebSocketClient {
 
     private final URI uri;
     private Channel channel;
     private final EventLoopGroup group = new NioEventLoopGroup();
 
-    public PythonControlClient(URI uri) {
+    public PythonWebSocketClient(URI uri) {
         this.uri = uri;
     }
 

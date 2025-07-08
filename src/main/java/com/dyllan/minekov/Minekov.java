@@ -29,7 +29,7 @@ import com.dyllan.minekov.scene.SceneEncoder;
 public class Minekov {
     public static final String MODID = "minekov";
 
-    private static PythonControlClient pythonSocket;
+    private static PythonWebSocketClient pythonSocket;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
 
@@ -83,7 +83,7 @@ public class Minekov {
     private void initPythonConnection() {
         try {
             URI uri = new URI("ws://127.0.0.1:8050/socket");
-            pythonSocket = new PythonControlClient(uri);
+            pythonSocket = new PythonWebSocketClient(uri);
             pythonSocket.connect();
         } catch (Exception e) {
             System.err.println("[Minekov] Failed to connect to Python dashboard:");
@@ -103,14 +103,16 @@ public class Minekov {
                 System.out.println("[Minekov] Attempting to reconnect to Python dashboard...");
                 try {
                     URI uri = new URI("ws://127.0.0.1:8050/socket");
-                    pythonSocket = new PythonControlClient(uri);
+                    pythonSocket = new PythonWebSocketClient(uri);
                     pythonSocket.connect();
                 } catch (Exception e) {
                     System.err.println("[Minekov] Reconnect failed: " + e.getMessage());
                 }
-            } else {
-                syncRLOperatorsToPython();
             }
+        }
+
+        if (pythonSocket != null && pythonSocket.isConnected()) {
+            syncRLOperatorsToPython();
         }
     }
 
