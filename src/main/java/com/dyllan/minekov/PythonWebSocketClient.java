@@ -67,10 +67,6 @@ public class PythonWebSocketClient {
                                     byte[] raw = new byte[len];
                                     msg.getBytes(msg.readerIndex(), raw);
 
-                                    System.out.println("📡 Raw frame (" + len + " bytes):");
-                                    System.out.println(bytesToHex(raw));
-                                    System.out.println(new String(raw, StandardCharsets.UTF_8).replaceAll("[^\\x20-\\x7E]", "."));
-
                                     // Handle handshake first
                                     if (!handshakeComplete) {
                                         String response = new String(raw, StandardCharsets.US_ASCII);
