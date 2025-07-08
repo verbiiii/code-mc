@@ -3,18 +3,22 @@ package com.dyllan.minekov.training;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.player.Player;
 
 
 public class TrainingState {
     private List<TrainingGroup> groups;
     private Player provisioningPlayer;
+    private final MinecraftServer server;
 
-    public TrainingState(Player provisioningPlayer) {
+    public TrainingState(Player provisioningPlayer, MinecraftServer server) {
         this.groups = new ArrayList<TrainingGroup>();
         this.provisioningPlayer = provisioningPlayer;
+        this.server = server;
     }
 
     public void addGroup(TrainingGroup group) {
@@ -34,8 +38,7 @@ public class TrainingState {
 
             // notify the player
             MutableComponent message = Component.literal("§aTraining complete!");
-            provisioningPlayer.sendSystemMessage(message);
-            System.out.println("Training complete.");
+            server.getPlayerList().broadcastSystemMessage(message, false);
         }
     }
 
