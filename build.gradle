@@ -202,6 +202,8 @@ dependencies {
     	jarJar.pin(it, project.netty_version)
     	exclude(group: 'io.netty')
     }
+
+    implementation 'com.google.code.gson:gson:2.10.1'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
