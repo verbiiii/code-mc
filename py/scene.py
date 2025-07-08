@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html, Input, Output, State
+from dash import Dash, dcc, html, Input, Output, State, ALL
 import dash
 import numpy as np
 import plotly.graph_objects as go
@@ -8,7 +8,7 @@ from threading import Lock
 import json
 import asyncio
 
-from joystick import create_joystick_component, register_joystick_callback
+from joystick import create_joystick_component, register_joystick_callback, get_joystick_data
 
 # ---------------- State ----------------
 event_loop = None
@@ -110,6 +110,21 @@ def refresh_operator_list(_):
         if jid not in joysticks_registered:
             register_joystick_callback(dash_app, jid)
             joysticks_registered.add(jid)
+
+        # Send joystick packet
+        vector = get_joystick_data(jid)
+        packet = {
+            "type": "joystick_vector",
+            "id": oid,
+            "vector": vector
+        }
+        for ws in connected_websockets.copy():
+            try:
+                if event_loop:
+                    asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(packet)), event_loop)
+            except Exception:
+                connected_websockets.discard(ws)
+
         rows.append(html.Div([
             html.Div(f"{oid}", style={"color": dark_theme["secondary"], "fontSize": "11px", "marginBottom": "2px"}),
             html.Div(f"XYZ: ({x}, {y}, {z})"),

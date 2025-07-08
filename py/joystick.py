@@ -135,6 +135,14 @@ def register_joystick_callback(app, joystick_id):
         Input(store_id, "data")
     )
 
+def get_joystick_data(joystick_id: str):
+    from dash import callback_context
+    store_id = f"{joystick_id}-store"
+    ctx = callback_context
+    for s in ctx.states:
+        if s["id"] == store_id and "value" in s:
+            return s["value"]
+    return {"x": 0.0, "y": 0.0, "angle": None}
 
 # Run it
 if __name__ == "__main__":
