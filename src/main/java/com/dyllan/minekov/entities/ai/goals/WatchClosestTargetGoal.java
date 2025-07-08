@@ -81,30 +81,30 @@ public class WatchClosestTargetGoal extends Goal {
     public void tick() {
         if (target == null) return;
 
-        mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
+        // Compute direction vector from mob eyes to target eyes
+        double dx = target.getX() - mob.getX();
+        double dy = target.getEyeY() - mob.getEyeY();
+        double dz = target.getZ() - mob.getZ();
+        double distXZ = Math.sqrt(dx * dx + dz * dz);
 
-        double dx = mob.getLookControl().getWantedX() - mob.getX();
-        double dz = mob.getLookControl().getWantedZ() - mob.getZ();
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, distXZ));
+        float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0F;
 
-        Vec3 dir = new Vec3(dx, 0, dz);
-        if (dir.lengthSqr() > 1e-6) {
-            dir = dir.normalize();
-        } else {
-            currentDirection = Vec3.ZERO;
-            return;
-        }
-
-        currentDirection = dir; // <-- update direction
-
-        // float speed = 0.13f;
-        // mob.setSpeed(speed);
-        // mob.moveRelative(speed, dir);
-        // mob.move(MoverType.SELF, mob.getDeltaMovement());
-
-        // set body rotation to face the direction
-        float yaw = (float)(Mth.atan2(-dir.x, dir.z) * (180F / Math.PI));
+        // Update mob look
+        mob.setXRot(pitch);
         mob.setYRot(yaw);
         mob.yBodyRot = yaw;
         mob.yHeadRot = yaw;
+
+        // Compute and store normalized horizontal direction vector
+        Vec3 dir = new Vec3(dx, 0, dz);
+        if (dir.lengthSqr() > 1e-6) {
+            currentDirection = dir.normalize();
+        } else {
+            currentDirection = Vec3.ZERO;
+        }
+
+        // Optional: still call setLookAt so the AI "focuses" properly
+        mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
     }
 }
