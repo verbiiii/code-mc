@@ -8,6 +8,10 @@ from threading import Lock
 import json
 import asyncio
 
+from fastapi.responses import JSONResponse
+from starlette.requests import Request as StarletteRequest
+from dash import ctx
+
 # ---------------- State ----------------
 event_loop = None
 operator_state = {}
@@ -224,6 +228,7 @@ asgi_app = FastAPI()
 
 @asgi_app.post("/scene")
 async def receive_scene(request: Request):
+    print('got scene update')
     global volume, latest_update_flag
     raw = await request.body()
     arr = np.frombuffer(raw, dtype=np.uint8)
@@ -231,9 +236,19 @@ async def receive_scene(request: Request):
         with volume_lock:
             volume = arr.reshape(scene_shape)
         latest_update_flag += 1
-        dash_app.callback_map["scene-refresh-trigger.data"]["state"][0]["value"] = latest_update_flag
         return {"status": "ok"}
     return {"error": f"Expected {np.prod(scene_shape)}, got {arr.size}"}
+
+@dash_app.callback(
+    Output("scene-refresh-trigger", "data"),
+    Input("scene-poll", "n_intervals"),
+    State("scene-refresh-trigger", "data")
+)
+def poll_for_scene_change(_, prev_flag):
+    global latest_update_flag
+    if latest_update_flag != prev_flag:
+        return latest_update_flag
+    return dash.no_update
 
 @asgi_app.websocket("/socket")
 async def ws_endpoint(websocket: WebSocket):
