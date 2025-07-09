@@ -3,6 +3,10 @@ package com.dyllan.minekov.training;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.dyllan.minekov.PythonBridge;
+import com.dyllan.minekov.entities.AIOperator;
+import com.dyllan.minekov.entities.RLOperator;
+
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
@@ -27,6 +31,27 @@ public class TrainingState {
     public void tick() {
         for (TrainingGroup group : groups) {
             group.tick();
+        }
+
+        // 🧠 Collect all RLOperator UUIDs
+        List<String> rlIds = new ArrayList<>();
+        for (TrainingGroup group : groups) {
+            for (Team team : group.getTeams()) {
+                for (AIOperator op : team.getOperators()) {
+                    // if it's not an RLOperator, skip
+                    if (!(op instanceof RLOperator)) {
+                        continue;
+                    }
+
+                    if (op != null && op.isAlive()) {
+                        rlIds.add(op.getUUID().toString());
+                    }
+                }
+            }
+        }
+
+        if (!rlIds.isEmpty()) {
+            PythonBridge.requestActions(rlIds);
         }
 
         if (isComplete()) {
