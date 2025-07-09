@@ -2,6 +2,7 @@ package com.dyllan.minekov.training;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.entities.AIOperator;
@@ -51,7 +52,12 @@ public class TrainingState {
         }
 
         if (!rlIds.isEmpty()) {
-            PythonBridge.tickPython(rlIds);
+            Map<String, Object> data = Map.of("type", "tick", "operator_ids", rlIds);
+
+            // TODO: convert operator_ids to another Map of operator UUIDs to details about them, including their xyz position, health, information about the previous step (ie. hit a target, took a hit, won round, lost round, etc.)
+            // for now, we can just simply send the UUIDs with values of a Map containing their xyz and health
+
+            PythonBridge.tickPython(data);
         }
 
         if (isComplete()) {

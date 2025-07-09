@@ -44,13 +44,12 @@ public class PythonBridge {
         }
     }
 
-    public static void tickPython(List<String> operatorIds) {
+    public static void tickPython(Map<String, Object> data) {
         if (websocketClient == null || !websocketClient.isConnected()) {
             System.err.println("[PythonBridge] WebSocket not connected.");
             return;
         }
 
-        Map<String, Object> data = Map.of("type", "tick", "operator_ids", operatorIds);
         String json = gson.toJson(data);
         websocketClient.send(json);
     }
