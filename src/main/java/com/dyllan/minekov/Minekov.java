@@ -104,8 +104,8 @@ public class Minekov {
                     TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20 tps
 
                     // === Spawn positions ===
-                    double rlX = -7.5, rlY = -59.5, rlZ = 28.5;
-                    double dumbX = -7.5, dumbY = -59.5, dumbZ = 20.5;
+                    double rlX = 19.5, rlY = 2, rlZ = 17.5;
+                    double dumbX = 19.5, dumbY = 2, dumbZ = 9.5;
 
                     // === Spawn RLOperator ===
                     RLOperator rl = ModEntities.RL_OPERATOR.get().create(world);
