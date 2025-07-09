@@ -1,12 +1,14 @@
 package com.dyllan.minekov.training;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.RLOperator;
+import com.dyllan.minekov.entities.RLOperatorRegistry;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -52,13 +54,30 @@ public class TrainingState {
         }
 
         if (!rlIds.isEmpty()) {
-            Map<String, Object> data = Map.of("type", "tick", "operator_ids", rlIds);
+            Map<String, Map<String, Object>> operatorData = new HashMap<>();
+            for (String id : rlIds) {
+                for (RLOperator op : RLOperatorRegistry.getAll()) {
+                    if (op.getUUID().toString().equals(id)) {
+                        Map<String, Object> info = new HashMap<>();
+                        info.put("x", op.getX());
+                        info.put("y", op.getY());
+                        info.put("z", op.getZ());
+                        info.put("health", op.getHealth());
+                        // TODO: Add any step feedback like 'hit', 'tookDamage', 'wonRound', etc.
+                        operatorData.put(id, info);
+                        break;
+                    }
+                }
+            }
 
-            // TODO: convert operator_ids to another Map of operator UUIDs to details about them, including their xyz position, health, information about the previous step (ie. hit a target, took a hit, won round, lost round, etc.)
-            // for now, we can just simply send the UUIDs with values of a Map containing their xyz and health
+            Map<String, Object> data = Map.of(
+                "type", "tick",
+                "operator_ids", operatorData
+            );
 
             PythonBridge.tickPython(data);
         }
+
 
         if (isComplete()) {
             // kill everything

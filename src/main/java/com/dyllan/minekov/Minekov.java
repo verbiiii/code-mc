@@ -164,11 +164,11 @@ public class Minekov {
             URI uri = new URI("ws://127.0.0.1:8050/socket");
             pythonSocket = new PythonWebSocketClient(uri);
             pythonSocket.connect();
+            PythonBridge.websocketClient = pythonSocket;
         } catch (Exception e) {
             System.err.println("[Minekov] Failed to connect to Python dashboard:");
             e.printStackTrace();
         }
-        PythonBridge.websocketClient = pythonSocket; // Set the static client reference
     }
 
     @SubscribeEvent
@@ -185,6 +185,7 @@ public class Minekov {
                     URI uri = new URI("ws://127.0.0.1:8050/socket");
                     pythonSocket = new PythonWebSocketClient(uri);
                     pythonSocket.connect();
+                    PythonBridge.websocketClient = pythonSocket; // TODO: move this into the python socket connection automatically somehow
                 } catch (Exception e) {
                     System.err.println("[Minekov] Reconnect failed: " + e.getMessage());
                 }

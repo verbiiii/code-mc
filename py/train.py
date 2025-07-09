@@ -11,6 +11,9 @@ class TrainState1v1:
         self.my_position = my_position
         self.enemy_position = enemy_position
 
+    def update(self, info: dict):
+        print("TODO: update", info)
+
     def sample_action(self):
         # randomly sample our actions (super temporary)
 
