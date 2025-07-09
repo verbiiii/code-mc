@@ -144,38 +144,11 @@ public class TrainingState {
 
     private void cleanupRound() {
         roundActive = false;
-
-        Map<String, Integer> rlKills = new HashMap<>();
-        Map<String, Integer> rlDeaths = new HashMap<>();
-
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
                 for (AIOperator op : team.getOperators()) {
-                    if (op instanceof RLOperator rl) {
-                        String name = rl.getUUID().toString(); // or use rl.getName().getString() if you want names
-
-                        rlKills.put(name, rl.getKillsLastTick());
-                        rlDeaths.put(name, rl.getDeathsLastTick());
-                    }
-
                     op.kill();
                 }
-            }
-        }
-
-        // Now print result summary
-        for (String rl : rlKills.keySet()) {
-            int kills = rlKills.getOrDefault(rl, 0);
-            int deaths = rlDeaths.getOrDefault(rl, 0);
-            boolean won = kills > 0 && deaths == 0;
-            boolean lost = deaths > 0;
-
-            if (won) {
-                broadcastToPlayers("§aRLOp won the round! §7(Kills: " + kills + ", Deaths: " + deaths + ")");
-            } else if (lost) {
-                broadcastToPlayers("§cRLOp lost the round. §7(Kills: " + kills + ", Deaths: " + deaths + ")");
-            } else {
-                broadcastToPlayers("§eRound drawn. §7(RLOp Kills: " + kills + ", Deaths: " + deaths + ")");
             }
         }
 
