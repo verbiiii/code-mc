@@ -266,21 +266,21 @@ async def receive_scene(request: Request):
         return {"error": f"Expected {expected_size}, got {arr.size}"}
     
 
-@asgi_app.get("/action")
-async def get_action(request: StarletteRequest):
+@asgi_app.post("/tick")
+async def tick(request: StarletteRequest):
     global connected_websockets, event_loop
 
-    # Parse query param: ?ids=abc,def,ghi
-    ids_param = request.query_params.get("ids")
-    if not ids_param:
-        return JSONResponse(content={"error": "Missing 'ids' query parameter"}, status_code=400)
+    try:
+        payload = await request.json()
+    except Exception as e:
+        return JSONResponse(content={"error": f"Invalid JSON: {e}"}, status_code=400)
 
-    operator_ids = ids_param.split(",")
+    operator_ids = payload.get("operator_ids")
+    if not operator_ids:
+        return JSONResponse(content={"error": "Missing 'operator_ids' in JSON"}, status_code=400)
 
-    # Sample action (could be extended to per-id logic)
     move_degree, should_shoot = train_state.sample_action()
 
-    # Prepare and send packets
     for oid in operator_ids:
         oid = oid.strip()
         if not oid:
@@ -313,13 +313,11 @@ async def get_action(request: StarletteRequest):
                 except Exception:
                     connected_websockets.discard(ws)
 
-    # Return action for client-side logging/debug
     return {
         "operator_ids": operator_ids,
         "move_degree": move_degree,
         "should_shoot": should_shoot
     }
-
 
 
 @dash_app.callback(

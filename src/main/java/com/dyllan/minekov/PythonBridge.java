@@ -4,10 +4,14 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
+import java.util.Map;
+import com.google.gson.Gson;
 
 import com.dyllan.minekov.scene.SceneEncoder;
 
 public class PythonBridge {
+    private static final Gson gson = new Gson();
+
     public static void sendSceneVolume(SceneEncoder encoder) {
         try {
             URL url = new URL("http://127.0.0.1:8050/scene");
@@ -40,11 +44,18 @@ public class PythonBridge {
 
     public static void requestActions(List<String> operatorIds) {
         try {
-            String idList = String.join(",", operatorIds);
-            URL url = new URL("http://127.0.0.1:8050/action?ids=" + idList);
+            URL url = new URL("http://127.0.0.1:8050/tick");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
-            conn.setRequestMethod("GET");
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+
+            String jsonPayload = gson.toJson(Map.of("operator_ids", operatorIds));
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(jsonPayload.getBytes());
+            }
 
             int responseCode = conn.getResponseCode();
             if (responseCode != 200) {
