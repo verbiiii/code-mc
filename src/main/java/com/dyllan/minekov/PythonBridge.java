@@ -4,10 +4,16 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
+import java.util.Map;
+import com.google.gson.Gson;
 
 import com.dyllan.minekov.scene.SceneEncoder;
 
 public class PythonBridge {
+    private static final Gson gson = new Gson();
+
+    public static PythonWebSocketClient websocketClient;
+
     public static void sendSceneVolume(SceneEncoder encoder) {
         try {
             URL url = new URL("http://127.0.0.1:8050/scene");
@@ -38,23 +44,14 @@ public class PythonBridge {
         }
     }
 
-    public static void requestActions(List<String> operatorIds) {
-        try {
-            String idList = String.join(",", operatorIds);
-            URL url = new URL("http://127.0.0.1:8050/action?ids=" + idList);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
-            conn.setRequestMethod("GET");
-
-            int responseCode = conn.getResponseCode();
-            if (responseCode != 200) {
-                System.err.println("[PythonBridge] Action request failed with code: " + responseCode);
-            }
-
-            conn.disconnect();
-        } catch (Exception e) {
-            System.err.println("[PythonBridge] Failed to request actions: " + e.getMessage());
+    public static void tickPython(Map<String, Object> data) {
+        if (websocketClient == null || !websocketClient.isConnected()) {
+            System.err.println("[PythonBridge] WebSocket not connected.");
+            return;
         }
+
+        String json = gson.toJson(data);
+        websocketClient.send(json);
     }
 
 }
