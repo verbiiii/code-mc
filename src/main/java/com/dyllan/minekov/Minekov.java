@@ -100,46 +100,26 @@ public class Minekov {
                 )
             .then(Commands.literal("train")
                 .executes(ctx -> {
-                    ServerLevel world = ctx.getSource().getLevel();
-
-                    ServerPlayer player = ctx.getSource().getPlayer();
-                    trainingState = new TrainingState((Player) player, world.getServer());
-
-                    TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20 tps
-
-                    // === Spawn positions ===
-                    double rlX = 19.5, rlY = 2, rlZ = 17.5;
-                    double dumbX = 19.5, dumbY = 2, dumbZ = 9.5;
-
-                    // === Spawn RLOperator ===
-                    RLOperator rl = ModEntities.RL_OPERATOR.get().create(world);
-                    rl.moveTo(rlX, rlY, rlZ, 180.0f, 0.0f);
-                    world.addFreshEntity(rl);
-
-                    // === Spawn DumbOperator ===
-                    DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
-                    dumb.moveTo(dumbX, dumbY, dumbZ, 0.0f, 0.0f);
-                    world.addFreshEntity(dumb);
-
-                    // === Wrap into teams ===
-                    Team team1 = new Team();
-                    team1.addOperator(rl);
-
-                    Team team2 = new Team();
-                    team2.addOperator(dumb);
-
-                    // === Group + training ===
-                    group.addTeam(team1);
-                    group.addTeam(team2);
-                    trainingState.addGroup(group);
-
-                    world.getServer().getPlayerList().broadcastSystemMessage(
-                        Component.literal("Training initialized."), false
-                    );
-
-                    return 1;
-                }))
+                    return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), 1); // default 1 round
+                })
+                .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                    .executes(ctx -> {
+                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                        return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
+                    })
+                )
+            )
         );
+    }
+
+    private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds) {
+        trainingState = new TrainingState(player, world.getServer(), rounds);
+
+        world.getServer().getPlayerList().broadcastSystemMessage(
+            Component.literal("Training initialized. Rounds: " + rounds), false
+        );
+
+        return 1;
     }
 
     private static int runSceneCommand(ServerPlayer player, int xLength, int yLength, int zLength) {
