@@ -15,11 +15,19 @@ class TrainState1v1:
         self.python_ticks += 1
         java_tick = info.get("tick", 0)
 
-        is_first_tick = info["is_first_tick"]
-        is_last_tick = info["is_last_tick"]
+        is_first_tick = info.get("is_first_tick", False)
+        is_last_tick = info.get("is_last_tick", False)
+        round_num = info.get("round", -1)
+        event = info.get("event", None)
 
-        if is_first_tick:
-            print("🚀 Starting new train session...")
+        if event == "start_session":
+            print(f"🎬 Session started with {info.get('rounds', '?')} rounds!")
+        elif event == "end_session":
+            print(f"✅ Session complete after {info.get('rounds', '?')} rounds!")
+        elif event == "start_round":
+            print(f"🌀 Round {round_num + 1} starting!")
+        elif event == "end_round":
+            print(f"⛔ Round {round_num + 1} complete!")
 
         rl_ids = info.get("rl_operator_ids", [])
         all_ops = info.get("all_operators", {})
@@ -29,18 +37,22 @@ class TrainState1v1:
             dmg_dealt = data.get("damage_dealt_last_tick", 0.0)
             dmg_taken = data.get("damage_taken_last_tick", 0.0)
             reward = dmg_dealt - dmg_taken
-            print(f"🎯 [py_tick={self.python_ticks}, jv_tick={java_tick}] Operator {oid[:4]}.. reward: {reward:.2f}")
+            short_id = oid[:4]
 
-            if (data["deaths_last_tick"] > 0):
-                print(f"💀 Operator {oid[:4]}.. died last tick")
+            print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {short_id} | 📈 Reward: {reward:.2f}")
+
+            if data.get("deaths_last_tick", 0) > 0:
+                print(f"💀 {short_id} died!")
                 reward -= 100.0
 
-            if (data["kills_last_tick"] > 0):
-                print(f"🏆 Operator {oid[:4]}.. killed last tick")
+            if data.get("kills_last_tick", 0) > 0:
+                print(f"🏆 {short_id} got a kill!")
                 reward += 100.0
-            
-        if is_last_tick:
-            print("🏁 Ending train session...")
+
+        if is_first_tick and not event:
+            print("🚀 Java round started (but no event tag?)")
+        if is_last_tick and not event:
+            print("🏁 Java round ending (but no event tag?)")
 
     def sample_action(self):
         # randomly sample our actions (super temporary)
