@@ -8,7 +8,6 @@ import java.util.Map;
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.RLOperator;
-import com.dyllan.minekov.entities.RLOperatorRegistry;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -36,17 +35,25 @@ public class TrainingState {
             group.tick();
         }
 
-        // 🧠 Collect all RLOperator UUIDs
+        // 🧐 Collect all RLOperator UUIDs
         List<String> rlIds = new ArrayList<>();
+        Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
+
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
-                for (AIOperator op : team.getOperators()) {
-                    // if it's not an RLOperator, skip
-                    if (!(op instanceof RLOperator)) {
-                        continue;
-                    }
+                String teamId = team.getTeamId(); // assume you have getId()
 
-                    if (op != null && op.isAlive()) {
+                for (AIOperator op : team.getOperators()) {
+                    Map<String, Object> info = new HashMap<>();
+                    info.put("x", op.getX());
+                    info.put("y", op.getY());
+                    info.put("z", op.getZ());
+                    info.put("health", op.getHealth());
+                    info.put("team", teamId);
+                    info.put("is_rl", op instanceof RLOperator);
+                    allOperatorData.put(op.getUUID().toString(), info);
+
+                    if (op instanceof RLOperator && op.isAlive()) {
                         rlIds.add(op.getUUID().toString());
                     }
                 }
@@ -54,30 +61,14 @@ public class TrainingState {
         }
 
         if (!rlIds.isEmpty()) {
-            Map<String, Map<String, Object>> operatorData = new HashMap<>();
-            for (String id : rlIds) {
-                for (RLOperator op : RLOperatorRegistry.getAll()) {
-                    if (op.getUUID().toString().equals(id)) {
-                        Map<String, Object> info = new HashMap<>();
-                        info.put("x", op.getX());
-                        info.put("y", op.getY());
-                        info.put("z", op.getZ());
-                        info.put("health", op.getHealth());
-                        // TODO: Add any step feedback like 'hit', 'tookDamage', 'wonRound', etc.
-                        operatorData.put(id, info);
-                        break;
-                    }
-                }
-            }
-
             Map<String, Object> data = Map.of(
                 "type", "tick",
-                "operator_ids", operatorData
+                "rl_operator_ids", rlIds,
+                "all_operators", allOperatorData
             );
 
             PythonBridge.tickPython(data);
         }
-
 
         if (isComplete()) {
             // kill everything
@@ -92,7 +83,6 @@ public class TrainingState {
     }
 
     public boolean isComplete() {
-        // Check if all groups are complete
         return groups.stream().allMatch(TrainingGroup::isComplete);
     }
 

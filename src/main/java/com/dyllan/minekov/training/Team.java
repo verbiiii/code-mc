@@ -2,13 +2,18 @@ package com.dyllan.minekov.training;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.dyllan.minekov.entities.AIOperator;
 
 public class Team {
-    private List<AIOperator> operators;
+    private static final AtomicInteger nextId = new AtomicInteger(1);
+
+    private final String teamId;
+    private final List<AIOperator> operators;
 
     public Team() {
+        this.teamId = "team-" + nextId.getAndIncrement();
         this.operators = new ArrayList<>();
     }
 
@@ -28,5 +33,9 @@ public class Team {
 
     public List<AIOperator> getOperators() {
         return operators;
+    }
+
+    public String getTeamId() {
+        return teamId;
     }
 }

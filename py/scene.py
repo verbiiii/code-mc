@@ -293,19 +293,24 @@ async def ws_endpoint(websocket: WebSocket):
                         if agent_id:
                             operator_state[agent_id] = agent
                 elif payload.get("type") == "tick":
-                    operator_info = payload.get("operator_ids", {})  # this is now a dict: {id: {x, y, z, health, ...}}
+                    all_operators = payload.get("all_operators", {})
+                    rl_ids = payload.get("rl_operator_ids", [])
 
-                    if not isinstance(operator_info, dict):
-                        print("⚠️ Invalid operator_ids payload")
+                    if not isinstance(all_operators, dict) or not isinstance(rl_ids, list):
+                        print("⚠️ Invalid tick payload format")
                         return
 
-                    # Update train state with observation
-                    train_state.update(operator_info)
+                    # ✅ Update Python-side training state with full operator observations
+                    train_state.update(all_operators)
 
-                    # Sample action for now (same for all, can be customized later)
-                    move_degree, should_shoot = train_state.sample_action()
+                    # 🔁 Sample action for each RL agent and send it
+                    for oid in rl_ids:
+                        obs = all_operators.get(oid)
+                        if not obs:
+                            continue  # skip if somehow not found
 
-                    for oid, obs in operator_info.items():
+                        move_degree, should_shoot = train_state.sample_action()
+
                         if move_degree is not None:
                             move_packet = {
                                 "type": "joystick_vector",
