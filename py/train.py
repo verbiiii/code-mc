@@ -21,6 +21,13 @@ class TrainState1v1:
             dmg_taken = data.get("damage_taken_last_tick", 0.0)
             reward = dmg_dealt - dmg_taken
 
+            if (data["deaths_last_tick"] > 0):
+                print(f"💀 Operator {oid[:4]}.. died last tick")
+                reward -= 100.0
+            if (data["kills_last_tick"] > 0):
+                print(f"🏆 Operator {oid[:4]}.. killed last tick")
+                reward += 100.0
+
             print(f"🎯 Operator {oid[:4]}.. reward: {reward:.2f}")
 
     def sample_action(self):

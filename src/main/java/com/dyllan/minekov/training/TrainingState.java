@@ -54,6 +54,8 @@ public class TrainingState {
                     if (op instanceof RLOperator rlOp) {
                         info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
                         info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
+                        info.put("deaths_last_tick", rlOp.getDeathsLastTick());
+                        info.put("kills_last_tick", rlOp.getKillsLastTick());
 
                         rlIds.add(rlOp.getUUID().toString());
 

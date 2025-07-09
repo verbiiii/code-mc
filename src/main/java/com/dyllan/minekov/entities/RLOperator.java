@@ -13,6 +13,12 @@ public class RLOperator extends AIOperator {
 
     private float damageTakenLastTick = 0f;
     private float damageDealtLastTick = 0f;
+    
+    private int deaths = 0;
+    private int kills = 0;
+    
+    private int deathsLastTick = 0;
+    private int killsLastTick = 0;
 
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -124,6 +130,16 @@ public class RLOperator extends AIOperator {
         damageDealtLastTick += amount;
     }
 
+    public void addDeath() {
+        deaths++;
+        deathsLastTick++;
+    }
+
+    public void addKill() {
+        kills++;
+        killsLastTick++;
+    }
+
     public float getDamageTakenLastTick() {
         return damageTakenLastTick;
     }
@@ -135,5 +151,23 @@ public class RLOperator extends AIOperator {
     public void clearTickDamageStats() {
         this.damageTakenLastTick = 0f;
         this.damageDealtLastTick = 0f;
+        this.deathsLastTick = 0;
+        this.killsLastTick = 0;
+    }
+
+    public int getDeaths() {
+        return deaths;
+    }
+
+    public int getKills() {
+        return kills;
+    }
+
+    public int getDeathsLastTick() {
+        return deathsLastTick;
+    }
+
+    public int getKillsLastTick() {
+        return killsLastTick;
     }
 }

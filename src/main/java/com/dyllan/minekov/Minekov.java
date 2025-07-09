@@ -8,10 +8,13 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -258,6 +261,31 @@ public class Minekov {
         // If attacker is an RL operator, track damage dealt
         if (event.getSource().getEntity() instanceof RLOperator attacker) {
             attacker.addDamageDealt(event.getAmount());
+        }
+    }
+
+    @SubscribeEvent
+    public static void onOperatorDeath(LivingDeathEvent event) {
+        LivingEntity victimEntity = event.getEntity();
+        Entity attackerEntity = event.getSource().getEntity();
+
+        // both the victim and attacker must be AIOperator subclasses
+        if (!(victimEntity instanceof RLOperator) && !(attackerEntity instanceof RLOperator)) {
+            return; // nothing to track
+        }
+
+        // Only RL operators track deaths
+        if (victimEntity instanceof RLOperator victim) {
+            victim.addDeath();
+            System.out.println("[Minekov] RLOperator " + victim.getName().getString() +
+                    " died from " + event.getSource().getMsgId() + "!");
+        }
+
+        // Only RL operators track kills
+        if (attackerEntity instanceof RLOperator attacker) {
+            attacker.addKill();
+            System.out.println("[Minekov] RLOperator " + attacker.getName().getString() +
+                    " killed " + victimEntity.getName().getString() + "!");
         }
     }
 
