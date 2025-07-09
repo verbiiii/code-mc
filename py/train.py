@@ -22,6 +22,10 @@ class TrainState1v1:
             torch.nn.Tanh(),
         )
 
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.log_probs = []
+        self.rewards = []
+
     def update(self, info: dict):
         self.python_ticks += 1
         java_tick = info.get("tick", 0)
@@ -39,6 +43,7 @@ class TrainState1v1:
             print(f"🌀 Round {round_num + 1} starting!")
         elif event == "end_round":
             print(f"⛔ Round {round_num + 1} complete!")
+            return self.apply_reinforce()
 
         rl_ids = info.get("rl_operator_ids", [])
         all_ops = info.get("all_operators", {})
@@ -62,6 +67,8 @@ class TrainState1v1:
             if data.get("kills_last_tick", 0) > 0:
                 print(f"🏆 {short_id} got a kill!")
                 reward += 100.0
+
+            self.rewards.append(reward)
 
         if is_first_tick and not event:
             print("🚀 Java round started (but no event tag?)")
@@ -96,7 +103,10 @@ class TrainState1v1:
         dist = torch.distributions.Normal(loc=mu, scale=sigma)
 
         # sample all at once
-        sample = dist.sample()  # shape: [3]
+        sample = dist.rsample()  # enables backprop
+        log_prob = dist.log_prob(sample)  # shape: [3]
+        self.log_probs.append(log_prob.sum())  # store total log prob for this step
+
         move_val, shoot_val, angle_val = sample.tolist()
 
         # binarize movement/shooting decisions
@@ -112,3 +122,29 @@ class TrainState1v1:
             angle = None
 
         return angle, should_shoot
+
+    def apply_reinforce(self):
+        if not self.log_probs or not self.rewards:
+            return
+
+        # convert to tensors
+        rewards = torch.tensor(self.rewards, dtype=torch.float32)
+        log_probs = torch.stack(self.log_probs)  # shape: [T]
+
+        # optional: normalize rewards
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+
+        # REINFORCE loss: -Σ log_prob × reward
+        loss = -(log_probs * rewards).mean()
+
+        print(f"🧮 REINFORCE loss = {loss.item():.4f}")
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # clear for next round
+        self.log_probs.clear()
+        self.rewards.clear()
+
+        print("✅ Model updated using REINFORCE")
