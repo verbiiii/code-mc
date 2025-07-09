@@ -15,7 +15,6 @@ public class DumbGunAttackGoal extends Goal {
 
     private final AIOperator mob;
     private LivingEntity target;
-    private int cooldown = 0;
     private final double range;
 
     public DumbGunAttackGoal(AIOperator mob) {
@@ -57,13 +56,8 @@ public class DumbGunAttackGoal extends Goal {
 
         // if there's a target, aim down sights
         mob.aim(true);
-
         this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
-
-        if (--cooldown <= 0) {
-            tryFireGun();
-            cooldown = 3 + mob.getRandom().nextInt(5);
-        }
+        tryFireGun();
     }
 
     private LivingEntity findVisiblePlayer() {
