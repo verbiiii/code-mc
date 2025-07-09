@@ -4,7 +4,7 @@ import numpy as np
 class TrainState1v1:
 
     def __init__(self):
-        pass
+        self.python_ticks = 0
 
     def update_state(self, volume_array: np.ndarray, my_position: tuple, enemy_position: tuple):
         self.volume_array = volume_array
@@ -12,6 +12,9 @@ class TrainState1v1:
         self.enemy_position = enemy_position
 
     def update(self, info: dict):
+        self.python_ticks += 1
+        java_tick = info.get("tick", 0)
+
         is_first_tick = info["is_first_tick"]
         is_last_tick = info["is_last_tick"]
 
@@ -26,7 +29,7 @@ class TrainState1v1:
             dmg_dealt = data.get("damage_dealt_last_tick", 0.0)
             dmg_taken = data.get("damage_taken_last_tick", 0.0)
             reward = dmg_dealt - dmg_taken
-            print(f"🎯 Operator {oid[:4]}.. reward: {reward:.2f}")
+            print(f"🎯 [py_tick={self.python_ticks}, jv_tick={java_tick}] Operator {oid[:4]}.. reward: {reward:.2f}")
 
             if (data["deaths_last_tick"] > 0):
                 print(f"💀 Operator {oid[:4]}.. died last tick")

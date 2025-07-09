@@ -78,7 +78,7 @@ public class TrainingState {
         if (!rlIds.isEmpty()) {
             Map<String, Object> data = Map.of(
                 "type", "tick",
-                "tick", currentTick - 1,
+                "tick", currentTick,
                 "is_first_tick", isFirstTick,
                 "is_last_tick", isDone,
                 "rl_operator_ids", rlIds,
