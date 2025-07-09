@@ -82,61 +82,33 @@ class TrainState1v1:
         if self.tick_x is None:
             raise ValueError("Cannot sample action before updating the train state with game info.")
 
-        # randomly sample our actions (super temporary)
+        # run forward pass
+        y = self.model(self.tick_x)  # shape: [1, 6]
 
-        # # generate random value for should walk
-        # should_walk = np.random.rand() < 0.5
+        # unpack into means and log stds (more stable if you later optimize)
+        mu = y[0, ::2]     # [μ₁, μ₂, μ₃]
+        sigma_raw = y[0, 1::2]  # [σ₁, σ₂, σ₃] ∈ [-1, 1]
 
-        # # now, choose a random degree between 0 and 360
-        # degree = np.random.randint(0, 360) if should_walk else None
+        # map sigma from [-1, 1] → [0.01, 1.0] (avoid exact 0 std)
+        sigma = 0.5 * (sigma_raw + 1.0) * 0.99 + 0.01
 
-        # should_shoot = np.random.rand() < 0.5
+        # build a multivariate distribution
+        dist = torch.distributions.Normal(loc=mu, scale=sigma)
 
-        # return degree, should_shoot
+        # sample all at once
+        sample = dist.sample()  # shape: [3]
+        move_val, shoot_val, angle_val = sample.tolist()
 
-        # let's do a stochastic policy
-        # so let's get an output feature vector of [should_move, should_shoot, mu0, sigma0, mu1, sigma1]
-        # the reason for this is 
+        # binarize movement/shooting decisions
+        should_move = move_val > 0
+        should_shoot = shoot_val > 0
 
-        # let's use float32s and then apply a tanh
-        y = self.model(self.tick_x)
-
-        print(y)
-
-        # NOTE: we should definitely only be using tanh.
-
-        # now, let's get the true/false values and the x and y vector component distributions
-        should_move = y[0, 0] > 0
-        should_shoot = y[0, 1] > 0
-
-        mu0 = y[0, 2]
-        sigma0 = y[0, 3]
-        mu1 = y[0, 4]
-        sigma1 = y[0, 5]
-
-        # convert sigmas from -1 1 range to 0 to 1 range
-        sigma0 = (sigma0 + 1) / 2
-        sigma1 = (sigma1 + 1) / 2
-
-        # now, we can use torch.distributions.Normal to sample from the distributions
-        x_dist = torch.distributions.Normal(mu0, sigma0)
-        y_dist = torch.distributions.Normal(mu1, sigma1)
-
-        # now we need to sample points and then convert them into 0-360 degrees
-        x_sample = x_dist.sample()
-        y_sample = y_dist.sample()
-
-        # the x and y sample represent a vector we need to convert into a degree clockwise from (0, 1)
-        angle = torch.atan2(y_sample, x_sample)
-        angle = torch.atan2(y_sample, x_sample)
-        angle = torch.rad2deg(angle)  # convert to degrees
-        angle = (angle + 360) % 360   # wrap to [0, 360)
+        # wrap angle to [0, 360)
+        angle = torch.rad2deg(torch.tensor(angle_val))
+        angle = (angle + 360) % 360
         angle = angle.item()
 
-        # now, we return the action. angle becomes none if we chose not to move.
         if not should_move:
             angle = None
-
-        print(angle, should_move, should_shoot)
 
         return angle, should_shoot
