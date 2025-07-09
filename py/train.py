@@ -1,15 +1,30 @@
 import numpy as np
 
+import torch
+
 
 class TrainState1v1:
 
     def __init__(self):
         self.python_ticks = 0
+        self.tick_x = None
 
-    def update_state(self, volume_array: np.ndarray, my_position: tuple, enemy_position: tuple):
-        self.volume_array = volume_array
-        self.my_position = my_position
-        self.enemy_position = enemy_position
+        # model is a feed forward from 4 features to 6 outputs
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(4, 16),
+            torch.nn.Tanh(),
+            torch.nn.Linear(16, 32),
+            torch.nn.Tanh(),
+            torch.nn.Linear(32, 16),
+            torch.nn.Tanh(),
+            torch.nn.Linear(16, 6),
+            # NOTE: we should definitely only be using tanh, at least on the output layer.
+            torch.nn.Tanh(),
+        )
+
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.log_probs = []
+        self.rewards = []
 
     def update(self, info: dict):
         self.python_ticks += 1
@@ -28,9 +43,13 @@ class TrainState1v1:
             print(f"🌀 Round {round_num + 1} starting!")
         elif event == "end_round":
             print(f"⛔ Round {round_num + 1} complete!")
+            return self.apply_reinforce()
 
         rl_ids = info.get("rl_operator_ids", [])
         all_ops = info.get("all_operators", {})
+
+        if len(rl_ids) > 1:
+            raise NotImplementedError("Currently the RL agent can only handle 1 RLOperator at a time.")
 
         for oid in rl_ids:
             data = all_ops.get(oid, {})
@@ -49,20 +68,83 @@ class TrainState1v1:
                 print(f"🏆 {short_id} got a kill!")
                 reward += 100.0
 
+            self.rewards.append(reward)
+
         if is_first_tick and not event:
             print("🚀 Java round started (but no event tag?)")
         if is_last_tick and not event:
             print("🏁 Java round ending (but no event tag?)")
 
+        if len(rl_ids) > 0:
+            self.our_data = all_ops[rl_ids[0]]
+            self.our_x = self.our_data.get("x")
+            self.our_y = self.our_data.get("y")
+            self.our_z = self.our_data.get("z")
+            self.our_health = self.our_data["health"]
+
+            # create our feature vector
+            self.tick_x = torch.tensor(np.array([self.our_x, self.our_y, self.our_z, self.our_health], dtype=np.float32), dtype=torch.float32).unsqueeze(0) # faux batch dim
+
     def sample_action(self):
-        # randomly sample our actions (super temporary)
+        if self.tick_x is None:
+            raise ValueError("Cannot sample action before updating the train state with game info.")
 
-        # generate random value for should walk
-        should_walk = np.random.rand() < 0.5
+        # run forward pass
+        y = self.model(self.tick_x)  # shape: [1, 6]
 
-        # now, choose a random degree between 0 and 360
-        degree = np.random.randint(0, 360) if should_walk else None
+        # unpack into means and log stds (more stable if you later optimize)
+        mu = y[0, ::2]     # [μ₁, μ₂, μ₃]
+        sigma_raw = y[0, 1::2]  # [σ₁, σ₂, σ₃] ∈ [-1, 1]
 
-        should_shoot = np.random.rand() < 0.5
+        # map sigma from [-1, 1] → [0.01, 1.0] (avoid exact 0 std)
+        sigma = 0.5 * (sigma_raw + 1.0) * 0.99 + 0.01
 
-        return degree, should_shoot
+        # build a multivariate distribution
+        dist = torch.distributions.Normal(loc=mu, scale=sigma)
+
+        # sample all at once
+        sample = dist.rsample()  # enables backprop
+        log_prob = dist.log_prob(sample)  # shape: [3]
+        self.log_probs.append(log_prob.sum())  # store total log prob for this step
+
+        move_val, shoot_val, angle_val = sample.tolist()
+
+        # binarize movement/shooting decisions
+        should_move = move_val > 0
+        should_shoot = shoot_val > 0
+
+        # wrap angle to [0, 360)
+        angle = torch.rad2deg(torch.tensor(angle_val))
+        angle = (angle + 360) % 360
+        angle = angle.item()
+
+        if not should_move:
+            angle = None
+
+        return angle, should_shoot
+
+    def apply_reinforce(self):
+        if not self.log_probs or not self.rewards:
+            return
+
+        # convert to tensors
+        rewards = torch.tensor(self.rewards, dtype=torch.float32)
+        log_probs = torch.stack(self.log_probs)  # shape: [T]
+
+        # optional: normalize rewards
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+
+        # REINFORCE loss: -Σ log_prob × reward
+        loss = -(log_probs * rewards).mean()
+
+        print(f"🧮 REINFORCE loss = {loss.item():.4f}")
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # clear for next round
+        self.log_probs.clear()
+        self.rewards.clear()
+
+        print("✅ Model updated using REINFORCE")
