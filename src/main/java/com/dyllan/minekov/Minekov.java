@@ -73,9 +73,7 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("scene")
-                    .executes(context -> {
-                        return runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32);
-                    })
+                    .executes(context -> runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32))
                     .then(Commands.argument("x_length", IntegerArgumentType.integer(1))
                         .executes(context -> {
                             int x = IntegerArgumentType.getInteger(context, "x_length");
@@ -98,19 +96,34 @@ public class Minekov {
                         )
                     )
                 )
-            .then(Commands.literal("train")
-                .executes(ctx -> {
-                    return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), 1); // default 1 round
-                })
-                .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
-                    .executes(ctx -> {
-                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                        return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
-                    })
+                .then(Commands.literal("train")
+                    .then(Commands.literal("start")
+                        .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                            .executes(ctx -> {
+                                int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
+                            })
+                        )
+                    )
+                    .then(Commands.literal("stop")
+                        .executes(ctx -> {
+                            if (trainingState != null) {
+                                trainingState.stop();
+                                trainingState = null;
+                                ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(
+                                    Component.literal("Training session forcefully stopped."), false
+                                );
+                                return 1;
+                            } else {
+                                ctx.getSource().sendFailure(Component.literal("No active training session."));
+                                return 0;
+                            }
+                        })
+                    )
                 )
-            )
         );
     }
+
 
     private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds) {
         trainingState = new TrainingState(player, world.getServer(), rounds);

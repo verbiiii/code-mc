@@ -176,4 +176,18 @@ public class TrainingState {
     public Player getProvisioningPlayer() {
         return provisioningPlayer;
     }
+
+    public void stop() {
+        // forcibly stop the training session
+        if (roundActive) {
+            cleanupRound();
+            roundActive = false;
+        }
+        currentRound = 0;
+        currentRoundTick = 0;
+        groups.clear();
+        sendTickEvent("stop_session", Map.of("rounds", numRounds));
+        broadcastToPlayers("§cTraining session forcefully stopped.");
+        // PythonBridge.stopPython(); // TODO: maybe python wants to know about it?
+    }
 }
