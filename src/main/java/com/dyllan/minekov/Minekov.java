@@ -11,6 +11,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.Scoreboard;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -27,12 +29,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
-import com.dyllan.minekov.training.Team;
-import com.dyllan.minekov.training.TrainingGroup;
+import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
 
 @Mod(Minekov.MODID)
@@ -127,6 +127,12 @@ public class Minekov {
 
     private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds) {
         trainingState = new TrainingState(player, world.getServer(), rounds);
+
+        // display scoreboard
+        TrainingScoreboard.setServer(world.getServer());
+        Scoreboard scoreboard = world.getServer().getScoreboard();
+        Objective obj = scoreboard.getObjective("ai_kills");
+        scoreboard.setDisplayObjective(1, obj);
 
         world.getServer().getPlayerList().broadcastSystemMessage(
             Component.literal("Training initialized. Rounds: " + rounds), false

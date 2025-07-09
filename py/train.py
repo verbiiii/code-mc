@@ -22,7 +22,7 @@ class TrainState1v1:
             torch.nn.Tanh(),
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-1)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=3e-1)
         self.log_probs = []
         self.rewards = []
 
