@@ -11,6 +11,9 @@ import net.minecraft.world.phys.Vec3;
 public class RLOperator extends AIOperator {
     private WatchClosestTargetGoal watchGoal;
 
+    private float damageTakenLastTick = 0f;
+    private float damageDealtLastTick = 0f;
+
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
     }
@@ -112,4 +115,25 @@ public class RLOperator extends AIOperator {
     //     this.setSpeed((float) this.getAttributeValue(Attributes.MOVEMENT_SPEED));
     //     super.travel(travelVector); // this applies zza/xxa/yya
     // }
+
+    public void addDamageTaken(float amount) {
+        damageTakenLastTick += amount;
+    }
+
+    public void addDamageDealt(float amount) {
+        damageDealtLastTick += amount;
+    }
+
+    public float getDamageTakenLastTick() {
+        return damageTakenLastTick;
+    }
+
+    public float getDamageDealtLastTick() {
+        return damageDealtLastTick;
+    }
+
+    public void clearTickDamageStats() {
+        this.damageTakenLastTick = 0f;
+        this.damageDealtLastTick = 0f;
+    }
 }

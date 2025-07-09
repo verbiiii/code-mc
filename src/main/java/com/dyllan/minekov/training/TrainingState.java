@@ -32,16 +32,15 @@ public class TrainingState {
 
     public void tick() {
         for (TrainingGroup group : groups) {
-            group.tick();
+            group.tick(); // TODO outer tick counter
         }
 
-        // 🧐 Collect all RLOperator UUIDs
         List<String> rlIds = new ArrayList<>();
         Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
 
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
-                String teamId = team.getTeamId(); // assume you have getId()
+                String teamId = team.getTeamId();
 
                 for (AIOperator op : team.getOperators()) {
                     Map<String, Object> info = new HashMap<>();
@@ -51,11 +50,18 @@ public class TrainingState {
                     info.put("health", op.getHealth());
                     info.put("team", teamId);
                     info.put("is_rl", op instanceof RLOperator);
-                    allOperatorData.put(op.getUUID().toString(), info);
 
-                    if (op instanceof RLOperator && op.isAlive()) {
-                        rlIds.add(op.getUUID().toString());
+                    if (op instanceof RLOperator rlOp) {
+                        info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
+                        info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
+
+                        rlIds.add(rlOp.getUUID().toString());
+
+                        // 🔁 Clear stats after sending
+                        rlOp.clearTickDamageStats();
                     }
+
+                    allOperatorData.put(op.getUUID().toString(), info);
                 }
             }
         }
@@ -71,16 +77,15 @@ public class TrainingState {
         }
 
         if (isComplete()) {
-            // kill everything
             for (TrainingGroup group : groups) {
                 group.getTeams().forEach(team -> team.getOperators().forEach(op -> op.kill()));
             }
 
-            // notify the player
             MutableComponent message = Component.literal("§aTraining complete!");
             server.getPlayerList().broadcastSystemMessage(message, false);
         }
     }
+
 
     public boolean isComplete() {
         return groups.stream().allMatch(TrainingGroup::isComplete);

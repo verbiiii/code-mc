@@ -20,9 +20,9 @@ public class TrainingGroup {
 
     public void tick() {
         currentTick++;
-        for (Team team : teams) {
-            team.tick();  // delegate control logic
-        }
+        // for (Team team : teams) {
+        //     team.tick();  // delegate control logic
+        // }
     }
 
     public boolean isComplete() {

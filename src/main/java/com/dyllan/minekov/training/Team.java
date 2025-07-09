@@ -21,11 +21,12 @@ public class Team {
         this.operators.add(op);
     }
 
-    public void tick() {
-        for (AIOperator op : operators) {
-            op.tick();  // RL/dumb action
-        }
-    }
+    // redundant tick call
+    // public void tick() {
+    //     for (AIOperator op : operators) {
+    //         op.tick();  // RL/dumb action
+    //     }
+    // }
 
     public boolean isAlive() {
         return operators.stream().anyMatch(AIOperator::isAlive);

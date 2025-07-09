@@ -301,7 +301,7 @@ async def ws_endpoint(websocket: WebSocket):
                         return
 
                     # ✅ Update Python-side training state with full operator observations
-                    train_state.update(all_operators)
+                    train_state.update(payload)
 
                     # 🔁 Sample action for each RL agent and send it
                     for oid in rl_ids:

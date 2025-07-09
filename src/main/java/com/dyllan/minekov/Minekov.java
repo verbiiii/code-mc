@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
@@ -246,5 +247,19 @@ public class Minekov {
             e.printStackTrace();
         }
     }
+
+    @SubscribeEvent
+    public static void onRLCombatEvent(LivingHurtEvent event) {
+        // If victim is an RL operator, track damage taken
+        if (event.getEntity() instanceof RLOperator victim) {
+            victim.addDamageTaken(event.getAmount());
+        }
+
+        // If attacker is an RL operator, track damage dealt
+        if (event.getSource().getEntity() instanceof RLOperator attacker) {
+            attacker.addDamageDealt(event.getAmount());
+        }
+    }
+
 
 }
