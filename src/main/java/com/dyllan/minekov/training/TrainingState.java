@@ -20,6 +20,9 @@ public class TrainingState {
     private Player provisioningPlayer;
     private final MinecraftServer server;
 
+    // currentTick may be reset to 0 when the session restarts
+    private int currentTick = 0;
+
     public TrainingState(Player provisioningPlayer, MinecraftServer server) {
         this.groups = new ArrayList<TrainingGroup>();
         this.provisioningPlayer = provisioningPlayer;
@@ -31,8 +34,11 @@ public class TrainingState {
     }
 
     public void tick() {
+        boolean isFirstTick = currentTick == 0;
+        currentTick++;
+
         for (TrainingGroup group : groups) {
-            group.tick(); // TODO outer tick counter
+            group.tick();
         }
 
         List<String> rlIds = new ArrayList<>();
@@ -59,7 +65,6 @@ public class TrainingState {
 
                         rlIds.add(rlOp.getUUID().toString());
 
-                        // 🔁 Clear stats after sending
                         rlOp.clearTickDamageStats();
                     }
 
@@ -68,9 +73,14 @@ public class TrainingState {
             }
         }
 
+        boolean isDone = isComplete();
+
         if (!rlIds.isEmpty()) {
             Map<String, Object> data = Map.of(
                 "type", "tick",
+                "tick", currentTick - 1,
+                "is_first_tick", isFirstTick,
+                "is_last_tick", isDone,
                 "rl_operator_ids", rlIds,
                 "all_operators", allOperatorData
             );
@@ -78,7 +88,7 @@ public class TrainingState {
             PythonBridge.tickPython(data);
         }
 
-        if (isComplete()) {
+        if (isDone) {
             for (TrainingGroup group : groups) {
                 group.getTeams().forEach(team -> team.getOperators().forEach(op -> op.kill()));
             }
@@ -87,7 +97,6 @@ public class TrainingState {
             server.getPlayerList().broadcastSystemMessage(message, false);
         }
     }
-
 
     public boolean isComplete() {
         return groups.stream().allMatch(TrainingGroup::isComplete);

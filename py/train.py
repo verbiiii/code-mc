@@ -12,6 +12,12 @@ class TrainState1v1:
         self.enemy_position = enemy_position
 
     def update(self, info: dict):
+        is_first_tick = info["is_first_tick"]
+        is_last_tick = info["is_last_tick"]
+
+        if is_first_tick:
+            print("🚀 Starting new train session...")
+
         rl_ids = info.get("rl_operator_ids", [])
         all_ops = info.get("all_operators", {})
 
@@ -20,15 +26,18 @@ class TrainState1v1:
             dmg_dealt = data.get("damage_dealt_last_tick", 0.0)
             dmg_taken = data.get("damage_taken_last_tick", 0.0)
             reward = dmg_dealt - dmg_taken
+            print(f"🎯 Operator {oid[:4]}.. reward: {reward:.2f}")
 
             if (data["deaths_last_tick"] > 0):
                 print(f"💀 Operator {oid[:4]}.. died last tick")
                 reward -= 100.0
+
             if (data["kills_last_tick"] > 0):
                 print(f"🏆 Operator {oid[:4]}.. killed last tick")
                 reward += 100.0
-
-            print(f"🎯 Operator {oid[:4]}.. reward: {reward:.2f}")
+            
+        if is_last_tick:
+            print("🏁 Ending train session...")
 
     def sample_action(self):
         # randomly sample our actions (super temporary)
