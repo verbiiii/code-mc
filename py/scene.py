@@ -265,61 +265,6 @@ async def receive_scene(request: Request):
         print(f"❌ Size mismatch: expected={expected_size}, got={arr.size}", flush=True)
         return {"error": f"Expected {expected_size}, got {arr.size}"}
     
-
-@asgi_app.post("/tick")
-async def tick(request: StarletteRequest):
-    global connected_websockets, event_loop
-
-    try:
-        payload = await request.json()
-    except Exception as e:
-        return JSONResponse(content={"error": f"Invalid JSON: {e}"}, status_code=400)
-
-    operator_ids = payload.get("operator_ids")
-    if not operator_ids:
-        return JSONResponse(content={"error": "Missing 'operator_ids' in JSON"}, status_code=400)
-
-    move_degree, should_shoot = train_state.sample_action()
-
-    for oid in operator_ids:
-        oid = oid.strip()
-        if not oid:
-            continue
-
-        if move_degree is not None:
-            move_packet = {
-                "type": "joystick_vector",
-                "id": oid,
-                "vector": {"x": 0.0, "y": 1.0, "angle": move_degree},
-                "timestamp": int(time.time() * 1000)
-            }
-            for ws in connected_websockets.copy():
-                try:
-                    if event_loop:
-                        asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(move_packet)), event_loop)
-                except Exception:
-                    connected_websockets.discard(ws)
-
-        if should_shoot:
-            shoot_packet = {
-                "type": "fire",
-                "id": oid,
-                "timestamp": int(time.time() * 1000)
-            }
-            for ws in connected_websockets.copy():
-                try:
-                    if event_loop:
-                        asyncio.run_coroutine_threadsafe(ws.send_text(json.dumps(shoot_packet)), event_loop)
-                except Exception:
-                    connected_websockets.discard(ws)
-
-    return {
-        "operator_ids": operator_ids,
-        "move_degree": move_degree,
-        "should_shoot": should_shoot
-    }
-
-
 @dash_app.callback(
     Output("scene-refresh-trigger", "data"),
     Input("scene-poll", "n_intervals"),
@@ -347,6 +292,32 @@ async def ws_endpoint(websocket: WebSocket):
                         agent_id = agent.get("id")
                         if agent_id:
                             operator_state[agent_id] = agent
+                elif payload.get("type") == "tick":
+                    operator_ids = payload.get("operator_ids", [])
+
+                    move_degree, should_shoot = train_state.sample_action()
+
+                    for oid in operator_ids:
+                        oid = oid.strip()
+                        if not oid:
+                            continue
+
+                        if move_degree is not None:
+                            move_packet = {
+                                "type": "joystick_vector",
+                                "id": oid,
+                                "vector": {"x": 0.0, "y": 1.0, "angle": move_degree},
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await websocket.send_text(json.dumps(move_packet))
+
+                        if should_shoot:
+                            shoot_packet = {
+                                "type": "fire",
+                                "id": oid,
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await websocket.send_text(json.dumps(shoot_packet))
                 else:
                     print("Unhandled:", payload)
             except json.JSONDecodeError:

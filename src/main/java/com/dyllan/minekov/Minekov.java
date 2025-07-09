@@ -168,6 +168,7 @@ public class Minekov {
             System.err.println("[Minekov] Failed to connect to Python dashboard:");
             e.printStackTrace();
         }
+        PythonBridge.websocketClient = pythonSocket; // Set the static client reference
     }
 
     @SubscribeEvent
