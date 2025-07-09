@@ -51,7 +51,7 @@ public class TrainingState {
         }
 
         if (!rlIds.isEmpty()) {
-            PythonBridge.requestActions(rlIds);
+            PythonBridge.tickPython(rlIds);
         }
 
         if (isComplete()) {

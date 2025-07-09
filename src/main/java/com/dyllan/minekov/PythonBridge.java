@@ -42,7 +42,7 @@ public class PythonBridge {
         }
     }
 
-    public static void requestActions(List<String> operatorIds) {
+    public static void tickPython(List<String> operatorIds) {
         try {
             URL url = new URL("http://127.0.0.1:8050/tick");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
