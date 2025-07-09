@@ -12,7 +12,16 @@ class TrainState1v1:
         self.enemy_position = enemy_position
 
     def update(self, info: dict):
-        print("TODO: update", info)
+        rl_ids = info.get("rl_operator_ids", [])
+        all_ops = info.get("all_operators", {})
+
+        for oid in rl_ids:
+            data = all_ops.get(oid, {})
+            dmg_dealt = data.get("damage_dealt_last_tick", 0.0)
+            dmg_taken = data.get("damage_taken_last_tick", 0.0)
+            reward = dmg_dealt - dmg_taken
+
+            print(f"🎯 Operator {oid[:4]}.. reward: {reward:.2f}")
 
     def sample_action(self):
         # randomly sample our actions (super temporary)
