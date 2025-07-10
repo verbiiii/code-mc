@@ -27,6 +27,8 @@ public class TrainingState {
     private int currentRoundTick = 0;
     private boolean roundActive = false;
 
+    private final boolean selfPlay = true; // ← set to false to use DumbOperator
+
     public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
@@ -145,23 +147,33 @@ public class TrainingState {
         roundActive = true;
 
         TrainingGroup group = new TrainingGroup(200); // 10 seconds @ 20tps
-
         ServerLevel world = server.overworld();
-        double rlX = 19.5, rlY = 2, rlZ = 17.5;
-        double dumbX = 19.5, dumbY = 2, dumbZ = 9.5;
 
-        RLOperator rl = ModEntities.RL_OPERATOR.get().create(world);
-        rl.moveTo(rlX, rlY, rlZ, 180.0f, 0.0f);
-        world.addFreshEntity(rl);
+        double team1X = 19.5, team1Y = 2, team1Z = 17.5;
+        double team2X = 19.5, team2Y = 2, team2Z = 9.5;
 
-        DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
-        dumb.moveTo(dumbX, dumbY, dumbZ, 0.0f, 0.0f);
-        world.addFreshEntity(dumb);
-
+        // === Team 1 ===
+        RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
+        rl1.moveTo(team1X, team1Y, team1Z, 180.0f, 0.0f);
+        world.addFreshEntity(rl1);
         Team team1 = new Team();
-        team1.addOperator(rl);
+        team1.addOperator(rl1);
+
+        // === Team 2 ===
+        AIOperator opponent;
+        if (selfPlay) {
+            RLOperator rl2 = ModEntities.RL_OPERATOR.get().create(world);
+            rl2.moveTo(team2X, team2Y, team2Z, 0.0f, 0.0f);
+            world.addFreshEntity(rl2);
+            opponent = rl2;
+        } else {
+            DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
+            dumb.moveTo(team2X, team2Y, team2Z, 0.0f, 0.0f);
+            world.addFreshEntity(dumb);
+            opponent = dumb;
+        }
         Team team2 = new Team();
-        team2.addOperator(dumb);
+        team2.addOperator(opponent);
 
         group.addTeam(team1);
         group.addTeam(team2);
