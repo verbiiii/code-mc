@@ -17,7 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 1; // ← change this to 1, 100, etc. for # of 1v1s
+    private static final int NUM_GROUPS = 2; // ← change this to 1, 100, etc. for # of 1v1s
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
