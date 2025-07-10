@@ -146,39 +146,69 @@ public class TrainingState {
         currentRoundTick = 0;
         roundActive = true;
 
-        TrainingGroup group = new TrainingGroup(200); // 10 seconds @ 20tps
         ServerLevel world = server.overworld();
 
-        double team1X = 19.5, team1Y = 2, team1Z = 17.5;
-        double team2X = 19.5, team2Y = 2, team2Z = 9.5;
+        // === GROUP 1 ===
+        TrainingGroup group1 = new TrainingGroup(200); // 10s @ 20tps
+        double g1_team1X = 19.5, g1_team1Y = 2, g1_team1Z = 17.5;
+        double g1_team2X = 19.5, g1_team2Y = 2, g1_team2Z = 9.5;
 
-        // === Team 1 ===
-        RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
-        rl1.moveTo(team1X, team1Y, team1Z, 180.0f, 0.0f);
-        world.addFreshEntity(rl1);
-        Team team1 = new Team();
-        team1.addOperator(rl1);
+        RLOperator g1_rl1 = ModEntities.RL_OPERATOR.get().create(world);
+        g1_rl1.moveTo(g1_team1X, g1_team1Y, g1_team1Z, 180.0f, 0.0f);
+        world.addFreshEntity(g1_rl1);
+        Team g1_team1 = new Team();
+        g1_team1.addOperator(g1_rl1);
 
-        // === Team 2 ===
-        AIOperator opponent;
+        AIOperator g1_opponent;
         if (selfPlay) {
-            RLOperator rl2 = ModEntities.RL_OPERATOR.get().create(world);
-            rl2.moveTo(team2X, team2Y, team2Z, 0.0f, 0.0f);
-            world.addFreshEntity(rl2);
-            opponent = rl2;
+            RLOperator g1_rl2 = ModEntities.RL_OPERATOR.get().create(world);
+            g1_rl2.moveTo(g1_team2X, g1_team2Y, g1_team2Z, 0.0f, 0.0f);
+            world.addFreshEntity(g1_rl2);
+            g1_opponent = g1_rl2;
         } else {
             DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
-            dumb.moveTo(team2X, team2Y, team2Z, 0.0f, 0.0f);
+            dumb.moveTo(g1_team2X, g1_team2Y, g1_team2Z, 0.0f, 0.0f);
             world.addFreshEntity(dumb);
-            opponent = dumb;
+            g1_opponent = dumb;
         }
-        Team team2 = new Team();
-        team2.addOperator(opponent);
+        Team g1_team2 = new Team();
+        g1_team2.addOperator(g1_opponent);
 
-        group.addTeam(team1);
-        group.addTeam(team2);
-        groups.add(group);
+        group1.addTeam(g1_team1);
+        group1.addTeam(g1_team2);
+        groups.add(group1);
 
+        // === GROUP 2 ===
+        TrainingGroup group2 = new TrainingGroup(200);
+        double g2_team1X = 19.5, g2_team1Y = 2, g2_team1Z = 17.5;
+        double g2_team2X = 19.5, g2_team2Y = 2, g2_team2Z = 9.5;
+
+        RLOperator g2_rl1 = ModEntities.RL_OPERATOR.get().create(world);
+        g2_rl1.moveTo(g2_team1X, g2_team1Y, g2_team1Z, 180.0f, 0.0f);
+        world.addFreshEntity(g2_rl1);
+        Team g2_team1 = new Team();
+        g2_team1.addOperator(g2_rl1);
+
+        AIOperator g2_opponent;
+        if (selfPlay) {
+            RLOperator g2_rl2 = ModEntities.RL_OPERATOR.get().create(world);
+            g2_rl2.moveTo(g2_team2X, g2_team2Y, g2_team2Z, 0.0f, 0.0f);
+            world.addFreshEntity(g2_rl2);
+            g2_opponent = g2_rl2;
+        } else {
+            DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
+            dumb.moveTo(g2_team2X, g2_team2Y, g2_team2Z, 0.0f, 0.0f);
+            world.addFreshEntity(dumb);
+            g2_opponent = dumb;
+        }
+        Team g2_team2 = new Team();
+        g2_team2.addOperator(g2_opponent);
+
+        group2.addTeam(g2_team1);
+        group2.addTeam(g2_team2);
+        groups.add(group2);
+
+        // Finalize
         sendTickEvent("start_round", Map.of("round", currentRound));
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
     }
