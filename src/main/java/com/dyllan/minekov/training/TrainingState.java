@@ -49,32 +49,60 @@ public class TrainingState {
         List<String> rlIds = new ArrayList<>();
         Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
 
+        // First: build maps of operator UUID -> team and operator UUID -> entity
+        Map<String, Team> operatorTeamMap = new HashMap<>();
+        Map<String, AIOperator> allOperators = new HashMap<>();
+
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
-                String teamId = team.getTeamId();
-
                 for (AIOperator op : team.getOperators()) {
-                    Map<String, Object> info = new HashMap<>();
-                    info.put("x", op.getX());
-                    info.put("y", op.getY());
-                    info.put("z", op.getZ());
-                    info.put("health", op.getHealth());
-                    info.put("team", teamId);
-                    info.put("is_rl", op instanceof RLOperator);
-
-                    if (op instanceof RLOperator rlOp) {
-                        info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
-                        info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
-                        info.put("deaths_last_tick", rlOp.getDeathsLastTick());
-                        info.put("kills_last_tick", rlOp.getKillsLastTick());
-
-                        rlIds.add(rlOp.getUUID().toString());
-                        rlOp.clearTickDamageStats();
-                    }
-
-                    allOperatorData.put(op.getUUID().toString(), info);
+                    String uuid = op.getUUID().toString();
+                    operatorTeamMap.put(uuid, team);
+                    allOperators.put(uuid, op);
                 }
             }
+        }
+
+        // Now: build full info map
+        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
+            String uuid = entry.getKey();
+            AIOperator op = entry.getValue();
+            Team myTeam = operatorTeamMap.get(uuid);
+
+            Map<String, Object> info = new HashMap<>();
+            info.put("x", op.getX());
+            info.put("y", op.getY());
+            info.put("z", op.getZ());
+            info.put("health", op.getHealth());
+            info.put("team", myTeam.getTeamId());
+            info.put("is_rl", op instanceof RLOperator);
+
+            if (op instanceof RLOperator rlOp) {
+                info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
+                info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
+                info.put("deaths_last_tick", rlOp.getDeathsLastTick());
+                info.put("kills_last_tick", rlOp.getKillsLastTick());
+
+                // Add opponent info (first from non-own-team)
+                AIOperator opponent = allOperators.values().stream()
+                    .filter(other -> !other.getUUID().equals(op.getUUID()))
+                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(myTeam))
+                    .findFirst()
+                    .orElse(null);
+
+                if (opponent != null) {
+                    Map<String, Object> opp = new HashMap<>();
+                    opp.put("x", opponent.getX());
+                    opp.put("y", opponent.getY());
+                    opp.put("z", opponent.getZ());
+                    info.put("opponent", opp);
+                }
+
+                rlIds.add(uuid);
+                rlOp.clearTickDamageStats();
+            }
+
+            allOperatorData.put(uuid, info);
         }
 
         boolean roundDone = isRoundComplete();
@@ -101,6 +129,7 @@ public class TrainingState {
             }
         }
     }
+
 
     public boolean isComplete() {
         return !roundActive && currentRound >= numRounds;
