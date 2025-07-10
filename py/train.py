@@ -10,7 +10,7 @@ class TrainState1v1:
         self.tick_x = None
 
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(4, 8),
+            torch.nn.Linear(5, 8),
             torch.nn.Tanh(),
             torch.nn.Linear(8, 16),
             torch.nn.Tanh(),
@@ -52,6 +52,7 @@ class TrainState1v1:
 
         if len(rl_ids) > 1:
             raise NotImplementedError("Currently the RL agent can only handle 1 RLOperator at a time.")
+        reward = 0.0
 
         for oid in rl_ids:
             data = all_ops.get(oid, {})
@@ -99,7 +100,7 @@ class TrainState1v1:
             self.our_health = self.our_data["health"]
 
             # create our feature vector
-            self.tick_x = torch.tensor(np.array([self.our_x, self.our_y, self.our_z, self.our_health], dtype=np.float32), dtype=torch.float32).unsqueeze(0) # faux batch dim
+            self.tick_x = torch.tensor(np.array([self.our_x, self.our_y, self.our_z, self.our_health, reward], dtype=np.float32), dtype=torch.float32).unsqueeze(0) # faux batch dim
 
     def sample_action(self):
         if self.tick_x is None:
