@@ -40,7 +40,7 @@ import com.dyllan.minekov.training.TrainingState;
 public class Minekov {
     public static final String MODID = "minekov";
 
-    private static TrainingState trainingState = null;
+    public static TrainingState trainingState = null;
 
     private static PythonWebSocketClient pythonSocket;
     private static int tickCounter = 0;

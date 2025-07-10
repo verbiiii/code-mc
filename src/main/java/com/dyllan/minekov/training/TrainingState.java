@@ -231,4 +231,8 @@ public class TrainingState {
         broadcastToPlayers("§cTraining session forcefully stopped.");
         // PythonBridge.stopPython(); // TODO: maybe python wants to know about it?
     }
+
+    public List<TrainingGroup> getGroups() {
+        return groups;
+    }
 }
