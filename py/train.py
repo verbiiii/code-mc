@@ -13,16 +13,12 @@ class TrainState1v1:
         self.model = torch.nn.Sequential(
             torch.nn.Linear(4, 16),
             torch.nn.Tanh(),
-            torch.nn.Linear(16, 32),
-            torch.nn.Tanh(),
-            torch.nn.Linear(32, 16),
-            torch.nn.Tanh(),
             torch.nn.Linear(16, 6),
             # NOTE: we should definitely only be using tanh, at least on the output layer.
             torch.nn.Tanh(),
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=3e-1)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         self.log_probs = []
         self.rewards = []
 
@@ -97,7 +93,10 @@ class TrainState1v1:
         sigma_raw = y[0, 1::2]  # [σ₁, σ₂, σ₃] ∈ [-1, 1]
 
         # map sigma from [-1, 1] → [0.01, 1.0] (avoid exact 0 std)
-        sigma = 0.5 * (sigma_raw + 1.0) * 0.99 + 0.01
+        # MAX_SIGMA = 1.0
+        MAX_SIGMA = 10.0
+        # sigma = 0.5 * (sigma_raw + 1.0) * 0.99 + 0.01
+        sigma = 0.5 * (sigma_raw + 1.0) * MAX_SIGMA + 0.01  # [σ₁, σ₂, σ₃] ∈ [0.01, MAX_SIGMA]
 
         # build a multivariate distribution
         dist = torch.distributions.Normal(loc=mu, scale=sigma)
@@ -120,6 +119,10 @@ class TrainState1v1:
 
         if not should_move:
             angle = None
+
+        # print distribution entropy
+        entropy = dist.entropy().mean().item()
+        print(f"🔍 Forward statistics: entropy={entropy:0.4f}")
 
         return angle, should_shoot
 
