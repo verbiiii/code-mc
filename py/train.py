@@ -129,14 +129,17 @@ class TrainState1v1:
         return results
 
     def apply_reinforce(self):
-        for agent_id, data in self.agent_data.items():
+        agents = list(self.agent_data.items())
+        num_agents = len(agents)
+
+        for i, (agent_id, data) in enumerate(agents):
             if not data["log_probs"] or not data["rewards"]:
                 continue
 
             cumulative_reward = sum(data["rewards"])
             self.all_cumulative_rewards.append(cumulative_reward)
 
-            # Normalize
+            # Normalize reward
             if len(self.all_cumulative_rewards) < 2:
                 norm_reward = torch.tensor(1.0)
             else:
@@ -151,12 +154,16 @@ class TrainState1v1:
             loss = -(log_probs_tensor * norm_reward).mean()
 
             if not torch.isnan(loss):
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                self.optimizer.step()
-                print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+                retain = i < num_agents - 1  # only retain graph if more agents remain
+                self.optimizer.zero_grad() if i == 0 else None
+                loss.backward(retain_graph=retain)
+                if i == num_agents - 1:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+                    self.optimizer.step()
+                    print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+            else:
+                print(f"🚨 Loss is NaN for agent {agent_id[:4]} — skipping optimizer step.")
 
-            # Reset
             data["log_probs"].clear()
             data["rewards"].clear()
+
