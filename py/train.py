@@ -21,7 +21,7 @@ class TrainState1v1:
             torch.nn.Linear(16, 18),  # 8 x-bins, 8 y-bins, 2 binary
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.05)
 
         self.log_probs = []
         self.rewards = []
