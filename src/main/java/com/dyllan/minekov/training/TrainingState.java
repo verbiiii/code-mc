@@ -115,7 +115,7 @@ public class TrainingState {
         currentRoundTick = 0;
         roundActive = true;
 
-        TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20tps
+        TrainingGroup group = new TrainingGroup(200); // 10 seconds @ 20tps
 
         ServerLevel world = server.overworld();
         double rlX = 19.5, rlY = 2, rlZ = 17.5;

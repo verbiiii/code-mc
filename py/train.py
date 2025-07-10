@@ -11,9 +11,9 @@ class TrainState1v1:
 
         # model is a feed forward from 4 features to 6 outputs
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(4, 16),
+            torch.nn.Linear(4, 8),
             torch.nn.Tanh(),
-            torch.nn.Linear(16, 6),
+            torch.nn.Linear(8, 6),
             # NOTE: we should definitely only be using tanh, at least on the output layer.
             torch.nn.Tanh(),
         )
@@ -51,14 +51,14 @@ class TrainState1v1:
             data = all_ops.get(oid, {})
             dmg_dealt = data.get("damage_dealt_last_tick", 0.0)
             dmg_taken = data.get("damage_taken_last_tick", 0.0)
-            reward = dmg_dealt - dmg_taken
+            reward = dmg_dealt - (dmg_taken * 10)
             short_id = oid[:4]
 
             print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {short_id} | 📈 Reward: {reward:.2f}")
 
             if data.get("deaths_last_tick", 0) > 0:
                 print(f"💀 {short_id} died!")
-                reward -= 100.0
+                reward -= 1000.0
 
             if data.get("kills_last_tick", 0) > 0:
                 print(f"🏆 {short_id} got a kill!")
@@ -138,7 +138,7 @@ class TrainState1v1:
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         # REINFORCE loss: -Σ log_prob × reward
-        loss = -(log_probs * rewards).mean()
+        loss = -(log_probs * rewards).sum()
 
         print(f"🧮 REINFORCE loss = {loss.item():.4f}")
 
