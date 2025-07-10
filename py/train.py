@@ -16,7 +16,7 @@ class TrainState1v1:
             torch.nn.Tanh(),
             torch.nn.Linear(16, 18),  # 8 x-bins, 8 y-bins, 2 binary
         )
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.05)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
 
         # Per-agent memory
         self.agent_data = {}  # uuid -> dict with tick_x, log_probs, rewards, etc.
@@ -59,14 +59,16 @@ class TrainState1v1:
             tick_x = torch.tensor(fx).unsqueeze(0)
 
             # Reward
-            reward = (
-                my_data.get("damage_dealt_last_tick", 0.0) -
-                10 * my_data.get("damage_taken_last_tick", 0.0)
-            )
+            dmg_taken = my_data.get("damage_taken_last_tick", 0.0)
+            dmg_given = my_data.get("damage_dealt_last_tick", 0.0)
+
+            reward = dmg_given - dmg_taken * 0.1
+
             if my_data.get("deaths_last_tick", 0) > 0:
-                reward -= 1000.0
+                # reward -= 1000.0
+                pass  # self-play, let's just ignore our own deaths
             if my_data.get("kills_last_tick", 0) > 0:
-                reward += 1000.0
+                reward += 100
 
             # Init per-agent memory if missing
             if my_id not in self.agent_data:
