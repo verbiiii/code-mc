@@ -13,14 +13,25 @@ class TrainState1v1:
         self.model = torch.nn.Sequential(
             torch.nn.Linear(4, 8),
             torch.nn.Tanh(),
+            torch.nn.Linear(8, 16),
+            torch.nn.Tanh(),
+            torch.nn.Linear(16, 32),
+            torch.nn.Tanh(),
+            torch.nn.Linear(32, 16),
+            torch.nn.Tanh(),
+            torch.nn.Linear(16, 8),
+            torch.nn.Tanh(),
             torch.nn.Linear(8, 6),
             # NOTE: we should definitely only be using tanh, at least on the output layer.
             torch.nn.Tanh(),
         )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+
         self.log_probs = []
         self.rewards = []
+        self.all_rewards = []  # <-- store all-time rewards
+
 
     def update(self, info: dict):
         self.python_ticks += 1
@@ -132,21 +143,31 @@ class TrainState1v1:
 
         # convert to tensors
         rewards = torch.tensor(self.rewards, dtype=torch.float32)
-        log_probs = torch.stack(self.log_probs)  # shape: [T]
+        log_probs = torch.stack(self.log_probs)
 
-        # optional: normalize rewards
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        # --- ⬇️ Add to global reward history
+        self.all_rewards.extend(self.rewards)
+        # Optional: limit memory usage
+        MAX_REWARD_HISTORY = 10_000
+        if len(self.all_rewards) > MAX_REWARD_HISTORY:
+            self.all_rewards = self.all_rewards[-MAX_REWARD_HISTORY:]
 
-        # REINFORCE loss: -Σ log_prob × reward
-        loss = -(log_probs * rewards).sum()
+        all_rewards_tensor = torch.tensor(self.all_rewards, dtype=torch.float32)
+        global_mean = all_rewards_tensor.mean()
+        global_std = all_rewards_tensor.std() + 1e-5
 
-        print(f"🧮 REINFORCE loss = {loss.item():.4f}")
+        # normalize with global stats
+        normalized_rewards = (rewards - global_mean) / global_std
+
+        # REINFORCE loss
+        loss = -(log_probs * normalized_rewards).mean()
+
+        print(f"🧮 REINFORCE loss = {loss.item():.4f} (normalized over {len(self.all_rewards)} total rewards)")
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # clear for next round
         self.log_probs.clear()
         self.rewards.clear()
 
