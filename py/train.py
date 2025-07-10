@@ -80,35 +80,53 @@ class TrainState1v1:
 
             print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {my_id[:4]} | 📈 Reward: {reward:.2f}")
 
-    def sample_action(self, agent_id):
-        data = self.agent_data.get(agent_id)
-        if not data or "tick_x" not in data:
-            raise ValueError(f"Missing tick data for agent {agent_id}")
+    def sample_actions(self):
+        results = {}
+        batch_inputs = []
+        agent_ids = []
 
-        y = self.model(data["tick_x"]).squeeze(0)
-        logits_x, logits_y = y[:8], y[8:16]
-        logit_walk, logit_shoot = y[16], y[17]
+        # Collect valid inputs
+        for agent_id, data in self.agent_data.items():
+            if "tick_x" in data:
+                batch_inputs.append(data["tick_x"])
+                agent_ids.append(agent_id)
 
-        dist_x = torch.distributions.Categorical(logits=logits_x)
-        dist_y = torch.distributions.Categorical(logits=logits_y)
-        dist_walk = torch.distributions.Bernoulli(logits=logit_walk)
-        dist_shoot = torch.distributions.Bernoulli(logits=logit_shoot)
+        if not batch_inputs:
+            return results  # nothing to do
 
-        x_bin = dist_x.sample()
-        y_bin = dist_y.sample()
-        walk = dist_walk.sample().item() > 0.5
-        shoot = dist_shoot.sample().item() > 0.5
+        # Stack into batch
+        batch_tensor = torch.cat(batch_inputs, dim=0)  # shape: [B, 6]
+        y = self.model(batch_tensor)  # shape: [B, 18]
 
-        log_prob = (
-            dist_x.log_prob(x_bin) +
-            dist_y.log_prob(y_bin) +
-            dist_walk.log_prob(torch.tensor(float(walk))) +
-            dist_shoot.log_prob(torch.tensor(float(shoot)))
-        )
-        data["log_probs"].append(log_prob)
+        for i, agent_id in enumerate(agent_ids):
+            out = y[i]
+            logits_x = out[:8]
+            logits_y = out[8:16]
+            logit_walk = out[16]
+            logit_shoot = out[17]
 
-        angle = (x_bin.item() / 8.0) * 360.0 if walk else None
-        return angle, shoot
+            dist_x = torch.distributions.Categorical(logits=logits_x)
+            dist_y = torch.distributions.Categorical(logits=logits_y)
+            dist_walk = torch.distributions.Bernoulli(logits=logit_walk)
+            dist_shoot = torch.distributions.Bernoulli(logits=logit_shoot)
+
+            x_bin = dist_x.sample()
+            y_bin = dist_y.sample()
+            walk = dist_walk.sample().item() > 0.5
+            shoot = dist_shoot.sample().item() > 0.5
+
+            log_prob = (
+                dist_x.log_prob(x_bin) +
+                dist_y.log_prob(y_bin) +
+                dist_walk.log_prob(torch.tensor(float(walk))) +
+                dist_shoot.log_prob(torch.tensor(float(shoot)))
+            )
+            self.agent_data[agent_id]["log_probs"].append(log_prob)
+
+            angle = (x_bin.item() / 8.0) * 360.0 if walk else None
+            results[agent_id] = (angle, shoot)
+
+        return results
 
     def apply_reinforce(self):
         for agent_id, data in self.agent_data.items():
