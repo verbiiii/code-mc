@@ -25,7 +25,7 @@ class TrainState1v1:
 
         self.log_probs = []
         self.rewards = []
-        self.all_rewards = []  # <-- store all-time rewards
+        self.all_cumulative_rewards = []
 
 
     def update(self, info: dict):
@@ -62,13 +62,27 @@ class TrainState1v1:
 
             print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {short_id} | 📈 Reward: {reward:.2f}")
 
-            if data.get("deaths_last_tick", 0) > 0:
-                print(f"💀 {short_id} died!")
-                reward -= 1000.0
+            died_last_tick = data.get("deaths_last_tick", 0) > 0
+            killed_last_tick = data.get("kills_last_tick", 0) > 0
 
-            if data.get("kills_last_tick", 0) > 0:
-                print(f"🏆 {short_id} got a kill!")
-                reward += 100.0
+            if died_last_tick:
+                if not killed_last_tick:
+                    print(f"💔 {short_id} lost (died 💀)")
+                    reward -= 1000.0
+
+            if killed_last_tick:
+                if not died_last_tick:
+                    print(f"🏆 {short_id} won!")
+                    reward += 1000.0
+
+            # print if it was a draw
+            if is_last_tick:
+                if died_last_tick and killed_last_tick:
+                    reward -= 250.0
+                    print(f"🤝 {short_id} drew! Because both agents died!")
+                elif not died_last_tick and not killed_last_tick:
+                    reward -= 500.0
+                    print(f"🤷 {short_id} round ended in a tie! (no deaths or kills)")
 
             self.rewards.append(reward)
 
@@ -131,44 +145,52 @@ class TrainState1v1:
             dist_x.entropy() + dist_y.entropy() +
             dist_walk.entropy() + dist_shoot.entropy()
         ).item()
-        print(f"🎲 Action bins: x={x_bin.item()}, y={y_bin.item()}, walk={walk}, shoot={shoot}")
+        # print(f"🎲 Action bins: x={x_bin.item()}, y={y_bin.item()}, walk={walk}, shoot={shoot}")
         print(f"🔍 Forward statistics: entropy={entropy:.4f}")
 
         return angle, shoot
-
 
     def apply_reinforce(self):
         if not self.log_probs or not self.rewards:
             return
 
-        # convert to tensors
-        rewards = torch.tensor(self.rewards, dtype=torch.float32)
-        log_probs = torch.stack(self.log_probs)
+        cumulative_reward = sum(self.rewards)
+        self.all_cumulative_rewards.append(cumulative_reward)
 
-        # --- ⬇️ Add to global reward history
-        self.all_rewards.extend(self.rewards)
-        # Optional: limit memory usage
-        MAX_REWARD_HISTORY = 10_000
-        if len(self.all_rewards) > MAX_REWARD_HISTORY:
-            self.all_rewards = self.all_rewards[-MAX_REWARD_HISTORY:]
+        # Trim history
+        MAX_HISTORY = 10_000
+        if len(self.all_cumulative_rewards) > MAX_HISTORY:
+            self.all_cumulative_rewards = self.all_cumulative_rewards[-MAX_HISTORY:]
 
-        all_rewards_tensor = torch.tensor(self.all_rewards, dtype=torch.float32)
-        global_mean = all_rewards_tensor.mean()
-        global_std = all_rewards_tensor.std() + 1e-5
+        # Safe normalization
+        if len(self.all_cumulative_rewards) < 2:
+            normalized_cumulative = torch.tensor(1.0)  # no normalization on 1st round
+            print(f"⚠️ Not enough reward history — skipping normalization.")
+        else:
+            rewards_tensor = torch.tensor(self.all_cumulative_rewards, dtype=torch.float32)
+            mean = rewards_tensor.mean()
+            std = rewards_tensor.std()
+            if std.item() == 0 or torch.isnan(std):
+                normalized_cumulative = torch.tensor(0.0)
+                print(f"⚠️ Std=0 or NaN — setting normalized_cumulative to 0.0")
+            else:
+                normalized_cumulative = (cumulative_reward - mean) / std
+                # print(f"🧪 Raw REW: {cumulative_reward:.2f} | µ={mean:.2f} σ={std:.2f} → norm={normalized_cumulative:.4f}")
 
-        # normalize with global stats
-        normalized_rewards = (rewards - global_mean) / global_std
+        print("Normalized cumulative reward:", normalized_cumulative.item())
 
-        # REINFORCE loss
-        loss = -(log_probs * normalized_rewards).mean()
+        log_probs_tensor = torch.stack(self.log_probs)
+        loss = -(log_probs_tensor * normalized_cumulative).mean()
 
-        print(f"🧮 REINFORCE loss = {loss.item():.4f} (normalized over {len(self.all_rewards)} total rewards)")
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        if torch.isnan(loss):
+            print("🚨 Loss is NaN — skipping optimizer step.")
+        else:
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+            self.optimizer.step()
+            print(f"✅ Model updated using normalized episode reward")
 
         self.log_probs.clear()
         self.rewards.clear()
 
-        print("✅ Model updated using REINFORCE")
