@@ -9,7 +9,6 @@ class TrainState1v1:
         self.python_ticks = 0
         self.tick_x = None
 
-        # model is a feed forward from 4 features to 6 outputs
         self.model = torch.nn.Sequential(
             torch.nn.Linear(4, 8),
             torch.nn.Tanh(),
@@ -19,11 +18,7 @@ class TrainState1v1:
             torch.nn.Tanh(),
             torch.nn.Linear(32, 16),
             torch.nn.Tanh(),
-            torch.nn.Linear(16, 8),
-            torch.nn.Tanh(),
-            torch.nn.Linear(8, 6),
-            # NOTE: we should definitely only be using tanh, at least on the output layer.
-            torch.nn.Tanh(),
+            torch.nn.Linear(16, 18),  # 8 x-bins, 8 y-bins, 2 binary
         )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
@@ -96,46 +91,51 @@ class TrainState1v1:
         if self.tick_x is None:
             raise ValueError("Cannot sample action before updating the train state with game info.")
 
-        # run forward pass
-        y = self.model(self.tick_x)  # shape: [1, 6]
+        y = self.model(self.tick_x).squeeze(0)  # shape: [18]
 
-        # unpack into means and log stds (more stable if you later optimize)
-        mu = y[0, ::2]     # [μ₁, μ₂, μ₃]
-        sigma_raw = y[0, 1::2]  # [σ₁, σ₂, σ₃] ∈ [-1, 1]
+        # Split outputs
+        logits_x = y[:8]
+        logits_y = y[8:16]
+        logit_walk = y[16]
+        logit_shoot = y[17]
 
-        # map sigma from [-1, 1] → [0.01, 1.0] (avoid exact 0 std)
-        # MAX_SIGMA = 1.0
-        MAX_SIGMA = 10.0
-        # sigma = 0.5 * (sigma_raw + 1.0) * 0.99 + 0.01
-        sigma = 0.5 * (sigma_raw + 1.0) * MAX_SIGMA + 0.01  # [σ₁, σ₂, σ₃] ∈ [0.01, MAX_SIGMA]
+        # Build distributions
+        dist_x = torch.distributions.Categorical(logits=logits_x)
+        dist_y = torch.distributions.Categorical(logits=logits_y)
+        dist_walk = torch.distributions.Bernoulli(logits=logit_walk)
+        dist_shoot = torch.distributions.Bernoulli(logits=logit_shoot)
 
-        # build a multivariate distribution
-        dist = torch.distributions.Normal(loc=mu, scale=sigma)
+        # Sample
+        x_bin = dist_x.sample()
+        y_bin = dist_y.sample()
+        walk = dist_walk.sample().item() > 0.5
+        shoot = dist_shoot.sample().item() > 0.5
 
-        # sample all at once
-        sample = dist.rsample()  # enables backprop
-        log_prob = dist.log_prob(sample)  # shape: [3]
-        self.log_probs.append(log_prob.sum())  # store total log prob for this step
+        # Log probs for REINFORCE
+        log_prob = (
+            dist_x.log_prob(x_bin) +
+            dist_y.log_prob(y_bin) +
+            dist_walk.log_prob(torch.tensor(float(walk))) +
+            dist_shoot.log_prob(torch.tensor(float(shoot)))
+        )
+        self.log_probs.append(log_prob)
 
-        move_val, shoot_val, angle_val = sample.tolist()
-
-        # binarize movement/shooting decisions
-        should_move = move_val > 0
-        should_shoot = shoot_val > 0
-
-        # wrap angle to [0, 360)
-        angle = torch.rad2deg(torch.tensor(angle_val))
-        angle = (angle + 360) % 360
-        angle = angle.item()
-
-        if not should_move:
+        # Map bins to angle
+        if walk:
+            angle = (x_bin.item() / 8.0) * 360.0  # map to [0, 360)
+        else:
             angle = None
 
-        # print distribution entropy
-        entropy = dist.entropy().mean().item()
-        print(f"🔍 Forward statistics: entropy={entropy:0.4f}")
+        # Print diagnostic
+        entropy = (
+            dist_x.entropy() + dist_y.entropy() +
+            dist_walk.entropy() + dist_shoot.entropy()
+        ).item()
+        print(f"🎲 Action bins: x={x_bin.item()}, y={y_bin.item()}, walk={walk}, shoot={shoot}")
+        print(f"🔍 Forward statistics: entropy={entropy:.4f}")
 
-        return angle, should_shoot
+        return angle, shoot
+
 
     def apply_reinforce(self):
         if not self.log_probs or not self.rewards:
