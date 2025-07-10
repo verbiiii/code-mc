@@ -35,11 +35,15 @@ public class TrainingIsolationHandler {
     public static boolean shouldEntitiesInteract(Entity a, Entity b) {
         if (Minekov.trainingState == null) return true; // not in training mode
 
-        if (!(a instanceof AIOperator) && !(b instanceof AIOperator)) return true;
+        // ai operators can always interact with non-ai operators
+        if ((a instanceof AIOperator) && !(b instanceof AIOperator)) return true;
 
-        for (TrainingGroup group : Minekov.trainingState.getGroups()) {
-            if (!group.shouldInteract(a, b)) {
-                return false;
+        // however, if they are both AIOperators, we should check with training groups
+        if ((a instanceof AIOperator) && (b instanceof AIOperator)) {
+            for (TrainingGroup group : Minekov.trainingState.getGroups()) {
+                if (!group.shouldInteract(a, b)) {
+                    return false;
+                }
             }
         }
 
