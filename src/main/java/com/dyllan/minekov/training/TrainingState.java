@@ -28,7 +28,7 @@ public class TrainingState {
     private int currentRoundTick = 0;
     private boolean roundActive = false;
 
-    private final boolean selfPlay = true; // ← set to false to use DumbOperator
+    private final boolean selfPlay = false; // ← set to false to use DumbOperator
 
     public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
         this.numRounds = rounds;

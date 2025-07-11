@@ -32,6 +32,7 @@ import java.util.Map;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
+import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
 
@@ -50,6 +51,8 @@ public class Minekov {
         MinecraftForge.EVENT_BUS.register(this);
         ModEntities.register();
         initPythonConnection();
+
+        MinecraftForge.EVENT_BUS.register(TrainingIsolationHandler.class);
     }
 
     @SubscribeEvent
