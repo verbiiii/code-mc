@@ -4,6 +4,8 @@ import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.entities.AIOperator;
 import net.minecraft.world.entity.Entity;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.ProjectileImpactEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -12,41 +14,54 @@ public class TrainingIsolationHandler {
 
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
-        if (Minekov.trainingState == null) return; // not in training mode, skip
-
-        Entity target = event.getEntity();
-        Entity source = event.getSource().getEntity();
-
-        if (source == null || target == null) return;
-
-        if (source instanceof AIOperator || target instanceof AIOperator) {
-            for (TrainingGroup group : Minekov.trainingState.getGroups()) {
-                if (!group.shouldInteract(source, target)) {
-                    event.setCanceled(true);
-                    return;
-                }
-            }
+        if (shouldCancelInteraction(event.getSource().getEntity(), event.getEntity())) {
+            event.setCanceled(true);
         }
     }
 
+    @SubscribeEvent
+    public static void onLivingAttack(LivingAttackEvent event) {
+        if (shouldCancelInteraction(event.getSource().getEntity(), event.getEntity())) {
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onProjectileImpact(ProjectileImpactEvent event) {
+        Entity projectile = event.getEntity();
+        Entity shooter = event.getProjectile().getOwner();
+        System.out.println("Projectile impact: " + projectile + " by shooter: " + shooter);
+        // if (shouldCancelInteraction(shooter, target)) {
+            // event.setCanceled(true);
+        // }
+    }
+
     /**
-     * Centralized logic to check whether two entities can interact, used in collisions and targeting.
+     * Centralized logic to check whether two entities can interact, used in collisions, projectiles, etc.
      */
     public static boolean shouldEntitiesInteract(Entity a, Entity b) {
         if (Minekov.trainingState == null) return true; // not in training mode
 
         // ai operators can always interact with non-ai operators
-        if ((a instanceof AIOperator) && !(b instanceof AIOperator)) return true;
+        if ((a instanceof AIOperator) != (b instanceof AIOperator)) return true;
 
-        // however, if they are both AIOperators, we should check with training groups
+        // if both are AIOperators, only allow if in same group
         if ((a instanceof AIOperator) && (b instanceof AIOperator)) {
             for (TrainingGroup group : Minekov.trainingState.getGroups()) {
-                if (!group.shouldInteract(a, b)) {
-                    return false;
+                if (group.shouldInteract(a, b)) {
+                    return true;
                 }
             }
         }
 
-        return true;
+        return false;
+    }
+
+    /**
+     * Returns true if the interaction should be canceled (i.e. entities should not interact)
+     */
+    public static boolean shouldCancelInteraction(Entity a, Entity b) {
+        if (a == null || b == null) return false;
+        return !shouldEntitiesInteract(a, b);
     }
 }
