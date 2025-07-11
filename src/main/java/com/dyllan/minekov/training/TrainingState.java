@@ -152,7 +152,7 @@ public class TrainingState {
         for (int i = 0; i < NUM_GROUPS; i++) {
             double y = baseY + (i * offsetY);
 
-            TrainingGroup group = new TrainingGroup(200);
+            TrainingGroup group = new TrainingGroup(1200); // 600 ticks is 30 seconds
 
             RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
             rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);
