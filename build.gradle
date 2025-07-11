@@ -174,7 +174,8 @@ dependencies {
 
     // implementation fg.deobf("curse.maven:ctm-1028108:6654541") // tacz
     // implementation fg.deobf("curse.maven:timeless-and-classics-zero-1028108:6654541")
-    implementation fg.deobf(project(":mods:TACZ"))
+    // implementation fg.deobf(project(":mods:TACZ"))
+    implementation fg.deobf(files("mods/TACZ/build/libs/tacz-1.20.1-1.1.6-hotfix-all.jar"))
 
     // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
