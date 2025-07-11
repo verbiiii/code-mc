@@ -1,8 +1,12 @@
 package com.dyllan.minekov.training;
 
+import com.atsuishio.superbwarfare.compat.tacz.TACZGunEventHandler;
 import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.entities.AIOperator;
+import com.tacz.guns.api.event.common.EntityHurtByGunEvent;
+
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.ProjectileImpactEvent;
@@ -27,13 +31,13 @@ public class TrainingIsolationHandler {
     }
 
     @SubscribeEvent
-    public static void onProjectileImpact(ProjectileImpactEvent event) {
-        Entity projectile = event.getEntity();
-        Entity shooter = event.getProjectile().getOwner();
-        System.out.println("Projectile impact: " + projectile + " by shooter: " + shooter);
-        // if (shouldCancelInteraction(shooter, target)) {
-            // event.setCanceled(true);
-        // }
+    public static void onEntityHurtByGun(EntityHurtByGunEvent event) {
+        LivingEntity attacker = event.getAttacker();
+        Entity hurtEntity = event.getHurtEntity();
+        if (shouldCancelInteraction(attacker, hurtEntity)) {
+            event.setCanceled(true);
+            return;
+        }
     }
 
     /**
