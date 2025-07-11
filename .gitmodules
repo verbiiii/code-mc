@@ -1,0 +1,3 @@
+[submodule "mods/TACZ"]
+	path = mods/TACZ
+	url = https://github.com/verbiiyo/TACZ.git
