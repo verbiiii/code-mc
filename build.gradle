@@ -207,6 +207,7 @@ dependencies {
     minecraftLibrary('org.apache.bcel:bcel:6.6.1') {
         exclude group: 'org.apache.commons', module: 'commons-lang3'
     }
+    minecraftLibrary('org.apache.commons:commons-math3:3.6.1')
     
     // implementation fg.deobf(files("mods/TACZ/build/libs/tacz-1.20.1-1.1.6-hotfix-all.jar"))
 
