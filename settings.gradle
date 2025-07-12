@@ -13,6 +13,4 @@ plugins {
 }
 
 rootProject.name = 'Minekov'
-
-// Include your TACZ fork as a subproject
-include ':mods:TACZ'
+include(":mods:TACZ")
