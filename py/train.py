@@ -37,6 +37,8 @@ class TrainState1v1:
             print(f"⛔ Round {info.get('round', '?')+1} complete!")
             self.apply_reinforce()
             return
+        
+        # print(f"🎯 Tick {self.python_ticks}/{java_tick}")
 
         all_ops = info.get("all_operators", {})
         rl_ids = info.get("rl_operator_ids", [])
@@ -79,8 +81,6 @@ class TrainState1v1:
 
             self.agent_data[my_id]["tick_x"] = tick_x
             self.agent_data[my_id]["rewards"].append(reward)
-
-            # print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {my_id[:4]} | 📈 Reward: {reward:.2f}")
 
     def sample_actions(self):
         results = {}
