@@ -127,67 +127,29 @@ public class PythonWebSocketClient {
                                         }
                                         rawText = rawText.substring(firstBrace);
 
-                                        // Split multiple JSON objects stuck together
-                                        String[] parts = rawText.split("}(?=\\{)"); // lookahead to preserve both } and {
-                                        for (String part : parts) {
-                                            String json = part.endsWith("}") ? part : part + "}";
-                                            try {
-                                                JsonObject obj = null;
-                                                try {
-                                                    obj = gson.fromJson(json, JsonObject.class);
-                                                    if (obj == null || !obj.has("type")) continue;
+                                        try {
+                                            JsonObject obj = gson.fromJson(rawText, JsonObject.class);
+                                            if (obj == null || !obj.has("type")) return;
 
-                                                    if ("joystick_vector".equals(obj.get("type").getAsString())) {
-                                                        String id = obj.get("id").getAsString();
-                                                        JsonObject vector = obj.getAsJsonObject("vector");
+                                            String type = obj.get("type").getAsString();
 
-                                                        if (vector != null && vector.has("angle")) {
-                                                            float angle = vector.get("angle").getAsFloat();
-                                                            for (RLOperator op : RLOperatorRegistry.getAll()) {
-                                                                if (op.getUUID().toString().equals(id)) {
-                                                                    op.moveTowards(angle, 0.13f);
-                                                                    // System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
+                                            if ("actions_batch".equals(type)) {
+                                                // Handle batched actions
+                                                if (obj.has("actions")) {
+                                                    var actionsArray = obj.getAsJsonArray("actions");
+                                                    for (var actionElement : actionsArray) {
+                                                        JsonObject action = actionElement.getAsJsonObject();
+                                                        processAction(action);
                                                     }
-                                                } catch (com.google.gson.JsonSyntaxException ex) {
-                                                    // print the JSON that caused the error
-                                                    System.err.println("❌ Failed to parse JSON object:");
                                                 }
-
-                                                if (obj == null || !obj.has("type")) continue;
-
-                                                String type = obj.get("type").getAsString();
-                                                String id = obj.has("id") ? obj.get("id").getAsString() : null;
-
-                                                if (id == null) return;
-
-                                                for (RLOperator op : RLOperatorRegistry.getAll()) {
-                                                    if (!op.getUUID().toString().equals(id)) continue;
-
-                                                    switch (type) {
-                                                        case "joystick_vector" -> {
-                                                            JsonObject vector = obj.getAsJsonObject("vector");
-                                                            if (vector != null && vector.has("angle")) {
-                                                                float angle = vector.get("angle").getAsFloat();
-                                                                op.moveTowards(angle, 0.13f);
-                                                                // Silent movement - no console spam
-                                                            }
-                                                        }
-                                                        case "fire" -> {
-                                                            op.shootForward();
-                                                            // Silent fire - no console spam
-                                                        }
-                                                    }
-                                                    break; // operator found
-                                                }
-                                            } catch (Exception e) {
-                                                System.err.println("❌ Failed to parse joystick_vector:");
-                                                System.err.println("✂️ JSON was: " + json);
-                                                e.printStackTrace();
+                                            } else {
+                                                // Handle individual actions (for backward compatibility)
+                                                processAction(obj);
                                             }
+                                        } catch (Exception e) {
+                                            System.err.println("❌ Failed to parse JSON:");
+                                            System.err.println("✂️ JSON was: " + rawText);
+                                            e.printStackTrace();
                                         }
                                     }
 
@@ -219,6 +181,35 @@ public class PythonWebSocketClient {
         } catch (Exception e) {
             // Silent connection failure - no console spam
             // The exception will be caught by the exceptionCaught handler above
+        }
+    }
+
+    private void processAction(JsonObject obj) {
+        if (obj == null || !obj.has("type")) return;
+
+        String type = obj.get("type").getAsString();
+        String id = obj.has("id") ? obj.get("id").getAsString() : null;
+
+        if (id == null) return;
+
+        for (RLOperator op : RLOperatorRegistry.getAll()) {
+            if (!op.getUUID().toString().equals(id)) continue;
+
+            switch (type) {
+                case "joystick_vector" -> {
+                    JsonObject vector = obj.getAsJsonObject("vector");
+                    if (vector != null && vector.has("angle")) {
+                        float angle = vector.get("angle").getAsFloat();
+                        op.moveTowards(angle, 0.13f);
+                        System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
+                    }
+                }
+                case "fire" -> {
+                    op.shootForward();
+                    System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
+                }
+            }
+            break; // operator found
         }
     }
 

@@ -306,7 +306,10 @@ async def ws_endpoint(websocket: WebSocket):
                     # 🔁 Precompute actions for all RL agents
                     actions = train_state.sample_actions()  # {agent_id: (angle, shoot)}
 
-                    # 🔁 Send out actions per agent
+                    # 🔁 Batch all actions into a single message to prevent fragmentation
+                    actions_batch = []
+                    timestamp = int(time.time() * 1000)
+
                     for oid in rl_ids:
                         if oid not in actions:
                             continue
@@ -317,26 +320,27 @@ async def ws_endpoint(websocket: WebSocket):
                                 "type": "joystick_vector",
                                 "id": oid,
                                 "vector": {"x": 0.0, "y": 1.0, "angle": angle},
-                                "timestamp": int(time.time() * 1000)
+                                "timestamp": timestamp
                             }
-                            await websocket.send_text(json.dumps(move_packet))
+                            actions_batch.append(move_packet)
 
                         if should_shoot:
                             shoot_packet = {
                                 "type": "fire",
                                 "id": oid,
-                                "timestamp": int(time.time() * 1000)
+                                "timestamp": timestamp
                             }
-                            await websocket.send_text(json.dumps(shoot_packet))
+                            actions_batch.append(shoot_packet)
 
-
-                        if should_shoot:
-                            shoot_packet = {
-                                "type": "fire",
-                                "id": oid,
-                                "timestamp": int(time.time() * 1000)
-                            }
-                            await websocket.send_text(json.dumps(shoot_packet))
+                    # Send all actions in a single WebSocket message
+                    if actions_batch:
+                        batch_message = {
+                            "type": "actions_batch",
+                            "actions": actions_batch,
+                            "timestamp": timestamp
+                        }
+                        print(f"📦 Sending batch with {len(actions_batch)} actions")
+                        await websocket.send_text(json.dumps(batch_message))
                 else:
                     print("Unhandled:", payload)
             except json.JSONDecodeError:
