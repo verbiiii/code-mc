@@ -16,6 +16,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 import com.dyllan.minekov.loadouts.GunCustomization;
+import com.dyllan.minekov.training.TrainingIsolationHandler;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -76,6 +77,18 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
                 .add(Attributes.MAX_HEALTH, 100.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.3);
                 // .add(Attributes.FOLLOW_RANGE, 32.0);
+    }
+
+    @Override
+    public boolean canCollideWith(Entity entity) {
+        // Use the centralized interaction logic
+        return TrainingIsolationHandler.shouldEntitiesInteract(this, entity);
+    }
+
+    @Override
+    public void push(Entity entity) {
+        if (!TrainingIsolationHandler.shouldEntitiesInteract(this, entity)) return;
+        super.push(entity);
     }
 
     @Override
