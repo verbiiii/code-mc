@@ -74,11 +74,11 @@ public class PythonWebSocketClient {
                                      if (!handshakeComplete) {
                                          String response = new String(raw, StandardCharsets.US_ASCII);
                                          if (response.contains("101 Switching Protocols")) {
-                                             System.out.println("✅ WebSocket connected to Python backend.");
+                                             // Silent connection success - no console spam
                                              handshakeComplete = true;
                                              send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
                                          } else {
-                                             System.err.println("❌ Handshake failed:\n" + response);
+                                             // Silent handshake failure - no console spam
                                              ctx.close();
                                          }
                                          return;
@@ -105,13 +105,13 @@ public class PythonWebSocketClient {
                                      }
 
                                      if (opcode == 0x8) {
-                                         int code = (payloadLen >= 2)
-                                                 ? ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF)
-                                                 : 1000;
-                                         String reason = (payloadLen > 2)
-                                                 ? new String(raw, offset + 2, payloadLen - 2, StandardCharsets.UTF_8)
-                                                 : "(no reason)";
-                                         System.out.println("❌ Close frame received: code=" + code + ", reason=" + reason);
+                                        //  int code = (payloadLen >= 2)
+                                        //          ? ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF)
+                                        //          : 1000;
+                                        //  String reason = (payloadLen > 2)
+                                        //          ? new String(raw, offset + 2, payloadLen - 2, StandardCharsets.UTF_8)
+                                        //          : "(no reason)";
+                                        //  System.out.println("❌ Close frame received: code=" + code + ", reason=" + reason);
                                          ctx.close();
                                          return;
                                      }
@@ -153,8 +153,7 @@ public class PythonWebSocketClient {
                                                         }
                                                     }
                                                 } catch (com.google.gson.JsonSyntaxException ex) {
-                                                    // eat it
-                                                    System.err.println("❌ Bad JSON, ignoring.");
+                                                    // Silent JSON parsing error - no console spam
                                                 }
 
                                                 if (obj == null || !obj.has("type")) continue;
@@ -173,12 +172,12 @@ public class PythonWebSocketClient {
                                                             if (vector != null && vector.has("angle")) {
                                                                 float angle = vector.get("angle").getAsFloat();
                                                                 op.moveTowards(angle, 0.13f);
-                                                                System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
+                                                                // Silent movement - no console spam
                                                             }
                                                         }
                                                         case "fire" -> {
                                                             op.shootForward();
-                                                            System.out.println("🔫 Operator " + id + " fired their weapon!");
+                                                            // Silent fire - no console spam
                                                         }
                                                     }
                                                     break; // operator found
@@ -197,14 +196,18 @@ public class PythonWebSocketClient {
 
                                  @Override
                                  public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                     System.err.println("❗ WebSocket error:");
-                                     cause.printStackTrace();
+                                     // Only log non-connection errors to avoid spam
+                                     if (!(cause instanceof java.net.ConnectException) && 
+                                         !(cause.getCause() instanceof java.net.ConnectException)) {
+                                         System.err.println("❗ WebSocket error:");
+                                         cause.printStackTrace();
+                                     }
                                      ctx.close();
                                  }
 
                                  @Override
                                  public void channelInactive(ChannelHandlerContext ctx) {
-                                     System.out.println("🔌 WebSocket closed.");
+                                     // Silent disconnect - no console spam
                                  }
                              });
                          }
@@ -213,7 +216,8 @@ public class PythonWebSocketClient {
             channel = bootstrap.connect(host, port).sync().channel();
 
         } catch (Exception e) {
-            e.printStackTrace();
+            // Silent connection failure - no console spam
+            // The exception will be caught by the exceptionCaught handler above
         }
     }
 

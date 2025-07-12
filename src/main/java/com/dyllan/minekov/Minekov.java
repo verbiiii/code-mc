@@ -10,7 +10,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.Scoreboard;
 import net.minecraftforge.common.MinecraftForge;
@@ -172,8 +171,7 @@ public class Minekov {
             pythonSocket.connect();
             PythonBridge.websocketClient = pythonSocket;
         } catch (Exception e) {
-            System.err.println("[Minekov] Failed to connect to Python dashboard:");
-            e.printStackTrace();
+            // Silent initial connection failure - no console spam
         }
     }
 
@@ -186,14 +184,14 @@ public class Minekov {
             tickCounter = 0;
 
             if (pythonSocket == null || !pythonSocket.isConnected()) {
-                System.out.println("[Minekov] Attempting to reconnect to Python dashboard...");
+                // Silent reconnection attempt - no console spam
                 try {
                     URI uri = new URI("ws://127.0.0.1:8050/socket");
                     pythonSocket = new PythonWebSocketClient(uri);
                     pythonSocket.connect();
                     PythonBridge.websocketClient = pythonSocket; // TODO: move this into the python socket connection automatically somehow
                 } catch (Exception e) {
-                    System.err.println("[Minekov] Reconnect failed: " + e.getMessage());
+                    // Silent reconnection failure - no console spam
                 }
             }
         }
@@ -279,15 +277,13 @@ public class Minekov {
         // Only RL operators track deaths
         if (victimEntity instanceof RLOperator victim) {
             victim.addDeath();
-            System.out.println("[Minekov] RLOperator " + victim.getName().getString() +
-                    " died from " + event.getSource().getMsgId() + "!");
+            // Silent death tracking - no console spam
         }
 
         // Only RL operators track kills
         if (attackerEntity instanceof RLOperator attacker) {
             attacker.addKill();
-            System.out.println("[Minekov] RLOperator " + attacker.getName().getString() +
-                    " killed " + victimEntity.getName().getString() + "!");
+            // Silent kill tracking - no console spam
         }
     }
 

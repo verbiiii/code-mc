@@ -3,7 +3,6 @@ package com.dyllan.minekov;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.List;
 import java.util.Map;
 import com.google.gson.Gson;
 
@@ -46,7 +45,7 @@ public class PythonBridge {
 
     public static void tickPython(Map<String, Object> data) {
         if (websocketClient == null || !websocketClient.isConnected()) {
-            System.err.println("[PythonBridge] WebSocket not connected.");
+            // Silent - no console spam about connection status
             return;
         }
 
