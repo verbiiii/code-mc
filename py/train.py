@@ -134,6 +134,8 @@ class TrainState1v1:
         agents = list(self.agent_data.items())
         num_agents = len(agents)
 
+        loss_sum = 0.0
+
         for i, (agent_id, data) in enumerate(agents):
             if not data["log_probs"] or not data["rewards"]:
                 continue
@@ -156,16 +158,19 @@ class TrainState1v1:
             loss = -(log_probs_tensor * norm_reward).mean()
 
             if not torch.isnan(loss):
-                retain = i < num_agents - 1  # only retain graph if more agents remain
+                # retain = i < num_agents - 1  # only retain graph if more agents remain
                 self.optimizer.zero_grad() if i == 0 else None
-                loss.backward(retain_graph=retain)
-                if i == num_agents - 1:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                    self.optimizer.step()
-                    # print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+                # loss.backward(retain_graph=retain)
+                loss_sum += loss
             else:
                 print(f"🚨 Loss is NaN for agent {agent_id[:4]} — skipping optimizer step.")
 
             data["log_probs"].clear()
             data["rewards"].clear()
+    
+    
+        loss_sum.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+        self.optimizer.step()
+        # print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
 

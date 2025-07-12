@@ -3,14 +3,31 @@ package com.dyllan.minekov;
 import com.dyllan.minekov.entities.RLOperator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Ultra-compact binary protocol decoder for WebSocket messages.
  * Processes 12-byte actions with 32-bit agent IDs.
+ * Thread-safe: schedules actions on main server thread to prevent ConcurrentModificationException.
  */
 public class BinaryActionDecoder {
     private static final short MAGIC = (short) 0xACE5;
     private ByteBuffer incompleteBuffer = null; // Buffer for incomplete messages
+    
+    // Thread-safe queue for actions to be processed on main thread
+    private static final ConcurrentLinkedQueue<Runnable> pendingActions = new ConcurrentLinkedQueue<>();
+    
+    /**
+     * Process pending actions on main server thread (call this from main thread)
+     */
+    public static void processPendingActions() {
+        Runnable action;
+        int processed = 0;
+        while ((action = pendingActions.poll()) != null && processed < 1000) { // Limit to prevent lag
+            action.run();
+            processed++;
+        }
+    }
     
     /**
      * Process binary WebSocket message containing agent actions
@@ -56,37 +73,43 @@ public class BinaryActionDecoder {
             return;
         }
         
-        int processed = 0;
+        // ULTRA-FAST batch processing - queue actions for main thread execution
+        int queued = 0;
         
-        // Process actions - BLAZING FAST
         for (int i = 0; i < actionCount; i++) {
             if (buf.remaining() < 12) break;
             
-            int agentId = buf.getInt();        // 4 bytes
-            short angleRaw = buf.getShort();   // 2 bytes  
-            short flags = buf.getShort();      // 2 bytes
-            buf.getInt();                      // 4 bytes reserved (skip)
+            int agentId = buf.getInt();
+            short angleRaw = buf.getShort();
+            short flags = buf.getShort();
+            buf.getInt(); // skip reserved bytes
             
-            // Direct O(1) lookup - no hashing!
-            RLOperator op = AgentIdManager.getById(agentId);
-            if (op != null) {
-                try {
-                    if ((flags & 2) != 0) { // Move flag
-                        float angle = (angleRaw & 0xFFFF) * 360.0f / 65535.0f;
+            // Queue actions for main thread execution to prevent ConcurrentModificationException
+            if ((flags & 2) != 0) { // Move flag
+                float angle = (angleRaw & 0xFFFF) * 360.0f / 65535.0f;
+                pendingActions.offer(() -> {
+                    RLOperator op = AgentIdManager.getById(agentId);
+                    if (op != null) {
                         op.moveTowards(angle, 0.13f);
                     }
-                    if ((flags & 1) != 0) op.shootForward();      // Fire flag
-                    // Note: Sprint/crouch flags reserved for future use
-                    
-                    processed++;
-                } catch (Exception e) {
-                    System.err.println("⚠️ Error processing action for agent " + agentId + ": " + e.getMessage());
-                }
+                });
+                queued++;
             }
-            // Note: Missing agents are normal (they may have died)
+            
+            if ((flags & 1) != 0) { // Fire flag
+                pendingActions.offer(() -> {
+                    RLOperator op = AgentIdManager.getById(agentId);
+                    if (op != null) {
+                        op.shootForward();
+                    }
+                });
+                queued++;
+            }
         }
         
-        System.out.println("⚡ Processed " + processed + "/" + actionCount + " actions (" + 
-                          AgentIdManager.getActiveCount() + " active agents)");
+        // Only log every 10th batch to reduce console spam
+        if (queued > 0 && (System.currentTimeMillis() % 500) < 50) {
+            System.out.println("⚡ Queued " + queued + " actions from " + actionCount + " agents");
+        }
     }
 }

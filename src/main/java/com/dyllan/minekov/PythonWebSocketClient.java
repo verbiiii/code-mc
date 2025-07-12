@@ -235,7 +235,7 @@ public class PythonWebSocketClient {
                                                  // Handle batched actions
                                                  if (obj.has("actions")) {
                                                      var actionsArray = obj.getAsJsonArray("actions");
-                                                     System.out.println("📦 Processing batch with " + actionsArray.size() + " actions");
+                                                     // Removed logging to reduce overhead
                                                      for (var actionElement : actionsArray) {
                                                          JsonObject action = actionElement.getAsJsonObject();
                                                          processAction(action);
