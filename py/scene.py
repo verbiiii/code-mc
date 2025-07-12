@@ -334,13 +334,27 @@ async def ws_endpoint(websocket: WebSocket):
 
                     # Send all actions in a single WebSocket message
                     if actions_batch:
-                        batch_message = {
-                            "type": "actions_batch",
-                            "actions": actions_batch,
-                            "timestamp": timestamp
-                        }
-                        print(f"📦 Sending batch with {len(actions_batch)} actions")
-                        await websocket.send_text(json.dumps(batch_message))
+                        # For large batches (64+ agents), split into chunks to avoid WebSocket frame limits
+                        chunk_size = 50 if len(actions_batch) > 100 else len(actions_batch)
+                        total_actions = len(actions_batch)
+                        
+                        for i in range(0, total_actions, chunk_size):
+                            chunk = actions_batch[i:i + chunk_size]
+                            batch_message = {
+                                "type": "actions_batch",
+                                "actions": chunk,
+                                "timestamp": timestamp
+                            }
+                            
+                            if chunk_size < total_actions:
+                                # Add chunk info if we're splitting
+                                chunk_num = i // chunk_size + 1
+                                total_chunks = (total_actions + chunk_size - 1) // chunk_size
+                                print(f"📦 Sending batch chunk {chunk_num}/{total_chunks} with {len(chunk)} actions")
+                            else:
+                                print(f"📦 Sending batch with {len(chunk)} actions")
+                            
+                            await websocket.send_text(json.dumps(batch_message))
                 else:
                     print("Unhandled:", payload)
             except json.JSONDecodeError:

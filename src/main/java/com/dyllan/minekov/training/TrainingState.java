@@ -17,7 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 4; // ← change this to 1, 100, etc. for # of 1v1s
+    private static final int NUM_GROUPS = 16; // ← change this to 1, 100, etc. for # of 1v1s
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
@@ -151,7 +151,7 @@ public class TrainingState {
         for (int i = 0; i < NUM_GROUPS; i++) {
             double y = baseY + (i * offsetY);
 
-            TrainingGroup group = new TrainingGroup(100); // 600 ticks is 30 seconds
+            TrainingGroup group = new TrainingGroup(200); // 600 ticks is 30 seconds
 
             RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
             rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);

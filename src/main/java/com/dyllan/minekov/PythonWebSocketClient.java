@@ -117,16 +117,42 @@ public class PythonWebSocketClient {
                                      }
 
                                     if (opcode == 0x1) { // Text frame
-                                        String rawText = msg.toString(StandardCharsets.UTF_8);
-
-                                        // Strip anything before the first valid JSON
-                                        int firstBrace = rawText.indexOf('{');
-                                        if (firstBrace == -1) {
-                                            System.err.println("⚠️ No valid JSON object in frame: " + rawText);
+                                        // Parse payload length properly (including extended lengths)
+                                        int actualPayloadLen = payloadLen;
+                                        if (payloadLen == 126) {
+                                            // Next 2 bytes contain the actual length
+                                            if (raw.length < offset + 2) {
+                                                System.err.println("⚠️ Incomplete extended length frame");
+                                                return;
+                                            }
+                                            actualPayloadLen = ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF);
+                                            offset += 2;
+                                        } else if (payloadLen == 127) {
+                                            // Next 8 bytes contain the actual length (we'll limit to 4 bytes for safety)
+                                            if (raw.length < offset + 8) {
+                                                System.err.println("⚠️ Incomplete 64-bit length frame");
+                                                return;
+                                            }
+                                            // Only use the last 4 bytes for length (first 4 should be 0 for reasonable sizes)
+                                            actualPayloadLen = ((raw[offset + 4] & 0xFF) << 24) | 
+                                                             ((raw[offset + 5] & 0xFF) << 16) | 
+                                                             ((raw[offset + 6] & 0xFF) << 8) | 
+                                                             (raw[offset + 7] & 0xFF);
+                                            offset += 8;
+                                        }
+                                        
+                                        // Bounds check
+                                        if (actualPayloadLen < 0 || actualPayloadLen > raw.length - offset) {
+                                            System.err.println("⚠️ Invalid payload length: " + actualPayloadLen + " (frame size: " + raw.length + ", offset: " + offset + ")");
                                             return;
                                         }
-                                        rawText = rawText.substring(firstBrace);
+                                        
+                                        // Extract payload
+                                        byte[] payload = new byte[actualPayloadLen];
+                                        System.arraycopy(raw, offset, payload, 0, actualPayloadLen);
+                                        String rawText = new String(payload, StandardCharsets.UTF_8);
 
+                                        // Process JSON
                                         try {
                                             JsonObject obj = gson.fromJson(rawText, JsonObject.class);
                                             if (obj == null || !obj.has("type")) return;
@@ -137,6 +163,7 @@ public class PythonWebSocketClient {
                                                 // Handle batched actions
                                                 if (obj.has("actions")) {
                                                     var actionsArray = obj.getAsJsonArray("actions");
+                                                    System.out.println("📦 Processing batch with " + actionsArray.size() + " actions");
                                                     for (var actionElement : actionsArray) {
                                                         JsonObject action = actionElement.getAsJsonObject();
                                                         processAction(action);
@@ -147,8 +174,8 @@ public class PythonWebSocketClient {
                                                 processAction(obj);
                                             }
                                         } catch (Exception e) {
-                                            System.err.println("❌ Failed to parse JSON:");
-                                            System.err.println("✂️ JSON was: " + rawText);
+                                            System.err.println("❌ Failed to parse JSON (length: " + rawText.length() + "):");
+                                            System.err.println("✂️ JSON preview: " + (rawText.length() > 200 ? rawText.substring(0, 200) + "..." : rawText));
                                             e.printStackTrace();
                                         }
                                     }
@@ -192,24 +219,33 @@ public class PythonWebSocketClient {
 
         if (id == null) return;
 
-        for (RLOperator op : RLOperatorRegistry.getAll()) {
-            if (!op.getUUID().toString().equals(id)) continue;
+        // 🚦 Thread-safe operator lookup to prevent ConcurrentModificationException
+        try {
+            for (RLOperator op : RLOperatorRegistry.getAll().toArray(new RLOperator[0])) {
+                if (!op.getUUID().toString().equals(id)) continue;
 
-            switch (type) {
-                case "joystick_vector" -> {
-                    JsonObject vector = obj.getAsJsonObject("vector");
-                    if (vector != null && vector.has("angle")) {
-                        float angle = vector.get("angle").getAsFloat();
-                        op.moveTowards(angle, 0.13f);
-                        System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
+                switch (type) {
+                    case "joystick_vector" -> {
+                        JsonObject vector = obj.getAsJsonObject("vector");
+                        if (vector != null && vector.has("angle")) {
+                            float angle = vector.get("angle").getAsFloat();
+                            
+                            // 🎯 Execute movement directly on main thread
+                            op.moveTowards(angle, 0.13f);
+                            System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
+                        }
+                    }
+                    case "fire" -> {
+                        // 🎯 Execute firing directly on main thread
+                        op.shootForward();
+                        System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
                     }
                 }
-                case "fire" -> {
-                    op.shootForward();
-                    System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
-                }
+                break; // operator found
             }
-            break; // operator found
+        } catch (Exception e) {
+            // Silently handle concurrent modification issues
+            System.err.println("⚠️ Entity access issue: " + e.getMessage());
         }
     }
 

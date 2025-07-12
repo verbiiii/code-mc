@@ -16,7 +16,7 @@ class TrainState1v1:
             torch.nn.Tanh(),
             torch.nn.Linear(16, 18),  # 8 x-bins, 8 y-bins, 2 binary
         )
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
         # Per-agent memory
         self.agent_data = {}  # uuid -> dict with tick_x, log_probs, rewards, etc.
