@@ -11,6 +11,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.Scoreboard;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -27,12 +29,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
-import com.dyllan.minekov.training.Team;
-import com.dyllan.minekov.training.TrainingGroup;
+import com.dyllan.minekov.training.TrainingIsolationHandler;
+import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
 
 @Mod(Minekov.MODID)
@@ -40,7 +41,7 @@ import com.dyllan.minekov.training.TrainingState;
 public class Minekov {
     public static final String MODID = "minekov";
 
-    private static TrainingState trainingState = null;
+    public static TrainingState trainingState = null;
 
     private static PythonWebSocketClient pythonSocket;
     private static int tickCounter = 0;
@@ -50,6 +51,8 @@ public class Minekov {
         MinecraftForge.EVENT_BUS.register(this);
         ModEntities.register();
         initPythonConnection();
+
+        MinecraftForge.EVENT_BUS.register(TrainingIsolationHandler.class);
     }
 
     @SubscribeEvent
@@ -73,9 +76,7 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("scene")
-                    .executes(context -> {
-                        return runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32);
-                    })
+                    .executes(context -> runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32))
                     .then(Commands.argument("x_length", IntegerArgumentType.integer(1))
                         .executes(context -> {
                             int x = IntegerArgumentType.getInteger(context, "x_length");
@@ -98,22 +99,43 @@ public class Minekov {
                         )
                     )
                 )
-            .then(Commands.literal("train")
-                .executes(ctx -> {
-                    return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), 1); // default 1 round
-                })
-                .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
-                    .executes(ctx -> {
-                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                        return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
-                    })
+                .then(Commands.literal("train")
+                    .then(Commands.literal("start")
+                        .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                            .executes(ctx -> {
+                                int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
+                            })
+                        )
+                    )
+                    .then(Commands.literal("stop")
+                        .executes(ctx -> {
+                            if (trainingState != null) {
+                                trainingState.stop();
+                                trainingState = null;
+                                ctx.getSource().getServer().getPlayerList().broadcastSystemMessage(
+                                    Component.literal("Training session forcefully stopped."), false
+                                );
+                                return 1;
+                            } else {
+                                ctx.getSource().sendFailure(Component.literal("No active training session."));
+                                return 0;
+                            }
+                        })
+                    )
                 )
-            )
         );
     }
 
+
     private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds) {
         trainingState = new TrainingState(player, world.getServer(), rounds);
+
+        // display scoreboard
+        TrainingScoreboard.setServer(world.getServer());
+        Scoreboard scoreboard = world.getServer().getScoreboard();
+        Objective obj = scoreboard.getObjective("ai_kills");
+        scoreboard.setDisplayObjective(1, obj);
 
         world.getServer().getPlayerList().broadcastSystemMessage(
             Component.literal("Training initialized. Rounds: " + rounds), false

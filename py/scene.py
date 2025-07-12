@@ -303,22 +303,32 @@ async def ws_endpoint(websocket: WebSocket):
                     # ✅ Update Python-side training state with full operator observations
                     train_state.update(payload)
 
-                    # 🔁 Sample action for each RL agent and send it
+                    # 🔁 Precompute actions for all RL agents
+                    actions = train_state.sample_actions()  # {agent_id: (angle, shoot)}
+
+                    # 🔁 Send out actions per agent
                     for oid in rl_ids:
-                        obs = all_operators.get(oid)
-                        if not obs:
-                            continue  # skip if somehow not found
+                        if oid not in actions:
+                            continue
+                        angle, should_shoot = actions[oid]
 
-                        move_degree, should_shoot = train_state.sample_action()
-
-                        if move_degree is not None:
+                        if angle is not None:
                             move_packet = {
                                 "type": "joystick_vector",
                                 "id": oid,
-                                "vector": {"x": 0.0, "y": 1.0, "angle": move_degree},
+                                "vector": {"x": 0.0, "y": 1.0, "angle": angle},
                                 "timestamp": int(time.time() * 1000)
                             }
                             await websocket.send_text(json.dumps(move_packet))
+
+                        if should_shoot:
+                            shoot_packet = {
+                                "type": "fire",
+                                "id": oid,
+                                "timestamp": int(time.time() * 1000)
+                            }
+                            await websocket.send_text(json.dumps(shoot_packet))
+
 
                         if should_shoot:
                             shoot_packet = {

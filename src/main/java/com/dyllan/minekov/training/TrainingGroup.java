@@ -3,6 +3,10 @@ package com.dyllan.minekov.training;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.dyllan.minekov.entities.AIOperator;
+
+import net.minecraft.world.entity.Entity;
+
 public class TrainingGroup {
     private List<Team> teams;
     private int maxTicks;
@@ -33,5 +37,19 @@ public class TrainingGroup {
 
     public List<Team> getTeams() {
         return teams;
+    }
+
+    public boolean contains(Entity e) {
+        if (!(e instanceof AIOperator op)) return false;
+        for (Team team : teams) {
+            if (team.getOperators().contains(op)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean shouldInteract(Entity a, Entity b) {
+        return this.contains(a) && this.contains(b) && a != b;
     }
 }

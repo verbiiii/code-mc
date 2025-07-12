@@ -16,8 +16,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
-
 public class TrainingState {
+    private static final int NUM_GROUPS = 2; // ← change this to 1, 100, etc. for # of 1v1s
+
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
     private final MinecraftServer server;
@@ -26,6 +27,8 @@ public class TrainingState {
     private int currentRound = 0;
     private int currentRoundTick = 0;
     private boolean roundActive = false;
+
+    private final boolean selfPlay = false; // ← set to false to use DumbOperator
 
     public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
         this.numRounds = rounds;
@@ -49,32 +52,57 @@ public class TrainingState {
         List<String> rlIds = new ArrayList<>();
         Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
 
+        Map<String, Team> operatorTeamMap = new HashMap<>();
+        Map<String, AIOperator> allOperators = new HashMap<>();
+
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
-                String teamId = team.getTeamId();
-
                 for (AIOperator op : team.getOperators()) {
-                    Map<String, Object> info = new HashMap<>();
-                    info.put("x", op.getX());
-                    info.put("y", op.getY());
-                    info.put("z", op.getZ());
-                    info.put("health", op.getHealth());
-                    info.put("team", teamId);
-                    info.put("is_rl", op instanceof RLOperator);
-
-                    if (op instanceof RLOperator rlOp) {
-                        info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
-                        info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
-                        info.put("deaths_last_tick", rlOp.getDeathsLastTick());
-                        info.put("kills_last_tick", rlOp.getKillsLastTick());
-
-                        rlIds.add(rlOp.getUUID().toString());
-                        rlOp.clearTickDamageStats();
-                    }
-
-                    allOperatorData.put(op.getUUID().toString(), info);
+                    String uuid = op.getUUID().toString();
+                    operatorTeamMap.put(uuid, team);
+                    allOperators.put(uuid, op);
                 }
             }
+        }
+
+        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
+            String uuid = entry.getKey();
+            AIOperator op = entry.getValue();
+            Team myTeam = operatorTeamMap.get(uuid);
+
+            Map<String, Object> info = new HashMap<>();
+            info.put("x", op.getX());
+            info.put("y", op.getY());
+            info.put("z", op.getZ());
+            info.put("health", op.getHealth());
+            info.put("team", myTeam.getTeamId());
+            info.put("is_rl", op instanceof RLOperator);
+
+            if (op instanceof RLOperator rlOp) {
+                info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
+                info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
+                info.put("deaths_last_tick", rlOp.getDeathsLastTick());
+                info.put("kills_last_tick", rlOp.getKillsLastTick());
+
+                AIOperator opponent = allOperators.values().stream()
+                    .filter(other -> !other.getUUID().equals(op.getUUID()))
+                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(myTeam))
+                    .findFirst()
+                    .orElse(null);
+
+                if (opponent != null) {
+                    Map<String, Object> opp = new HashMap<>();
+                    opp.put("x", opponent.getX());
+                    opp.put("y", opponent.getY());
+                    opp.put("z", opponent.getZ());
+                    info.put("opponent", opp);
+                }
+
+                rlIds.add(uuid);
+                rlOp.clearTickDamageStats();
+            }
+
+            allOperatorData.put(uuid, info);
         }
 
         boolean roundDone = isRoundComplete();
@@ -115,28 +143,42 @@ public class TrainingState {
         currentRoundTick = 0;
         roundActive = true;
 
-        TrainingGroup group = new TrainingGroup(100); // 5 seconds @ 20tps
-
         ServerLevel world = server.overworld();
-        double rlX = 19.5, rlY = 2, rlZ = 17.5;
-        double dumbX = 19.5, dumbY = 2, dumbZ = 9.5;
+        double team1X = 19.5, team1Z = 17.5;
+        double team2X = 19.5, team2Z = 9.5;
+        double baseY = 2.0;
+        double offsetY = 0.3;
 
-        RLOperator rl = ModEntities.RL_OPERATOR.get().create(world);
-        rl.moveTo(rlX, rlY, rlZ, 180.0f, 0.0f);
-        world.addFreshEntity(rl);
+        for (int i = 0; i < NUM_GROUPS; i++) {
+            double y = baseY + (i * offsetY);
 
-        DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
-        dumb.moveTo(dumbX, dumbY, dumbZ, 0.0f, 0.0f);
-        world.addFreshEntity(dumb);
+            TrainingGroup group = new TrainingGroup(1200); // 600 ticks is 30 seconds
 
-        Team team1 = new Team();
-        team1.addOperator(rl);
-        Team team2 = new Team();
-        team2.addOperator(dumb);
+            RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
+            rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);
+            world.addFreshEntity(rl1);
+            Team team1 = new Team();
+            team1.addOperator(rl1);
 
-        group.addTeam(team1);
-        group.addTeam(team2);
-        groups.add(group);
+            AIOperator opponent;
+            if (selfPlay) {
+                RLOperator rl2 = ModEntities.RL_OPERATOR.get().create(world);
+                rl2.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
+                world.addFreshEntity(rl2);
+                opponent = rl2;
+            } else {
+                DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
+                dumb.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
+                world.addFreshEntity(dumb);
+                opponent = dumb;
+            }
+            Team team2 = new Team();
+            team2.addOperator(opponent);
+
+            group.addTeam(team1);
+            group.addTeam(team2);
+            groups.add(group);
+        }
 
         sendTickEvent("start_round", Map.of("round", currentRound));
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
@@ -175,5 +217,21 @@ public class TrainingState {
 
     public Player getProvisioningPlayer() {
         return provisioningPlayer;
+    }
+
+    public void stop() {
+        if (roundActive) {
+            cleanupRound();
+            roundActive = false;
+        }
+        currentRound = 0;
+        currentRoundTick = 0;
+        groups.clear();
+        sendTickEvent("stop_session", Map.of("rounds", numRounds));
+        broadcastToPlayers("§cTraining session forcefully stopped.");
+    }
+
+    public List<TrainingGroup> getGroups() {
+        return groups;
     }
 }
