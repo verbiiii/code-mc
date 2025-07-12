@@ -42,7 +42,7 @@ public class Minekov {
 
     public static TrainingState trainingState = null;
 
-    private static PythonWebSocketClient pythonSocket;
+    private static PythonRLController pythonController;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
 
@@ -167,9 +167,9 @@ public class Minekov {
     private void initPythonConnection() {
         try {
             URI uri = new URI("ws://127.0.0.1:8050/socket");
-            pythonSocket = new PythonWebSocketClient(uri);
-            pythonSocket.connect();
-            PythonBridge.websocketClient = pythonSocket;
+            pythonController = new PythonRLController(uri);
+            pythonController.connect();
+            PythonBridge.rlController = pythonController;
         } catch (Exception e) {
             // Silent initial connection failure - no console spam
         }
@@ -183,20 +183,20 @@ public class Minekov {
         if (tickCounter >= RECONNECT_INTERVAL) {
             tickCounter = 0;
 
-            if (pythonSocket == null || !pythonSocket.isConnected()) {
+            if (pythonController == null || !pythonController.isConnected()) {
                 // Silent reconnection attempt - no console spam
                 try {
                     URI uri = new URI("ws://127.0.0.1:8050/socket");
-                    pythonSocket = new PythonWebSocketClient(uri);
-                    pythonSocket.connect();
-                    PythonBridge.websocketClient = pythonSocket; // TODO: move this into the python socket connection automatically somehow
+                    pythonController = new PythonRLController(uri);
+                    pythonController.connect();
+                    PythonBridge.rlController = pythonController; // TODO: move this into the python socket connection automatically somehow
                 } catch (Exception e) {
                     // Silent reconnection failure - no console spam
                 }
             }
         }
 
-        if (pythonSocket != null && pythonSocket.isConnected()) {
+        if (pythonController != null && pythonController.isConnected()) {
             syncRLOperatorsToPython();
         }
 
@@ -212,15 +212,15 @@ public class Minekov {
     }
 
     public static void sendToPython(String message) {
-        if (pythonSocket != null && pythonSocket.isConnected()) {
-            pythonSocket.send(message);
+        if (pythonController != null && pythonController.isConnected()) {
+            pythonController.sendToPython(message);
         } else {
             System.err.println("[Minekov] Python WebSocket is not open.");
         }
     }
 
     private static void syncRLOperatorsToPython() {
-        if (!pythonSocket.isConnected()) return;
+        if (!pythonController.isConnected()) return;
 
         List<Map<String, Object>> operators = new ArrayList<>();
 
@@ -244,7 +244,7 @@ public class Minekov {
 
         try {
             String json = new com.google.gson.Gson().toJson(payload);
-            pythonSocket.send(json);
+            pythonController.sendToPython(json);
         } catch (Exception e) {
             System.err.println("[Minekov] Failed to send operator sync:");
             e.printStackTrace();

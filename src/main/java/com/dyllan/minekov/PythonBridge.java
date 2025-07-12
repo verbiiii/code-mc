@@ -11,7 +11,7 @@ import com.dyllan.minekov.scene.SceneEncoder;
 public class PythonBridge {
     private static final Gson gson = new Gson();
 
-    public static PythonWebSocketClient websocketClient;
+    public static PythonRLController rlController;
 
     public static void sendSceneVolume(SceneEncoder encoder) {
         try {
@@ -44,13 +44,13 @@ public class PythonBridge {
     }
 
     public static void tickPython(Map<String, Object> data) {
-        if (websocketClient == null || !websocketClient.isConnected()) {
+        if (rlController == null || !rlController.isConnected()) {
             // Silent - no console spam about connection status
             return;
         }
 
         String json = gson.toJson(data);
-        websocketClient.send(json);
+        rlController.sendToPython(json);
     }
 
 }
