@@ -159,6 +159,18 @@ repositories {
                 includeGroup("com.eliotlash.mclib")
         }
     }
+    
+    // Additional repositories needed for TACZ project dependency
+    maven {
+        url 'https://jitpack.io'
+        content {
+            includeGroup "com.github.FiguraMC.luaj"
+        }
+    }
+    maven { url "https://maven.shedaniel.me/" }
+    maven { url "https://maven.kosmx.dev/" }
+    maven { url "https://maven.blamejared.com/" }  // JEI
+    maven { url "https://modmaven.k-4u.nl" }       // JEI fallback
 }
 
 dependencies {
@@ -176,8 +188,26 @@ dependencies {
     implementation fg.deobf("curse.maven:ctm-309927:6418456")  // curios (required by superb warfare)
 
     // implementation fg.deobf("curse.maven:ctm-1028108:6654541") // tacz
-    implementation fg.deobf("curse.maven:timeless-and-classics-zero-1028108:6654541")
-    // implementation project(":mods:TACZ")
+    // implementation fg.deobf("curse.maven:timeless-and-classics-zero-1028108:6654541")
+    implementation(project(":mods:TACZ")) {
+        exclude group: "mezz.jei", module: "jei-1.20.1-forge"
+        exclude group: "curse.maven", module: "spark-361579"
+        exclude group: "curse.maven", module: "selene-499980"
+        exclude group: "curse.maven", module: "mmmmmmmmmmmm-225738"
+        exclude group: "curse.maven", module: "carry-on-274259"
+    }
+    
+    // LuaJ dependencies needed for TACZ runtime when using project dependency
+    minecraftLibrary('com.github.FiguraMC.luaj:luaj-core:3.0.8-figura') {
+        exclude group: 'org.apache.commons', module: 'commons-lang3'
+    }
+    minecraftLibrary('com.github.FiguraMC.luaj:luaj-jse:3.0.8-figura') {
+        exclude group: 'org.apache.commons', module: 'commons-lang3'
+    }
+    minecraftLibrary('org.apache.bcel:bcel:6.6.1') {
+        exclude group: 'org.apache.commons', module: 'commons-lang3'
+    }
+    
     // implementation fg.deobf(files("mods/TACZ/build/libs/tacz-1.20.1-1.1.6-hotfix-all.jar"))
 
     // Example mod dependency with JEI - using fg.deobf() ensures the dependency is remapped to your development mappings
