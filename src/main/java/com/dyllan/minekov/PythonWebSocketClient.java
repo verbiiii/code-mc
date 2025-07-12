@@ -146,14 +146,15 @@ public class PythonWebSocketClient {
                                                             for (RLOperator op : RLOperatorRegistry.getAll()) {
                                                                 if (op.getUUID().toString().equals(id)) {
                                                                     op.moveTowards(angle, 0.13f);
-                                                                    System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
+                                                                    // System.out.println("🕹 Moving operator " + id + " → angle=" + angle);
                                                                     break;
                                                                 }
                                                             }
                                                         }
                                                     }
                                                 } catch (com.google.gson.JsonSyntaxException ex) {
-                                                    // Silent JSON parsing error - no console spam
+                                                    // print the JSON that caused the error
+                                                    System.err.println("❌ Failed to parse JSON object:");
                                                 }
 
                                                 if (obj == null || !obj.has("type")) continue;
