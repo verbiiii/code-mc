@@ -82,13 +82,24 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
     @Override
     public boolean canCollideWith(Entity entity) {
         // Use the centralized interaction logic
-        return TrainingIsolationHandler.shouldEntitiesInteract(this, entity);
+        // return TrainingIsolationHandler.shouldEntitiesInteract(this, entity);
+        return false;
     }
 
     @Override
     public void push(Entity entity) {
-        if (!TrainingIsolationHandler.shouldEntitiesInteract(this, entity)) return;
-        super.push(entity);
+        // if (!TrainingIsolationHandler.shouldEntitiesInteract(this, entity)) return;
+        // super.push(entity);
+    }
+
+    @Override
+    public boolean canBeCollidedWith() {
+        return false;
+    }
+
+    @Override
+    public boolean isPushable() {
+        return false;
     }
 
     @Override
