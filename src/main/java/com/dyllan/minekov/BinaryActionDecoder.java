@@ -10,19 +10,34 @@ import java.nio.ByteOrder;
  */
 public class BinaryActionDecoder {
     private static final short MAGIC = (short) 0xACE5;
+    private ByteBuffer incompleteBuffer = null; // Buffer for incomplete messages
     
     /**
      * Process binary WebSocket message containing agent actions
      */
     public void processBinaryMessage(byte[] data) {
-        if (data.length < 4) {
-            System.err.println("⚠️ Binary message too short: " + data.length + " bytes");
+        ByteBuffer buf;
+        
+        // If we have incomplete data from previous message, combine it
+        if (incompleteBuffer != null) {
+            // Create new buffer with combined data
+            byte[] combined = new byte[incompleteBuffer.remaining() + data.length];
+            incompleteBuffer.get(combined, 0, incompleteBuffer.remaining());
+            System.arraycopy(data, 0, combined, incompleteBuffer.remaining(), data.length);
+            buf = ByteBuffer.wrap(combined).order(ByteOrder.BIG_ENDIAN);
+            incompleteBuffer = null;
+        } else {
+            buf = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+        }
+        
+        if (buf.remaining() < 4) {
+            // Not even enough for header, save for next message
+            incompleteBuffer = buf;
             return;
         }
         
-        ByteBuffer buf = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-        
         // Parse header
+        int headerStart = buf.position();
         short magic = buf.getShort();
         if (magic != MAGIC) {
             System.err.println("⚠️ Invalid magic number: 0x" + Integer.toHexString(magic & 0xFFFF));
@@ -30,9 +45,14 @@ public class BinaryActionDecoder {
         }
         
         short actionCount = buf.getShort();
+        int requiredBytes = actionCount * 12;
         
-        if (buf.remaining() < actionCount * 12) {
-            System.err.println("⚠️ Incomplete action data. Expected: " + (actionCount * 12) + ", Got: " + buf.remaining());
+        if (buf.remaining() < requiredBytes) {
+            // Incomplete message, save the entire buffer for next time
+            buf.position(headerStart); // Reset to start of header
+            incompleteBuffer = ByteBuffer.allocate(buf.remaining());
+            incompleteBuffer.put(buf);
+            incompleteBuffer.flip();
             return;
         }
         
