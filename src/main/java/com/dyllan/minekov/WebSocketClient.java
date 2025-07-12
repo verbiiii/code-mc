@@ -26,6 +26,7 @@ public class WebSocketClient {
     private final EventLoopGroup group = new NioEventLoopGroup();
     private final Gson gson = new Gson();
     private Consumer<JsonObject> messageHandler;
+    private Consumer<byte[]> binaryMessageHandler;
 
     public WebSocketClient(URI uri) {
         this.uri = uri;
@@ -33,6 +34,10 @@ public class WebSocketClient {
 
     public void setMessageHandler(Consumer<JsonObject> handler) {
         this.messageHandler = handler;
+    }
+
+    public void setBinaryMessageHandler(Consumer<byte[]> handler) {
+        this.binaryMessageHandler = handler;
     }
 
     public void connect() {
@@ -116,6 +121,14 @@ public class WebSocketClient {
                                              handleJsonMessage(jsonText);
                                          }
                                      }
+
+                                     // Handle binary frames
+                                     if (opcode == 0x2) {
+                                         byte[] binaryData = parseBinaryFrame(raw, payloadLen, offset);
+                                         if (binaryData != null && binaryMessageHandler != null) {
+                                             binaryMessageHandler.accept(binaryData);
+                                         }
+                                     }
                                  }
 
                                  private String parseTextFrame(byte[] raw, int payloadLen, int offset) {
@@ -149,6 +162,41 @@ public class WebSocketClient {
 
                                      } catch (Exception e) {
                                          System.err.println("⚠️ WebSocket: Frame parsing error: " + e.getMessage());
+                                         return null;
+                                     }
+                                 }
+
+                                 private byte[] parseBinaryFrame(byte[] raw, int payloadLen, int offset) {
+                                     try {
+                                         // Parse extended payload lengths (same logic as text frames)
+                                         int actualPayloadLen = payloadLen;
+                                         if (payloadLen == 126) {
+                                             if (raw.length < offset + 2) return null;
+                                             actualPayloadLen = ((raw[offset] & 0xFF) << 8) | (raw[offset + 1] & 0xFF);
+                                             offset += 2;
+                                         } else if (payloadLen == 127) {
+                                             if (raw.length < offset + 8) return null;
+                                             actualPayloadLen = ((raw[offset + 4] & 0xFF) << 24) |
+                                                               ((raw[offset + 5] & 0xFF) << 16) |
+                                                               ((raw[offset + 6] & 0xFF) << 8) |
+                                                               (raw[offset + 7] & 0xFF);
+                                             offset += 8;
+                                         }
+
+                                         // Bounds check
+                                         if (actualPayloadLen < 0 || actualPayloadLen > raw.length - offset) {
+                                             System.err.println("⚠️ WebSocket: Invalid binary payload length: " + actualPayloadLen +
+                                                     " (frame size: " + raw.length + ", offset: " + offset + ")");
+                                             return null;
+                                         }
+
+                                         // Extract binary payload
+                                         byte[] payload = new byte[actualPayloadLen];
+                                         System.arraycopy(raw, offset, payload, 0, actualPayloadLen);
+                                         return payload;
+
+                                     } catch (Exception e) {
+                                         System.err.println("⚠️ WebSocket: Binary frame parsing error: " + e.getMessage());
                                          return null;
                                      }
                                  }

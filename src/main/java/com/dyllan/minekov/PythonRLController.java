@@ -9,14 +9,20 @@ import java.net.URI;
 /**
  * Game-specific controller that handles RL agent actions.
  * Uses the generic WebSocketClient for network communication.
+ * Supports both JSON (legacy) and ultra-efficient binary protocols.
  */
 public class PythonRLController {
 
     private final WebSocketClient webSocket;
+    private final BinaryActionDecoder binaryDecoder;
 
     public PythonRLController(URI uri) {
         this.webSocket = new WebSocketClient(uri);
+        this.binaryDecoder = new BinaryActionDecoder();
+        
+        // Handle both JSON and binary messages
         this.webSocket.setMessageHandler(this::handleMessage);
+        this.webSocket.setBinaryMessageHandler(this::handleBinaryMessage);
     }
 
     public void connect() {
@@ -47,6 +53,13 @@ public class PythonRLController {
                 // Silently ignore unknown message types
             }
         }
+    }
+
+    /**
+     * Handle incoming binary messages from Python (ultra-efficient)
+     */
+    private void handleBinaryMessage(byte[] data) {
+        binaryDecoder.processBinaryMessage(data);
     }
 
     /**
@@ -85,7 +98,8 @@ public class PythonRLController {
     }
 
     /**
-     * Process a single action (move or fire)
+     * Process a single action (move or fire) - LEGACY JSON ONLY
+     * Binary actions are handled by BinaryActionDecoder
      */
     private void processAction(JsonObject obj) {
         if (obj == null || !obj.has("type")) return;
@@ -95,7 +109,7 @@ public class PythonRLController {
 
         if (id == null) return;
 
-        // Thread-safe operator lookup
+        // For JSON messages, ID might still be UUID string, need to find by UUID
         try {
             for (RLOperator op : RLOperatorRegistry.getAll().toArray(new RLOperator[0])) {
                 if (!op.getUUID().toString().equals(id)) continue;
@@ -106,23 +120,21 @@ public class PythonRLController {
                         if (vector != null && vector.has("angle")) {
                             float angle = vector.get("angle").getAsFloat();
                             op.moveTowards(angle, 0.13f);
-                            // Uncomment for debug: System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
                         }
                     }
                     case "fire" -> {
                         op.shootForward();
-                        // Uncomment for debug: System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
                     }
                 }
                 break; // operator found
             }
         } catch (Exception e) {
-            System.err.println("⚠️ RLController: Entity access issue: " + e.getMessage());
+            System.err.println("⚠️ RLController: JSON action processing error: " + e.getMessage());
         }
     }
 
     /**
-     * Send a message to Python
+     * Send a JSON message to Python
      */
     public void sendToPython(JsonObject message) {
         webSocket.sendJson(message);

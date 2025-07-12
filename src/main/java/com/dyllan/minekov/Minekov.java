@@ -228,7 +228,7 @@ public class Minekov {
             if (op.isRemoved() || !op.isAlive()) continue;
 
             Map<String, Object> info = new HashMap<>();
-            info.put("id", op.getUUID().toString());
+            info.put("id", op.getAgentId());  // Use compact agent ID instead of UUID
             info.put("name", op.getName().getString());
             info.put("x", op.getX());
             info.put("y", op.getY());

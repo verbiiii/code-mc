@@ -13,6 +13,7 @@ from starlette.requests import Request as StarletteRequest
 from dash import ctx
 
 from train import TrainState1v1
+from binary_encoder import UltraCompactEncoder
 
 
 # ---------------- State ----------------
@@ -24,6 +25,7 @@ latest_update_flag = 0
 volume = None
 
 train_state = TrainState1v1()
+binary_encoder = UltraCompactEncoder()  # Ultra-efficient binary protocol
 
 # ---------------- Dash (WSGI App) ----------------
 dash_app = Dash(__name__, routes_pathname_prefix="/")
@@ -334,27 +336,39 @@ async def ws_endpoint(websocket: WebSocket):
 
                     # Send all actions in a single WebSocket message
                     if actions_batch:
-                        # For large batches (64+ agents), split into chunks to avoid WebSocket frame limits
-                        chunk_size = 50 if len(actions_batch) > 100 else len(actions_batch)
-                        total_actions = len(actions_batch)
-                        
-                        for i in range(0, total_actions, chunk_size):
-                            chunk = actions_batch[i:i + chunk_size]
-                            batch_message = {
-                                "type": "actions_batch",
-                                "actions": chunk,
-                                "timestamp": timestamp
+                        # Convert to ultra-compact binary format for efficiency
+                        binary_actions = []
+                        for action in actions_batch:
+                            # Java now sends integer agent IDs directly
+                            agent_id = action["id"]  # Already an integer from AgentIdManager
+                            
+                            binary_action = {
+                                'id': agent_id,
+                                'fire': action["type"] == "fire",
+                                'move': action["type"] == "joystick_vector"
                             }
                             
-                            if chunk_size < total_actions:
-                                # Add chunk info if we're splitting
-                                chunk_num = i // chunk_size + 1
-                                total_chunks = (total_actions + chunk_size - 1) // chunk_size
-                                print(f"📦 Sending batch chunk {chunk_num}/{total_chunks} with {len(chunk)} actions")
-                            else:
-                                print(f"📦 Sending batch with {len(chunk)} actions")
+                            if action["type"] == "joystick_vector":
+                                binary_action['angle'] = action["vector"]["angle"]
                             
-                            await websocket.send_text(json.dumps(batch_message))
+                            binary_actions.append(binary_action)
+                        
+                        # Send as ultra-efficient binary
+                        binary_data = binary_encoder.encode_actions(binary_actions)
+                        await websocket.send_bytes(binary_data)
+                        
+                        # Show compression stats
+                        json_size = len(json.dumps({"type": "actions_batch", "actions": actions_batch}))
+                        compression = (1 - len(binary_data) / json_size) * 100
+                        print(f"� Binary: {len(binary_actions)} actions, {len(binary_data)} bytes ({compression:.1f}% compressed)")
+                        
+                        # Fallback: Also send JSON for debugging/compatibility
+                        # batch_message = {
+                        #     "type": "actions_batch", 
+                        #     "actions": actions_batch,
+                        #     "timestamp": timestamp
+                        # }
+                        # await websocket.send_text(json.dumps(batch_message))
                 else:
                     print("Unhandled:", payload)
             except json.JSONDecodeError:

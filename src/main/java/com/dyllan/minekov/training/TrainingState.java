@@ -48,7 +48,7 @@ public class TrainingState {
             group.tick();
         }
 
-        List<String> rlIds = new ArrayList<>();
+        List<Integer> rlIds = new ArrayList<>();
         Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
 
         Map<String, Team> operatorTeamMap = new HashMap<>();
@@ -97,7 +97,7 @@ public class TrainingState {
                     info.put("opponent", opp);
                 }
 
-                rlIds.add(uuid);
+                rlIds.add(rlOp.getAgentId());  // Use compact agent ID
                 rlOp.clearTickDamageStats();
             }
 
