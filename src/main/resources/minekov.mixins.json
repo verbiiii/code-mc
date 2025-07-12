@@ -1,12 +1,14 @@
 {
     "required": true,
     "package": "com.dyllan.minekov.mixin",
-    "compatibilityLevel": "JAVA_8",
+    "compatibilityLevel": "JAVA_17",
     "refmap": "minekov.refmap.json",
-    "mixins": [],
+    "mixins": [
+        "LevelCollisionMixin"
+    ],
     "client": [],
     "injectors": {
       "defaultRequire": 1
     }
-  }
+}
   
