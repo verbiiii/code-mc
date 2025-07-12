@@ -80,7 +80,7 @@ class TrainState1v1:
             self.agent_data[my_id]["tick_x"] = tick_x
             self.agent_data[my_id]["rewards"].append(reward)
 
-            print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {my_id[:4]} | 📈 Reward: {reward:.2f}")
+            # print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {my_id[:4]} | 📈 Reward: {reward:.2f}")
 
     def sample_actions(self):
         results = {}
@@ -162,7 +162,7 @@ class TrainState1v1:
                 if i == num_agents - 1:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
                     self.optimizer.step()
-                    print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+                    # print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
             else:
                 print(f"🚨 Loss is NaN for agent {agent_id[:4]} — skipping optimizer step.")
 

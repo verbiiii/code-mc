@@ -174,9 +174,9 @@ public class PythonWebSocketClient {
                                                 processAction(obj);
                                             }
                                         } catch (Exception e) {
-                                            System.err.println("❌ Failed to parse JSON (length: " + rawText.length() + "):");
-                                            System.err.println("✂️ JSON preview: " + (rawText.length() > 200 ? rawText.substring(0, 200) + "..." : rawText));
-                                            e.printStackTrace();
+                                            // System.err.println("❌ Failed to parse JSON (length: " + rawText.length() + "):");
+                                            // System.err.println("✂️ JSON preview: " + (rawText.length() > 200 ? rawText.substring(0, 200) + "..." : rawText));
+                                            // e.printStackTrace();
                                         }
                                     }
 
@@ -232,13 +232,13 @@ public class PythonWebSocketClient {
                             
                             // 🎯 Execute movement directly on main thread
                             op.moveTowards(angle, 0.13f);
-                            System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
+                            // System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
                         }
                     }
                     case "fire" -> {
                         // 🎯 Execute firing directly on main thread
                         op.shootForward();
-                        System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
+                        // System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
                     }
                 }
                 break; // operator found
