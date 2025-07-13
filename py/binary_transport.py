@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer
+from train_vectorized import VectorizedTrainer, create_trainer
 
 
 class BinaryTransport:
@@ -154,14 +154,21 @@ class BinaryTransport:
 transport = None
 trainer = None
 
-def initialize_transport(device='cpu'):
-    """Initialize the transport layer and trainer."""
+def initialize_transport(device='cpu', algorithm='fmc', num_agents=64):
+    """
+    Initialize the transport layer and trainer.
+    
+    Args:
+        device: PyTorch device ('cpu' or 'cuda')
+        algorithm: 'fmc' for FMC Evolution, 'reinforce' for PyTorch REINFORCE
+        num_agents: Number of agents in population (for FMC)
+    """
     global transport, trainer
     
-    trainer = VectorizedTrainer(device=device)
+    trainer = create_trainer(algorithm=algorithm, device=device, num_agents=num_agents)
     transport = BinaryTransport(trainer)
     
-    print(f"✅ Binary transport ready on {device}")
+    print(f"✅ Binary transport ready on {device} using {algorithm.upper()} algorithm")
 
 def process_binary_data(binary_data: bytes) -> bytes:
     """Main entry point for binary data processing."""
@@ -184,5 +191,20 @@ def get_stats() -> Dict:
 
 # Auto-initialize if run directly
 if __name__ == "__main__":
-    initialize_transport()
-    print("🚀 Binary transport ready!")
+    import sys
+    
+    # Command line argument parsing
+    algorithm = 'fmc'  # Default to FMC
+    device = 'cpu'
+    num_agents = 64
+    
+    if len(sys.argv) > 1:
+        algorithm = sys.argv[1].lower()
+    if len(sys.argv) > 2:
+        device = sys.argv[2]
+    if len(sys.argv) > 3:
+        num_agents = int(sys.argv[3])
+    
+    print(f"🧬 Initializing with algorithm: {algorithm.upper()}")
+    initialize_transport(device=device, algorithm=algorithm, num_agents=num_agents)
+    print(f"🚀 Binary transport ready!")
