@@ -300,7 +300,7 @@ public class WebSocketClient {
             new SecureRandom().nextBytes(mask);
 
             ByteBuf frame = Unpooled.buffer();
-            frame.writeByte(0x81);
+            frame.writeByte(0x81); // Text frame
 
             int payloadLen = payload.length;
             if (payloadLen <= 125) {
@@ -321,6 +321,38 @@ public class WebSocketClient {
             channel.writeAndFlush(frame);
         } catch (Exception e) {
             System.err.println("⚠️ WebSocket: Send error: " + e.getMessage());
+        }
+    }
+
+    public void sendBinary(byte[] data) {
+        if (!isConnected()) return;
+
+        try {
+            byte[] mask = new byte[4];
+            new SecureRandom().nextBytes(mask);
+
+            ByteBuf frame = Unpooled.buffer();
+            frame.writeByte(0x82); // Binary frame
+
+            int payloadLen = data.length;
+            if (payloadLen <= 125) {
+                frame.writeByte(0x80 | payloadLen);
+            } else if (payloadLen <= 0xFFFF) {
+                frame.writeByte(0x80 | 126);
+                frame.writeShort(payloadLen);
+            } else {
+                frame.writeByte(0x80 | 127);
+                frame.writeLong(payloadLen);
+            }
+
+            frame.writeBytes(mask);
+            for (int i = 0; i < payloadLen; i++) {
+                frame.writeByte(data[i] ^ mask[i % 4]);
+            }
+
+            channel.writeAndFlush(frame);
+        } catch (Exception e) {
+            System.err.println("⚠️ WebSocket: Binary send error: " + e.getMessage());
         }
     }
 

@@ -5,6 +5,7 @@ import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.google.gson.JsonObject;
 
 import java.net.URI;
+import java.util.Map;
 
 /**
  * Game-specific controller that handles RL agent actions.
@@ -14,11 +15,9 @@ import java.net.URI;
 public class PythonRLController {
 
     private final WebSocketClient webSocket;
-    private final BinaryActionDecoder binaryDecoder;
 
     public PythonRLController(URI uri) {
         this.webSocket = new WebSocketClient(uri);
-        this.binaryDecoder = new BinaryActionDecoder();
         
         // Handle both JSON and binary messages
         this.webSocket.setMessageHandler(this::handleMessage);
@@ -59,7 +58,29 @@ public class PythonRLController {
      * Handle incoming binary messages from Python (ultra-efficient)
      */
     private void handleBinaryMessage(byte[] data) {
-        binaryDecoder.processBinaryMessage(data);
+        // Use new vectorized decoder for better performance
+        Map<Integer, VectorizedActionDecoder.AgentAction> actions = VectorizedActionDecoder.decodeActions(data);
+        
+        // Apply actions to RL operators
+        for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
+            int agentId = entry.getKey();
+            VectorizedActionDecoder.AgentAction action = entry.getValue();
+            
+            // Find the RL operator by agent ID
+            for (RLOperator op : RLOperatorRegistry.getAll().toArray(new RLOperator[0])) {
+                if (op.getAgentId() != agentId) continue;
+                
+                // Apply the action using existing methods
+                if (action.walk) {
+                    op.moveTowards(action.angle, 0.13f);
+                }
+                
+                if (action.shoot) {
+                    op.shootForward();
+                }
+                break; // Found the operator, no need to continue
+            }
+        }
     }
 
     /**
@@ -145,5 +166,12 @@ public class PythonRLController {
      */
     public void sendToPython(String message) {
         webSocket.sendText(message);
+    }
+
+    /**
+     * Send binary data to Python (ultra-fast vectorized protocol)
+     */
+    public void sendBinaryToPython(byte[] data) {
+        webSocket.sendBinary(data);
     }
 }

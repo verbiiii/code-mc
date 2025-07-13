@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
+import com.dyllan.minekov.VectorizedObservationEncoder;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.RLOperator;
@@ -42,7 +43,6 @@ public class TrainingState {
     public void tick() {
         if (!roundActive) return;
 
-        boolean isFirstTick = currentRoundTick == 0;
         currentRoundTick++;
         globalTick++;
 
@@ -108,16 +108,38 @@ public class TrainingState {
 
         boolean roundDone = isRoundComplete();
 
-        Map<String, Object> tickPayload = new HashMap<>();
-        tickPayload.put("type", "tick");
-        tickPayload.put("tick", globalTick);
-        tickPayload.put("round", currentRound);
-        tickPayload.put("is_first_tick", isFirstTick);
-        tickPayload.put("is_last_tick", roundDone);
-        tickPayload.put("rl_operator_ids", rlIds);
-        tickPayload.put("all_operators", allOperatorData);
-
-        PythonBridge.tickPython(tickPayload);
+        // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
+        Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
+        
+        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
+            AIOperator op = entry.getValue();
+            
+            if (op instanceof RLOperator rlOp) {
+                // Find opponent for this RL agent
+                AIOperator opponent = allOperators.values().stream()
+                    .filter(other -> !other.getUUID().equals(op.getUUID()))
+                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(entry.getKey())))
+                    .findFirst()
+                    .orElse(op); // Use self if no opponent found
+                
+                // Create vectorized observation
+                VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
+                    op.getX(), op.getY(), op.getZ(),           // Agent position
+                    opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
+                    rlOp.getDamageDealtLastTick(),             // Damage dealt
+                    rlOp.getDamageTakenLastTick(),             // Damage taken
+                    rlOp.getKillsLastTick(),                   // Kills
+                    rlOp.getDeathsLastTick()                   // Deaths
+                );
+                
+                observations.put(rlOp.getAgentId(), obs);
+                rlOp.clearTickDamageStats();
+            }
+        }
+        
+        // Encode and send binary observations
+        byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
+        PythonBridge.sendBinaryToPython(binaryData);
 
         if (roundDone) {
             cleanupRound();

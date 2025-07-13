@@ -53,4 +53,13 @@ public class PythonBridge {
         rlController.sendToPython(json);
     }
 
+    public static void sendBinaryToPython(byte[] binaryData) {
+        if (rlController == null || !rlController.isConnected()) {
+            // Silent - no console spam about connection status
+            return;
+        }
+
+        rlController.sendBinaryToPython(binaryData);
+    }
+
 }
