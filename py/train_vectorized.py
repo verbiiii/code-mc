@@ -59,14 +59,40 @@ class VectorizedTrainer:
         return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), log_probs
 
     def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs: torch.Tensor):
-        dmg_dealt = reward_data[:, 0]
-        dmg_taken = reward_data[:, 1]
-        kills = reward_data[:, 2]
-        deaths = reward_data[:, 3]
+        """Update episode data using actual agent indices."""
+        # Filter out inactive agents (agent_indices == -1)
+        active_mask = agent_indices != -1
+        if not active_mask.any():
+            return  # No active agents
+            
+        active_indices = agent_indices[active_mask]
+        active_reward_data = reward_data[active_mask]
+        
+        dmg_dealt = active_reward_data[:, 0]
+        dmg_taken = active_reward_data[:, 1]
+        kills = active_reward_data[:, 2]
+        deaths = active_reward_data[:, 3]
 
         rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
-        self.cumulative_rewards[agent_indices] += rewards
-        print(self.cumulative_rewards)
+        
+        # Use the actual agent indices from the data
+        self.cumulative_rewards[active_indices] += rewards
+        
+        # Debug: Only print non-zero rewards
+        non_zero_mask = rewards != 0
+        if non_zero_mask.any():
+            for i, (idx, reward) in enumerate(zip(active_indices[non_zero_mask], rewards[non_zero_mask])):
+                print(f"Agent {idx}: +{reward:.2f} (cumulative: {self.cumulative_rewards[idx]:.2f})")
+
+    def reset_cumulative_rewards(self):
+        """Reset cumulative rewards at the end of each round."""
+        self.cumulative_rewards.zero_()
+        print("🔄 Cumulative rewards reset for new round")
+
+    def apply_reinforce_update(self):
+        """Apply REINFORCE learning updates at end of round."""
+        # TODO: Implement actual REINFORCE update logic
+        print("🎯 Applied REINFORCE updates")
 
     # def apply_fmc(self, completed_indices: torch.Tensor):
     #     print("🧬 Fitness values (cumulative rewards):")

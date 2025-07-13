@@ -44,9 +44,31 @@ public class TrainingState {
 
         globalTick++;
 
+        // Check for completed groups and handle cleanup
+        List<TrainingGroup> completedGroups = new ArrayList<>();
         for (TrainingGroup group : groups) {
             group.tick();
+            if (group.isComplete()) {
+                completedGroups.add(group);
+            }
         }
+        
+        // Clean up completed groups
+        for (TrainingGroup group : completedGroups) {
+            Team winningTeam = group.getWinningTeam();
+            if (winningTeam != null) {
+                System.out.println("🏆 Group completed with winner: " + winningTeam.getTeamId());
+                // Clean up without death signals (winners shouldn't get death penalty)
+                group.cleanupGroup(false);
+            } else {
+                System.out.println("⏰ Group completed by timeout");
+                // Clean up with death signals (timeout = everyone loses)
+                group.cleanupGroup(true);
+            }
+        }
+        
+        // DON'T remove completed groups yet - wait for round end
+        // groups.removeAll(completedGroups);
 
         Map<String, Team> operatorTeamMap = new HashMap<>();
         Map<String, AIOperator> allOperators = new HashMap<>();
@@ -82,17 +104,11 @@ public class TrainingState {
                 .findFirst()
                 .orElse(rlOp); // Use self if no opponent found
             
-            // Create vectorized observation with sequential index
+            // Create vectorized observation with actual agent ID
             float damageDealt = rlOp.getDamageDealtLastTick();
             float damageTaken = rlOp.getDamageTakenLastTick();
             int kills = rlOp.getKillsLastTick();
             int deaths = rlOp.getDeathsLastTick();
-            
-            // Debug: print reward data being sent
-            // if (damageDealt > 0 || damageTaken > 0 || kills > 0 || deaths > 0) {
-            //     System.out.println("DEBUG: Agent " + i + " reward data - Dealt: " + damageDealt + 
-            //                      ", Taken: " + damageTaken + ", Kills: " + kills + ", Deaths: " + deaths);
-            // }
             
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
@@ -103,7 +119,9 @@ public class TrainingState {
                 deaths                                       // Deaths
             );
             
-            observations.put(i, obs);  // Use sequential index instead of agent ID
+            // Use actual agent ID instead of sequential index
+            int agentId = rlOp.getId(); // Entity ID as unique identifier
+            observations.put(agentId, obs);
             rlOp.clearTickDamageStats();
         }
         
@@ -132,6 +150,8 @@ public class TrainingState {
     }
 
     private void setupRound() {
+        System.out.println("🚀 Setting up round " + (currentRound + 1));
+        
         groups.clear();
         roundActive = true;
 
@@ -176,14 +196,29 @@ public class TrainingState {
     }
 
     private void cleanupRound() {
+        System.out.println("🧹 Cleaning up round " + (currentRound + 1) + " with " + groups.size() + " groups");
+        
         roundActive = false;
+        int totalEntitiesKilled = 0;
+        
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
                 for (AIOperator op : team.getOperators()) {
-                    op.kill();
+                    if (op.isAlive()) {
+                        op.kill();
+                        totalEntitiesKilled++;
+                    }
                 }
             }
         }
+        
+        groups.clear(); // Clear groups after cleanup
+        System.out.println("✅ Round cleanup complete - killed " + totalEntitiesKilled + " entities");
+
+        // Send round end signal to Python
+        Map<String, Object> roundEndData = new HashMap<>();
+        roundEndData.put("type", "round_end");
+        PythonBridge.tickPython(roundEndData);
 
         // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");

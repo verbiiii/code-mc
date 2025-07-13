@@ -23,6 +23,10 @@ class BinaryTransport:
         # Performance monitoring
         self.processing_times = []
         
+        # Agent ID mapping: large entity IDs -> small indices (0-63)
+        self.agent_id_to_index = {}
+        self.next_index = 0
+        
         print("🚀 BinaryTransport initialized")
 
     def process_observations(self, binary_data: bytes) -> bytes:
@@ -81,6 +85,12 @@ class BinaryTransport:
             print(f"⚠️ Invalid magic: 0x{magic:08X}")
             return None, None, None
             
+        # Debug: Alert if we're getting too many agents
+        if agent_count > 64:
+            print(f"🚨 ALERT: Received {agent_count} agents! This suggests Java isn't cleaning up properly.")
+            print(f"📊 Current agent mapping has {len(self.agent_id_to_index)} known agents")
+            print(f"📊 Agent mapping: {dict(list(self.agent_id_to_index.items())[:10])}...")  # Show first 10
+            
         self.tick_count = tick
         
         # Validate data size
@@ -96,25 +106,85 @@ class BinaryTransport:
         # Convert to torch tensor
         obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
         
-        # Extract components vectorized - NO AGENT INDEX FILTERING
-        # Format: [my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        positions = obs_tensor[:, 0:6]          # [N, 6] - my_pos + opp_pos  
-        reward_data = obs_tensor[:, 6:10]       # [N, 4] - damage/kill data
+        # Extract components vectorized - NOW WITH AGENT INDICES
+        # Format: [agent_index, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
+        raw_agent_ids = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
+        positions = obs_tensor[:, 1:7]           # [N, 6] - my_pos + opp_pos  
+        reward_data = obs_tensor[:, 7:11]        # [N, 4] - damage/kill data
         
-        # Sequential agent indices (0, 1, 2, ..., N-1)
-        agent_indices = torch.arange(agent_count, device=self.trainer.device)
+        # Map large agent IDs to small indices (0-63)
+        mapped_indices = torch.zeros_like(raw_agent_ids)
+        skipped_count = 0
         
-        return positions, agent_indices, reward_data
+        # If we're getting way too many agents, force a reset
+        if agent_count > 128:
+            print(f"🔥 EMERGENCY RESET: Too many agents ({agent_count}), forcing agent mapping reset")
+            self.agent_id_to_index.clear()
+            self.next_index = 0
+        
+        for i, agent_id in enumerate(raw_agent_ids):
+            agent_id_int = agent_id.item()
+            if agent_id_int not in self.agent_id_to_index:
+                if self.next_index >= 64:
+                    skipped_count += 1
+                    mapped_indices[i] = -1  # Mark as inactive
+                    continue
+                self.agent_id_to_index[agent_id_int] = self.next_index
+                print(f"🆔 Mapped agent {agent_id_int} -> index {self.next_index}")
+                self.next_index += 1
+            
+            mapped_indices[i] = self.agent_id_to_index[agent_id_int]
+            
+        if skipped_count > 0:
+            print(f"⚠️ Skipped {skipped_count} agents due to 64-agent limit")
+            # If we're skipping a lot, show some stats
+            if skipped_count > 32:
+                active_agents = (mapped_indices != -1).sum().item()
+                print(f"📊 Active agents: {active_agents}, Mapped agents: {len(self.agent_id_to_index)}")
+        
+        # Pad to MAX_AGENTS for BatchedLinear compatibility
+        MAX_AGENTS = 64
+        if agent_count < MAX_AGENTS:
+            print(f"🔄 Padding from {agent_count} to {MAX_AGENTS} agents")
+            
+            # Create padding for inactive agents
+            padding_size = MAX_AGENTS - agent_count
+            
+            # Pad positions with zeros
+            positions_padded = torch.zeros(MAX_AGENTS, 6, device=self.trainer.device)
+            positions_padded[:agent_count] = positions
+            
+            # Pad agent indices (use -1 for inactive agents)
+            agent_indices_padded = torch.full((MAX_AGENTS,), -1, dtype=torch.long, device=self.trainer.device)
+            agent_indices_padded[:agent_count] = mapped_indices
+            
+            # Pad reward data with zeros
+            reward_data_padded = torch.zeros(MAX_AGENTS, 4, device=self.trainer.device)
+            reward_data_padded[:agent_count] = reward_data
+            
+            return positions_padded, agent_indices_padded, reward_data_padded
+        
+        return positions, mapped_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor) -> bytes:
-        """Encode actions into ultra-compact binary format - sequential ordering only."""
-        num_actions = len(angles)  # Use angles length since we ignore agent_indices now
+        """Encode actions into ultra-compact binary format - only for active agents."""
+        # Filter out inactive agents (agent_indices == -1)
+        active_mask = agent_indices != -1
+        active_count = active_mask.sum().item()
+        
+        if active_count == 0:
+            return self._encode_empty_actions()
+        
+        # Get actions only for active agents
+        angles_active = angles[active_mask]
+        walk_active = walk[active_mask]
+        shoot_active = shoot[active_mask]
         
         # Convert to numpy arrays (pure vectorized) - NO AGENT INDICES
-        angles_np = angles.cpu().numpy().astype(np.float32)
-        walk_np = walk.cpu().numpy().astype(np.float32)
-        shoot_np = shoot.cpu().numpy().astype(np.float32)
+        angles_np = angles_active.cpu().numpy().astype(np.float32)
+        walk_np = walk_active.cpu().numpy().astype(np.float32)
+        shoot_np = shoot_active.cpu().numpy().astype(np.float32)
         
         # Stack into action array [N, 3] - no loops, no indices!
         action_array = np.column_stack([angles_np, walk_np, shoot_np])
@@ -123,7 +193,7 @@ class BinaryTransport:
         action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('<IIII', 0xACE5BEEF, num_actions, self.tick_count, 3)
+        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, 3)
         
         return header + action_bytes
 
@@ -133,8 +203,13 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
-        self.trainer.apply_reinforce_update(torch.arange(self.trainer.max_agents, device=self.trainer.device))
-        print(f"🏁 Round complete - applied learning updates")
+        self.trainer.apply_reinforce_update()
+        # Reset cumulative rewards for next round
+        self.trainer.reset_cumulative_rewards()
+        # Clear agent ID mapping for next round
+        self.agent_id_to_index.clear()
+        self.next_index = 0
+        print(f"🏁 Round complete - applied learning updates, reset rewards, and cleared agent mapping")
 
     def get_performance_stats(self) -> Dict:
         """Get performance and training statistics."""

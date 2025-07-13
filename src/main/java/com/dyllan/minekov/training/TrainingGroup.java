@@ -92,4 +92,29 @@ public class TrainingGroup {
         
         return potentialTargets.get(random.nextInt(potentialTargets.size()));
     }
+
+    public void cleanupGroup(boolean sendDeathSignals) {
+        System.out.println("🧹 Cleaning up training group - sendDeathSignals: " + sendDeathSignals);
+        
+        for (Team team : teams) {
+            for (AIOperator operator : team.getOperators()) {
+                if (operator.isAlive()) {
+                    if (sendDeathSignals) {
+                        // Normal death - send death signal for reward tracking
+                        operator.kill();
+                    } else {
+                        // Group completion - remove without death signal
+                        operator.removeFromWorld();
+                    }
+                }
+            }
+        }
+    }
+    
+    public Team getWinningTeam() {
+        return teams.stream()
+                .filter(Team::isAlive)
+                .findFirst()
+                .orElse(null);
+    }
 }
