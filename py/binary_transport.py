@@ -63,7 +63,7 @@ class BinaryTransport:
             if len(self.processing_times) > 100:
                 self.processing_times.pop(0)
                 
-            if processing_time > 1.0:  # Warn if >1ms
+            if processing_time > 5.0:  # Only warn if >5ms (reduced noise)
                 print(f"⚠️ Slow processing: {processing_time:.2f}ms")
                 
             return actions_binary
@@ -85,11 +85,9 @@ class BinaryTransport:
             print(f"⚠️ Invalid magic: 0x{magic:08X}")
             return None, None, None
             
-        # Debug: Alert if we're getting too many agents
+        # Debug: Alert if we're getting too many agents (reduced verbosity)
         if agent_count > 64:
-            print(f"🚨 ALERT: Received {agent_count} agents! This suggests Java isn't cleaning up properly.")
-            print(f"📊 Current agent mapping has {len(self.agent_id_to_index)} known agents")
-            print(f"📊 Agent mapping: {dict(list(self.agent_id_to_index.items())[:10])}...")  # Show first 10
+            print(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
             
         self.tick_count = tick
         
@@ -130,7 +128,7 @@ class BinaryTransport:
                     mapped_indices[i] = -1  # Mark as inactive
                     continue
                 self.agent_id_to_index[agent_id_int] = self.next_index
-                print(f"🆔 Mapped agent {agent_id_int} -> index {self.next_index}")
+                # Removed individual agent mapping prints for cleaner output
                 self.next_index += 1
             
             mapped_indices[i] = self.agent_id_to_index[agent_id_int]
@@ -145,7 +143,7 @@ class BinaryTransport:
         # Pad to MAX_AGENTS for BatchedLinear compatibility
         MAX_AGENTS = 64
         if agent_count < MAX_AGENTS:
-            print(f"🔄 Padding from {agent_count} to {MAX_AGENTS} agents")
+            # Removed padding message for cleaner output
             
             # Create padding for inactive agents
             padding_size = MAX_AGENTS - agent_count
@@ -208,7 +206,7 @@ class BinaryTransport:
         # Clear agent ID mapping for next round
         self.agent_id_to_index.clear()
         self.next_index = 0
-        print(f"🏁 Round complete - applied learning updates, reset rewards, and cleared agent mapping")
+        # Removed round complete message for cleaner output
 
     def get_performance_stats(self) -> Dict:
         """Get performance and training statistics."""

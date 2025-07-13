@@ -87,17 +87,17 @@ class VectorizedTrainer:
         # Debug: Only print non-zero rewards
         non_zero_mask = rewards != 0
         if non_zero_mask.any():
-            for i, (idx, reward) in enumerate(zip(active_indices[non_zero_mask], rewards[non_zero_mask])):
-                print(f"Agent {idx}: +{reward:.2f} (cumulative: {self.cumulative_rewards[idx]:.2f})")
+            pass  # Removed individual agent reward prints for cleaner output
 
     def on_round_end(self):
         """Called at the end of each round."""
-        self.reset_cumulative_rewards()
-        self.apply_fmc_update()
+        self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
+        self.reset_cumulative_rewards()  # Then reset for next round
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
         if torch.all(self.cumulative_rewards == 0):
+            print("🧬 FMC: No rewards to base updates on, skipping evolution")
             return  # No rewards to base updates on
             
         scores = self.cumulative_rewards.clone()
@@ -123,6 +123,9 @@ class VectorizedTrainer:
             top_agent_indices = torch.topk(scores, top_k).indices
             will_clone[top_agent_indices] = False
         
+        # Get top k rewards for display
+        top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
+        
         # Perform cloning and mutation
         if will_clone.any():
             clone_indices_to_clone_from = partner_indices[will_clone]
@@ -134,10 +137,19 @@ class VectorizedTrainer:
                     # Mutate the cloned parameters
                     module.mutate(will_clone, MUTATION_AMPLITUDE)
             
-            # Debug output
+            # Enhanced FMC metrics
             num_cloned = will_clone.sum().item()
-            if num_cloned > 0:
-                print(f"FMC: Cloned {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
+            mean_score = scores.mean().item()
+            std_score = scores.std().item()
+            max_score = scores.max().item()
+            
+            print(f"🧬 FMC Evolution:")
+            print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
+            print(f"   🔄 Cloned: {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
+            if len(top_k_rewards) > 0:
+                print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+        else:
+            print(f"🧬 FMC: No agents cloned (mean score: {scores.mean().item():.2f})")
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""

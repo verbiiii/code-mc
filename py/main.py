@@ -51,7 +51,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if message_type == "sync_operators":
                         continue
                     elif message_type == "round_start":
-                        logger.info("🟢 Round started")
+                        # Reduced logging noise
                         continue
                     elif message_type == "round_end":
                         logger.info("🔴 Round ended - applying learning updates")
@@ -71,10 +71,6 @@ async def websocket_endpoint(websocket: WebSocket):
             elif "bytes" in message:
                 # Handle binary messages
                 binary_data = message["bytes"]
-                
-                # Debug: Log binary data info
-                # logger.info(f"📦 Received binary data: {len(binary_data)} bytes")
-                # logger.info(f"📦 First 40 bytes: {binary_data[:40].hex()}")
                 
                 # Process through vectorized pipeline and get actions
                 response_data = process_binary_data(binary_data)
