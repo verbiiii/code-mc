@@ -38,9 +38,13 @@ public class VectorizedObservationEncoder {
         buffer.putInt(agentCount);
         buffer.putInt(OBSERVATION_SIZE);
         
-        // Write observation data - vectorized approach, sequential ordering
-        for (Map.Entry<Integer, AgentObservation> entry : observations.entrySet()) {
-            AgentObservation obs = entry.getValue();
+        // Write observation data - vectorized approach, SEQUENTIAL ORDERING
+        for (int i = 0; i < agentCount; i++) {
+            AgentObservation obs = observations.get(i);
+            if (obs == null) {
+                System.err.println("ERROR: Missing observation for agent index " + i);
+                continue;
+            }
             
             // Pack observation: [my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths] - NO agent index
             // Agent position
@@ -54,6 +58,9 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.oppZ);
             
             // Reward data
+            // log damage dealt and taken / kills / deaths
+            // System.out.printf("DEBUG: Agent %d observation - Dealt: %.2f, Taken: %.2f, Kills: %d, Deaths: %d%n",
+                    // i, obs.damageDealt, obs.damageTaken, obs.kills, obs.deaths);
             buffer.putFloat((float) obs.damageDealt);
             buffer.putFloat((float) obs.damageTaken);
             buffer.putFloat((float) obs.kills);
