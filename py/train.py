@@ -35,10 +35,10 @@ class TrainState1v1:
             print(f"🌀 Round {info.get('round', '?')+1} starting!")
         elif event == "end_round":
             print(f"⛔ Round {info.get('round', '?')+1} complete!")
-            self.apply_reinforce()
+            # self.apply_reinforce()
             return
         
-        # print(f"🎯 Tick {self.python_ticks}/{java_tick}")
+        print(f"🎯 Tick {self.python_ticks}/{java_tick}")
 
         all_ops = info.get("all_operators", {})
         rl_ids = info.get("rl_operator_ids", [])

@@ -17,7 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 16; // ← change this to 1, 100, etc. for # of 1v1s
+    private static final int NUM_GROUPS = 64; // ← change this to 1, 100, etc. for # of 1v1s
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
@@ -27,6 +27,7 @@ public class TrainingState {
     private final int numRounds;
     private int currentRound = 0;
     private int currentRoundTick = 0;
+    private int globalTick = 0;
     private boolean roundActive = false;
 
     public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
@@ -43,6 +44,7 @@ public class TrainingState {
 
         boolean isFirstTick = currentRoundTick == 0;
         currentRoundTick++;
+        globalTick++;
 
         for (TrainingGroup group : groups) {
             group.tick();
@@ -108,7 +110,7 @@ public class TrainingState {
 
         Map<String, Object> tickPayload = new HashMap<>();
         tickPayload.put("type", "tick");
-        tickPayload.put("tick", currentRoundTick);
+        tickPayload.put("tick", globalTick);
         tickPayload.put("round", currentRound);
         tickPayload.put("is_first_tick", isFirstTick);
         tickPayload.put("is_last_tick", roundDone);
