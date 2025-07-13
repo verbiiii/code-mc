@@ -252,30 +252,9 @@ def get_stats() -> Dict:
     return {}
 
 def get_top_agent_parameters() -> Optional[Dict]:
-    """Get the parameters of the best performing agent."""
-    if transport is None:
-        return None
-    
-    # Get the index of the top agent
-    top_indices = transport.trainer.top_k_agent_indices(k=1)
-    if len(top_indices) == 0:
-        return None
-    
-    top_agent_index = top_indices[0].item()
-    
-    # Extract parameters for this agent from the batched model
-    agent_params = {}
-    for name, param in transport.trainer.model.named_parameters():
-        if 'weight' in name or 'bias' in name:
-            # Extract the parameters for the specific agent index
-            agent_param = param[top_agent_index].detach().cpu().numpy()
-            agent_params[name] = agent_param.tolist()  # Convert to list for JSON serialization
-    
-    return {
-        'agent_index': top_agent_index,
-        'cumulative_reward': transport.trainer.cumulative_rewards[top_agent_index].item(),
-        'parameters': agent_params
-    }
+    """Get the parameters of the best performing agent (deprecated - use WebSocket endpoint)."""
+    # This function is deprecated in favor of the /top-agent WebSocket endpoint
+    return None
 
 def process_top_agent_data(binary_data: bytes) -> bytes:
     """Process single agent observation through the top performing agent."""
@@ -289,7 +268,7 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
     
     top_agent_index = top_indices[0].item()
     
-    # Parse single agent observation (similar to regular parsing but for one agent)
+    # Parse single agent observation
     obs_tensor = _parse_single_observation(binary_data)
     if obs_tensor is None:
         return _encode_empty_single_action()
@@ -301,7 +280,7 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         batched_obs[top_agent_index] = obs_tensor
         
         # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, log_probs = transport.trainer.forward_pass(batched_obs)
+        x_actions, y_actions, walk_actions, shoot_actions, _ = transport.trainer.forward_pass(batched_obs)
         
         # Extract actions for the top agent only
         top_x = x_actions[top_agent_index].item()
@@ -327,7 +306,7 @@ def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
         if len(binary_data) != expected_size:
             return None
         
-        # Parse observation
+        # Parse observation (just positions: my_pos(3), opp_pos(3))
         obs_data = struct.unpack(f'<{obs_size}f', binary_data[8:])
         obs_tensor = torch.tensor(obs_data, device=transport.trainer.device)
         

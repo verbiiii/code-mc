@@ -38,6 +38,7 @@ public class Minekov {
     public static TrainingState trainingState = null;
 
     private static PythonRLController pythonController;
+    private static TopAgentWebSocketClient topAgentClient;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
 
@@ -181,6 +182,7 @@ public class Minekov {
 
         // Process pending binary actions on main server thread
         BinaryActionDecoder.processPendingActions();
+        TopAgentActionDecoder.processPendingActions();
 
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
@@ -240,7 +242,26 @@ public class Minekov {
         LivingEntity victimEntity = event.getEntity();
         Entity attackerEntity = event.getSource().getEntity();
 
-        // both the victim and attacker must be AIOperator subclasses
+        // Check for 1v1 combat outcome (player vs AI)
+        if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
+            // Player lost to AI
+            player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
+            player.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
+            );
+            cleanupPlayMode();
+            return;
+        } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
+            // Player won against AI
+            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the top AI agent!"));
+            player.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§a👑 " + player.getName().getString() + " has defeated the top AI agent!"), false
+            );
+            cleanupPlayMode();
+            return;
+        }
+
+        // Regular training logic (both must be AI operators)
         if (!(victimEntity instanceof RLOperator) && !(attackerEntity instanceof RLOperator)) {
             return; // nothing to track
         }
@@ -257,6 +278,24 @@ public class Minekov {
             // Silent kill tracking - no console spam
         }
     }
+    
+    private static void cleanupPlayMode() {
+        // Disconnect top agent client
+        if (topAgentClient != null) {
+            topAgentClient.disconnect();
+            topAgentClient = null;
+        }
+        
+        // Remove any remaining RLOperators in player attack mode
+        // (This will be handled automatically when the AI dies, but just in case)
+    }
+    
+    /**
+     * Get the top agent client for sending observations
+     */
+    public static TopAgentWebSocketClient getTopAgentClient() {
+        return topAgentClient;
+    }
 
     private static int runPlayCommand(ServerPlayer player, ServerLevel world) {
         // Check if there's already a training session running
@@ -265,14 +304,18 @@ public class Minekov {
             return 0;
         }
 
-        // Request top agent from Python
-        if (pythonController == null || !pythonController.isConnected()) {
-            player.sendSystemMessage(Component.literal("§c⚠️ Python controller not connected. Cannot get top agent."));
-            return 0;
+        // Initialize top agent client if needed
+        if (topAgentClient == null || !topAgentClient.isConnected()) {
+            try {
+                URI topAgentUri = new URI("ws://127.0.0.1:8050/top-agent");
+                topAgentClient = new TopAgentWebSocketClient(topAgentUri);
+                topAgentClient.connect();
+                player.sendSystemMessage(Component.literal("§e🔌 Connecting to top agent AI..."));
+            } catch (Exception e) {
+                player.sendSystemMessage(Component.literal("§c⚠️ Failed to connect to top agent endpoint: " + e.getMessage()));
+                return 0;
+            }
         }
-
-        // For now, spawn a regular RLOperator and set it to player-attack mode
-        // TODO: Request specific top agent parameters from Python
         
         // Use the same spawn positions as training
         double playerX = 19.5, playerZ = 17.5; // Player spawn (team1 position)
@@ -291,8 +334,12 @@ public class Minekov {
             topAgent.setPlayerAttackMode(true); // Enable player targeting
             world.addFreshEntity(topAgent);
             
+            // Connect the top agent to the WebSocket client
+            topAgentClient.setTopAgent(topAgent, player);
+            
             player.sendSystemMessage(Component.literal("§a🤖 Top AI agent spawned! Prepare for battle!"));
             player.sendSystemMessage(Component.literal("§7💡 The AI will target you specifically in this mode."));
+            player.sendSystemMessage(Component.literal("§7🏆 Fight until one of you dies - winner takes all!"));
             
             // Broadcast to server
             world.getServer().getPlayerList().broadcastSystemMessage(

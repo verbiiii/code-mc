@@ -1,6 +1,8 @@
 package com.dyllan.minekov.entities;
 
 import com.dyllan.minekov.AgentIdManager;
+import com.dyllan.minekov.Minekov;
+import com.dyllan.minekov.TopAgentWebSocketClient;
 import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
 import net.minecraft.world.entity.EntityType;
@@ -97,16 +99,16 @@ public class RLOperator extends AIOperator {
     public void tick() {
         super.tick();
 
-        // this.moveTowards(0, 0.13f); // always moving forward (holding W)
-        // this.moveTowards(180, 0.13f); // always moving backward (holding S)
-
-        // if (!level().isClientSide) {
-        //     // Simple forward movement
-        //     this.zza = 1.0f; // forward
-        //     this.xxa = 0.0f; // no strafe
-        //     this.setYRot(90); // face east, or rotate as needed
-        //     this.setSprinting(true); // affects speed multiplier
-        // }
+        // If in player attack mode, send observations to top-agent endpoint
+        if (playerAttackMode && !level().isClientSide) {
+            TopAgentWebSocketClient topClient = Minekov.getTopAgentClient();
+            if (topClient != null && topClient.isConnected()) {
+                // Send observation every few ticks to avoid overwhelming the connection
+                if (tickCount % 5 == 0) { // Every 5 ticks = 4 times per second
+                    topClient.sendTopAgentObservation();
+                }
+            }
+        }
     }
 
     @Override
