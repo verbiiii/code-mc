@@ -5,6 +5,12 @@ from batched_layers import BatchedLinear
 
 MAX_AGENTS = 64
 
+# FMC Constants
+KEEP_TOP_PERCENT = 0.2
+MUTATION_RATE = 1.0          # percent of weights that will be mutated
+MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 3.0
+
 class VectorizedTrainer:
     def __init__(self, device='cpu'):
         self.device = torch.device(device)
@@ -90,7 +96,109 @@ class VectorizedTrainer:
         self.apply_fmc_update()
 
     def apply_fmc_update(self):
-        pass
+        """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
+        if torch.all(self.cumulative_rewards == 0):
+            return  # No rewards to base updates on
+            
+        scores = self.cumulative_rewards.clone()
+        arange = torch.arange(MAX_AGENTS, device=self.device)
+        
+        # Select partners uniformly at random
+        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        
+        # Calculate virtual rewards
+        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
+        partner_vr = vr[partner_indices]
+        
+        # Determine cloning probability based on virtual rewards
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        
+        # Random threshold for cloning decision
+        r = torch.rand(MAX_AGENTS, device=self.device)
+        will_clone = value >= r
+        
+        # Protect top agents from being cloned (they keep their parameters)
+        top_k = int(MAX_AGENTS * KEEP_TOP_PERCENT)
+        if top_k > 0:
+            top_agent_indices = torch.topk(scores, top_k).indices
+            will_clone[top_agent_indices] = False
+        
+        # Perform cloning and mutation
+        if will_clone.any():
+            clone_indices_to_clone_from = partner_indices[will_clone]
+            
+            # Clone parameters for each BatchedLinear layer in the model
+            for module in self.model.modules():
+                if isinstance(module, BatchedLinear):
+                    module.clone(will_clone, partner_indices)
+                    # Mutate the cloned parameters
+                    module.mutate(will_clone, MUTATION_AMPLITUDE)
+            
+            # Debug output
+            num_cloned = will_clone.sum().item()
+            if num_cloned > 0:
+                print(f"FMC: Cloned {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
+
+    def _calculate_virtual_rewards(self, scores: torch.Tensor, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate virtual rewards based on scores and parameter distances."""
+        # Calculate distances between agents and their partners
+        dists = self._calculate_distances(agent_indices, partner_indices)
+        
+        # Relativize distances and scores
+        rel_dists = self._relativize(dists)
+        rel_scores = self._relativize(scores) ** FMC_BALANCE
+        
+        # Virtual rewards are the product of relativized scores and distances
+        return rel_scores * rel_dists
+
+    def _calculate_distances(self, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate Euclidean distances between agent parameters and their partners."""
+        distances = torch.zeros(MAX_AGENTS, device=self.device)
+        
+        for module in self.model.modules():
+            if isinstance(module, BatchedLinear):
+                # Calculate distances for weights
+                weight_diffs = module.weight[agent_indices] - module.weight[partner_indices]
+                weight_distances = torch.norm(weight_diffs.view(MAX_AGENTS, -1), dim=1)
+                distances += weight_distances
+                
+                # Calculate distances for biases if they exist
+                if module.bias is not None:
+                    bias_diffs = module.bias[agent_indices] - module.bias[partner_indices]
+                    bias_distances = torch.norm(bias_diffs, dim=1)
+                    distances += bias_distances
+        
+        return distances
+
+    def _relativize(self, vector: torch.Tensor) -> torch.Tensor:
+        """Relativize a vector using log/exp transformation as in the JAX implementation."""
+        std = vector.std()
+        if std == 0:
+            return torch.ones_like(vector)
+        
+        standard = (vector - vector.mean()) / std
+        
+        # Apply log transformation for positive values
+        positive_mask = standard > 0
+        standard[positive_mask] = torch.log(1 + standard[positive_mask]) + 1
+        
+        # Apply exp transformation for non-positive values
+        non_positive_mask = standard <= 0
+        standard[non_positive_mask] = torch.exp(standard[non_positive_mask])
+        
+        return standard
+
+    def reset_cumulative_rewards(self):
+        """Reset cumulative rewards for all agents."""
+        self.cumulative_rewards.zero_()
+
+    def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
+        """Get indices of top-k agents based on cumulative rewards."""
+        if self.cumulative_rewards.numel() == 0:
+            return torch.tensor([], device=self.device, dtype=torch.long)
+        
+        top_k_values, top_k_indices = torch.topk(self.cumulative_rewards, k, sorted=True)
+        return top_k_indices
 
     def get_stats(self):
         if not self.reward_history:
