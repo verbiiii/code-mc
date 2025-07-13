@@ -96,53 +96,43 @@ class BinaryTransport:
         # Convert to torch tensor
         obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
         
-        # Extract components vectorized
-        # Format: [agent_idx, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        agent_indices = obs_tensor[:, 0].long()  # [N]
-        positions = obs_tensor[:, 1:7]          # [N, 6] - my_pos + opp_pos  
-        reward_data = obs_tensor[:, 7:11]       # [N, 4] - damage/kill data
+        # Extract components vectorized - NO AGENT INDEX FILTERING
+        # Format: [my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
+        positions = obs_tensor[:, 0:6]          # [N, 6] - my_pos + opp_pos  
+        reward_data = obs_tensor[:, 6:10]       # [N, 4] - damage/kill data
         
-        # Validate agent indices
-        valid_mask = (agent_indices >= 0) & (agent_indices < self.trainer.max_agents)
-        if not valid_mask.any():
-            print("⚠️ No valid agent indices")
-            return None, None, None
-            
-        # Filter to valid agents
-        valid_indices = agent_indices[valid_mask]
-        valid_positions = positions[valid_mask]
-        valid_rewards = reward_data[valid_mask]
+        # Sequential agent indices (0, 1, 2, ..., N-1)
+        agent_indices = torch.arange(agent_count, device=self.trainer.device)
         
         # Calculate rewards vectorized: dmg_dealt - 0.1*dmg_taken + 100*kills
-        rewards = valid_rewards[:, 0] - 0.1 * valid_rewards[:, 1] + 100.0 * valid_rewards[:, 2]
+        rewards = reward_data[:, 0] - 0.1 * reward_data[:, 1] + 100.0 * reward_data[:, 2]
         
-        return valid_positions, valid_indices, rewards
+        return positions, agent_indices, rewards
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor) -> bytes:
-        """Encode actions into ultra-compact binary format."""
-        num_actions = len(agent_indices)
+        """Encode actions into ultra-compact binary format - sequential ordering only."""
+        num_actions = len(angles)  # Use angles length since we ignore agent_indices now
         
-        # Convert to numpy arrays (pure vectorized)
-        indices_np = agent_indices.cpu().numpy().astype(np.float32)
+        # Convert to numpy arrays (pure vectorized) - NO AGENT INDICES
         angles_np = angles.cpu().numpy().astype(np.float32)
         walk_np = walk.cpu().numpy().astype(np.float32)
         shoot_np = shoot.cpu().numpy().astype(np.float32)
         
-        # Stack into action array [N, 4] - no loops!
-        action_array = np.column_stack([indices_np, angles_np, walk_np, shoot_np])
+        # Stack into action array [N, 3] - no loops, no indices!
+        action_array = np.column_stack([angles_np, walk_np, shoot_np])
         
         # Convert to little-endian bytes
         action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('<IIII', 0xACE5BEEF, num_actions, self.tick_count, 4)
+        header = struct.pack('<IIII', 0xACE5BEEF, num_actions, self.tick_count, 3)
         
         return header + action_bytes
 
     def _encode_empty_actions(self) -> bytes:
         """Encode empty action response."""
-        return struct.pack('<IIII', 0xACE5BEEF, 0, self.tick_count, 4)
+        return struct.pack('<IIII', 0xACE5BEEF, 0, self.tick_count, 3)
 
     def end_round(self):
         """Signal end of round for learning updates."""

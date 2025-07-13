@@ -61,14 +61,18 @@ public class PythonRLController {
         // Use new vectorized decoder for better performance
         Map<Integer, VectorizedActionDecoder.AgentAction> actions = VectorizedActionDecoder.decodeActions(data);
         
-        // Apply actions to RL operators
+        // Get all RL operators in same order as TrainingState (sequential from collection)
+        RLOperator[] rlOperators = RLOperatorRegistry.getAll().stream()
+            .toArray(RLOperator[]::new);
+        
+        // Apply actions using sequential indices
         for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
-            int agentId = entry.getKey();
+            int sequentialIndex = entry.getKey();
             VectorizedActionDecoder.AgentAction action = entry.getValue();
             
-            // Find the RL operator by agent ID
-            for (RLOperator op : RLOperatorRegistry.getAll().toArray(new RLOperator[0])) {
-                if (op.getAgentId() != agentId) continue;
+            // Apply action to operator at this sequential index
+            if (sequentialIndex < rlOperators.length) {
+                RLOperator op = rlOperators[sequentialIndex];
                 
                 // Apply the action using existing methods
                 if (action.walk) {
@@ -78,7 +82,6 @@ public class PythonRLController {
                 if (action.shoot) {
                     op.shootForward();
                 }
-                break; // Found the operator, no need to continue
             }
         }
     }

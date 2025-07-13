@@ -21,7 +21,7 @@ public class AgentIdManager {
         int id = nextId.getAndIncrement();
         operatorsById.put(id, op);
         idsByOperator.put(op, id);
-        System.out.println("🎯 Agent " + id + " assigned");
+        // Removed debug log for performance
         return id;
     }
     

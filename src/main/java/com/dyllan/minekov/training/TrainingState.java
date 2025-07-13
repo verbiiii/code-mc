@@ -109,30 +109,34 @@ public class TrainingState {
         // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
         Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
         
-        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
-            AIOperator op = entry.getValue();
+        // Use consistent ordering: get all RL operators from registry
+        RLOperator[] rlOperators = allOperators.values().stream()
+            .filter(op -> op instanceof RLOperator)
+            .map(op -> (RLOperator) op)
+            .toArray(RLOperator[]::new);
+        
+        for (int i = 0; i < rlOperators.length; i++) {
+            RLOperator rlOp = rlOperators[i];
             
-            if (op instanceof RLOperator rlOp) {
-                // Find opponent for this RL agent
-                AIOperator opponent = allOperators.values().stream()
-                    .filter(other -> !other.getUUID().equals(op.getUUID()))
-                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(entry.getKey())))
-                    .findFirst()
-                    .orElse(op); // Use self if no opponent found
-                
-                // Create vectorized observation
-                VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
-                    op.getX(), op.getY(), op.getZ(),           // Agent position
-                    opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
-                    rlOp.getDamageDealtLastTick(),             // Damage dealt
-                    rlOp.getDamageTakenLastTick(),             // Damage taken
-                    rlOp.getKillsLastTick(),                   // Kills
-                    rlOp.getDeathsLastTick()                   // Deaths
-                );
-                
-                observations.put(rlOp.getAgentId(), obs);
-                rlOp.clearTickDamageStats();
-            }
+            // Find opponent for this RL agent
+            AIOperator opponent = allOperators.values().stream()
+                .filter(other -> !other.getUUID().equals(rlOp.getUUID()))
+                .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(rlOp.getUUID().toString())))
+                .findFirst()
+                .orElse(rlOp); // Use self if no opponent found
+            
+            // Create vectorized observation with sequential index
+            VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
+                rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
+                opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
+                rlOp.getDamageDealtLastTick(),               // Damage dealt
+                rlOp.getDamageTakenLastTick(),               // Damage taken
+                rlOp.getKillsLastTick(),                     // Kills
+                rlOp.getDeathsLastTick()                     // Deaths
+            );
+            
+            observations.put(i, obs);  // Use sequential index instead of agent ID
+            rlOp.clearTickDamageStats();
         }
         
         // Encode and send binary observations

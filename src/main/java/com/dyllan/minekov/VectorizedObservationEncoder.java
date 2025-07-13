@@ -12,7 +12,7 @@ import java.util.Map;
 public class VectorizedObservationEncoder {
     
     private static final int MAGIC_HEADER = 0xFEEDBEEF;
-    private static final int OBSERVATION_SIZE = 11; // [agent_idx, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
+    private static final int OBSERVATION_SIZE = 10; // [my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths] - NO agent index
     
     /**
      * Encode observations for all agents into binary format.
@@ -38,14 +38,11 @@ public class VectorizedObservationEncoder {
         buffer.putInt(agentCount);
         buffer.putInt(OBSERVATION_SIZE);
         
-        // Write observation data - vectorized approach
+        // Write observation data - vectorized approach, sequential ordering
         for (Map.Entry<Integer, AgentObservation> entry : observations.entrySet()) {
-            int agentIndex = entry.getKey();
             AgentObservation obs = entry.getValue();
             
-            // Pack observation: [agent_idx, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
-            buffer.putFloat(agentIndex);
-            
+            // Pack observation: [my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths] - NO agent index
             // Agent position
             buffer.putFloat((float) obs.myX);
             buffer.putFloat((float) obs.myY);

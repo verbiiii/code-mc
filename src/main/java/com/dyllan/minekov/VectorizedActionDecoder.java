@@ -13,7 +13,7 @@ import java.util.Map;
 public class VectorizedActionDecoder {
     
     private static final int ACTION_MAGIC = 0xACE5BEEF;
-    private static final int ACTION_SIZE = 4; // [agent_idx, angle, walk_flag, shoot_flag]
+    private static final int ACTION_SIZE = 3; // [angle, walk_flag, shoot_flag] - NO agent index, sequential ordering
     
     /**
      * Decode binary action data from Python into agent actions.
@@ -56,17 +56,17 @@ public class VectorizedActionDecoder {
             return actions;
         }
         
-        // Decode actions vectorized
+        // Decode actions vectorized - sequential ordering
         for (int i = 0; i < count; i++) {
-            int agentIndex = (int) buffer.getFloat();
             float angle = buffer.getFloat();
             boolean walk = buffer.getFloat() > 0.5f;
             boolean shoot = buffer.getFloat() > 0.5f;
             
-            actions.put(agentIndex, new AgentAction(angle, walk, shoot));
+            // Use sequential index instead of encoded agent index
+            actions.put(i, new AgentAction(angle, walk, shoot));
         }
         
-        System.out.printf("🎯 Decoded %d actions from %d bytes%n", count, binaryData.length);
+        // Removed debug log for performance
         return actions;
     }
     
