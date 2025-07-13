@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 event_loop = None
 
 # Initialize the vectorized transport layer
-initialize_transport(max_agents=128, device='cpu')
+initialize_transport(device='cpu')
 
 # FastAPI app - minimal setup
 app = FastAPI(title="Minekov Vectorized RL Server")

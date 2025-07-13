@@ -9,11 +9,13 @@ import numpy as np
 from typing import Tuple
 
 
+MAX_AGENTS = 256
+
+
 class VectorizedTrainer:
     """Pure vectorized RL trainer - model and learning only."""
     
-    def __init__(self, max_agents=128, device='cpu'):
-        self.max_agents = max_agents
+    def __init__(self, device='cpu'):
         self.device = torch.device(device)
         
         # Model: [my_pos(3), opp_pos(3)] -> [x_logits(8), y_logits(8), walk_logit, shoot_logit]
@@ -30,9 +32,9 @@ class VectorizedTrainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         
         # Vectorized state tracking
-        self.log_probs = torch.zeros((max_agents, 1000), device=self.device)
-        self.rewards = torch.zeros((max_agents, 1000), device=self.device)
-        self.episode_lengths = torch.zeros(max_agents, dtype=torch.long, device=self.device)
+        self.log_probs = torch.zeros((MAX_AGENTS, 1000), device=self.device)
+        self.rewards = torch.zeros((MAX_AGENTS, 1000), device=self.device)
+        self.episode_lengths = torch.zeros(MAX_AGENTS, dtype=torch.long, device=self.device)
         self.reward_history = []
         
         print(f"🚀 VectorizedTrainer: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")

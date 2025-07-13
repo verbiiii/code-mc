@@ -154,14 +154,14 @@ class BinaryTransport:
 transport = None
 trainer = None
 
-def initialize_transport(max_agents=128, device='cpu'):
+def initialize_transport(device='cpu'):
     """Initialize the transport layer and trainer."""
     global transport, trainer
     
-    trainer = VectorizedTrainer(max_agents=max_agents, device=device)
+    trainer = VectorizedTrainer(device=device)
     transport = BinaryTransport(trainer)
     
-    print(f"✅ Binary transport ready for {max_agents} agents on {device}")
+    print(f"✅ Binary transport ready on {device}")
 
 def process_binary_data(binary_data: bytes) -> bytes:
     """Main entry point for binary data processing."""
@@ -184,5 +184,5 @@ def get_stats() -> Dict:
 
 # Auto-initialize if run directly
 if __name__ == "__main__":
-    initialize_transport(128)
+    initialize_transport()
     print("🚀 Binary transport ready!")
