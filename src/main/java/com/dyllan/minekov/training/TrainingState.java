@@ -171,10 +171,9 @@ public class TrainingState {
         double team1X = 19.5, team1Z = 17.5;
         double team2X = 19.5, team2Z = 9.5;
         double baseY = 2.0;
-        double offsetY = 0.3;
 
         for (int i = 0; i < NUM_GROUPS; i++) {
-            double y = baseY + (i * offsetY);
+            double y = baseY;
 
             TrainingGroup group = new TrainingGroup(200); // 600 ticks is 30 seconds
 
