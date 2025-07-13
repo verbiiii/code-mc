@@ -1,8 +1,6 @@
 package com.dyllan.minekov.entities;
 
 import com.dyllan.minekov.AgentIdManager;
-import com.dyllan.minekov.Minekov;
-import com.dyllan.minekov.TopAgentWebSocketClient;
 import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
 import net.minecraft.world.entity.EntityType;
@@ -98,17 +96,7 @@ public class RLOperator extends AIOperator {
     @Override
     public void tick() {
         super.tick();
-
-        // If in player attack mode, send observations to top-agent endpoint
-        if (playerAttackMode && !level().isClientSide) {
-            TopAgentWebSocketClient topClient = Minekov.getTopAgentClient();
-            if (topClient != null && topClient.isConnected()) {
-                // Send observation every few ticks to avoid overwhelming the connection
-                if (tickCount % 5 == 0) { // Every 5 ticks = 4 times per second
-                    topClient.sendTopAgentObservation();
-                }
-            }
-        }
+        // Player attack mode agents are controlled by the same PythonRLController as training agents
     }
 
     @Override

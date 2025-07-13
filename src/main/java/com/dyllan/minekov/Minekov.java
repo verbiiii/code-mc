@@ -38,7 +38,6 @@ public class Minekov {
     public static TrainingState trainingState = null;
 
     private static PythonRLController pythonController;
-    private static TopAgentWebSocketClient topAgentClient;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
 
@@ -182,7 +181,6 @@ public class Minekov {
 
         // Process pending binary actions on main server thread
         BinaryActionDecoder.processPendingActions();
-        TopAgentActionDecoder.processPendingActions();
 
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
@@ -249,7 +247,6 @@ public class Minekov {
             player.getServer().getPlayerList().broadcastSystemMessage(
                 Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
             );
-            cleanupPlayMode();
             return;
         } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
             // Player won against AI
@@ -257,7 +254,6 @@ public class Minekov {
             player.getServer().getPlayerList().broadcastSystemMessage(
                 Component.literal("§a👑 " + player.getName().getString() + " has defeated the top AI agent!"), false
             );
-            cleanupPlayMode();
             return;
         }
 
@@ -278,24 +274,6 @@ public class Minekov {
             // Silent kill tracking - no console spam
         }
     }
-    
-    private static void cleanupPlayMode() {
-        // Disconnect top agent client
-        if (topAgentClient != null) {
-            topAgentClient.disconnect();
-            topAgentClient = null;
-        }
-        
-        // Remove any remaining RLOperators in player attack mode
-        // (This will be handled automatically when the AI dies, but just in case)
-    }
-    
-    /**
-     * Get the top agent client for sending observations
-     */
-    public static TopAgentWebSocketClient getTopAgentClient() {
-        return topAgentClient;
-    }
 
     private static int runPlayCommand(ServerPlayer player, ServerLevel world) {
         // Check if there's already a training session running
@@ -304,17 +282,10 @@ public class Minekov {
             return 0;
         }
 
-        // Initialize top agent client if needed
-        if (topAgentClient == null || !topAgentClient.isConnected()) {
-            try {
-                URI topAgentUri = new URI("ws://127.0.0.1:8050/top-agent");
-                topAgentClient = new TopAgentWebSocketClient(topAgentUri);
-                topAgentClient.connect();
-                player.sendSystemMessage(Component.literal("§e🔌 Connecting to top agent AI..."));
-            } catch (Exception e) {
-                player.sendSystemMessage(Component.literal("§c⚠️ Failed to connect to top agent endpoint: " + e.getMessage()));
-                return 0;
-            }
+        // Use existing Python controller - it already works
+        if (pythonController == null || !pythonController.isConnected()) {
+            player.sendSystemMessage(Component.literal("§c⚠️ Python controller not connected. Start it first."));
+            return 0;
         }
         
         // Use the same spawn positions as training
@@ -327,17 +298,14 @@ public class Minekov {
         player.setYRot(180.0f); // Face towards AI spawn
         player.sendSystemMessage(Component.literal("§e⚔️ Teleported to combat arena!"));
 
-        // Spawn top-performing RLOperator
+        // Spawn ONE RLOperator (for 1v1)
         RLOperator topAgent = ModEntities.RL_OPERATOR.get().create(world);
         if (topAgent != null) {
             topAgent.moveTo(aiX, y, aiZ, 0.0f, 0.0f); // Face towards player
             topAgent.setPlayerAttackMode(true); // Enable player targeting
             world.addFreshEntity(topAgent);
             
-            // Connect the top agent to the WebSocket client
-            topAgentClient.setTopAgent(topAgent, player);
-            
-            player.sendSystemMessage(Component.literal("§a🤖 Top AI agent spawned! Prepare for battle!"));
+            player.sendSystemMessage(Component.literal("§a🤖 AI agent spawned! It will use the existing training AI. Prepare for battle!"));
             player.sendSystemMessage(Component.literal("§7💡 The AI will target you specifically in this mode."));
             player.sendSystemMessage(Component.literal("§7🏆 Fight until one of you dies - winner takes all!"));
             
