@@ -39,7 +39,7 @@ class BinaryTransport:
         
         try:
             # Parse and validate header
-            obs_tensor, agent_indices, rewards = self._parse_observations(binary_data)
+            obs_tensor, agent_indices, reward_data = self._parse_observations(binary_data)
             if obs_tensor is None:
                 return self._encode_empty_actions()
             
@@ -47,8 +47,8 @@ class BinaryTransport:
             x_actions, y_actions, walk_actions, shoot_actions, log_probs = self.trainer.forward_pass(obs_tensor)
             
             # Update training data
-            self.trainer.update_episode_data(agent_indices, rewards, log_probs)
-            
+            self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
+
             # Convert actions and encode response
             angles = (x_actions.float() / 8.0) * 360.0
             actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions)
@@ -104,16 +104,7 @@ class BinaryTransport:
         # Sequential agent indices (0, 1, 2, ..., N-1)
         agent_indices = torch.arange(agent_count, device=self.trainer.device)
         
-        # Calculate rewards vectorized: dmg_dealt - 0.1*dmg_taken + 100*kills
-        print(reward_data[:4])
-        dmg_dealt = reward_data[:, 0]
-        dmg_taken = reward_data[:, 1]
-        kills = reward_data[:, 2]
-        deaths = reward_data[:, 3]
-
-        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
-        
-        return positions, agent_indices, rewards
+        return positions, agent_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor) -> bytes:
