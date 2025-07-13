@@ -109,11 +109,32 @@ public class TopAgentWebSocketClient {
             
             System.out.println("🎯 Applying actions - Angle: " + angle + ", Walk: " + walk + ", Shoot: " + shoot);
             
-            // Queue the action for main thread execution
-            TopAgentActionDecoder.queueAction(topAgent.getId(), angle, walk, shoot);
+            // Apply actions directly to the top agent (we have the reference)
+            applyActionToAgent(topAgent, angle, walk, shoot);
             
         } catch (Exception e) {
             System.err.println("Error processing top agent action: " + e.getMessage());
+        }
+    }
+    
+    private void applyActionToAgent(RLOperator agent, float angle, boolean walk, boolean shoot) {
+        if (agent == null || agent.isRemoved()) {
+            System.out.println("⚠️ Cannot apply action - agent is null or removed");
+            return;
+        }
+        
+        System.out.println("🤖 Applying action to agent " + agent.getId() + " - Angle: " + angle + ", Walk: " + walk + ", Shoot: " + shoot);
+        
+        // Apply movement using existing moveTowards method
+        if (walk) {
+            agent.moveTowards(angle, 0.13f); // Same speed as in PythonRLController
+            System.out.println("🚶 Moving agent towards angle: " + angle);
+        }
+        
+        // Apply shooting
+        if (shoot) {
+            System.out.println("🔫 Agent shooting!");
+            agent.shootForward();
         }
     }
 }
