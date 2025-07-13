@@ -2,6 +2,7 @@ package com.dyllan.minekov.training;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import com.dyllan.minekov.entities.AIOperator;
 
@@ -11,6 +12,7 @@ public class TrainingGroup {
     private List<Team> teams;
     private int maxTicks;
     private int currentTick;
+    private final Random random = new Random();
 
     public TrainingGroup(int maxTicks) {
         this.teams = new ArrayList<Team>();
@@ -51,5 +53,43 @@ public class TrainingGroup {
 
     public boolean shouldInteract(Entity a, Entity b) {
         return this.contains(a) && this.contains(b) && a != b;
+    }
+
+    /**
+     * Chooses a random target from a different team than the requester.
+     * Returns null if no valid target is found.
+     */
+    public AIOperator chooseRandomTarget(AIOperator requester) {
+        if (!(requester instanceof AIOperator)) return null;
+
+        // Find the team that the requester belongs to
+        Team requesterTeam = null;
+        for (Team team : teams) {
+            if (team.getOperators().contains(requester)) {
+                requesterTeam = team;
+                break;
+            }
+        }
+
+        if (requesterTeam == null) return null;
+
+        // Collect all potential targets from other teams
+        List<AIOperator> potentialTargets = new ArrayList<>();
+        for (Team team : teams) {
+            if (team != requesterTeam) {  // Different team
+                for (AIOperator op : team.getOperators()) {
+                    if (op != requester && op.isAlive()) {  // Not self and alive
+                        potentialTargets.add(op);
+                    }
+                }
+            }
+        }
+
+        // Return a random target or null if none available
+        if (potentialTargets.isEmpty()) {
+            return null;
+        }
+        
+        return potentialTargets.get(random.nextInt(potentialTargets.size()));
     }
 }

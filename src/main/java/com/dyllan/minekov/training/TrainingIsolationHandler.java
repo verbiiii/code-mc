@@ -54,9 +54,11 @@ public class TrainingIsolationHandler {
                     return true;
                 }
             }
+
+            return false;
         }
 
-        return false;
+        return true;
     }
 
     /**

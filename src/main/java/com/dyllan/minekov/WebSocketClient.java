@@ -1,7 +1,5 @@
 package com.dyllan.minekov;
 
-import com.dyllan.minekov.entities.RLOperator;
-import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.netty.bootstrap.Bootstrap;
@@ -15,17 +13,31 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.function.Consumer;
 
-public class PythonWebSocketClient {
+/**
+ * Generic WebSocket client that handles pure WebSocket communication.
+ * Separates networking logic from game-specific logic.
+ */
+public class WebSocketClient {
 
     private final URI uri;
     private Channel channel;
     private final EventLoopGroup group = new NioEventLoopGroup();
     private final Gson gson = new Gson();
-    private final BinaryActionDecoder binaryDecoder = new BinaryActionDecoder();
+    private Consumer<JsonObject> messageHandler;
+    private Consumer<byte[]> binaryMessageHandler;
 
-    public PythonWebSocketClient(URI uri) {
+    public WebSocketClient(URI uri) {
         this.uri = uri;
+    }
+
+    public void setMessageHandler(Consumer<JsonObject> handler) {
+        this.messageHandler = handler;
+    }
+
+    public void setBinaryMessageHandler(Consumer<byte[]> handler) {
+        this.binaryMessageHandler = handler;
     }
 
     public void connect() {
@@ -99,7 +111,10 @@ public class PythonWebSocketClient {
                                          
                                          if (response.contains("101 Switching Protocols")) {
                                              handshakeComplete = true;
-                                             send("{\"type\": \"hello\", \"msg\": \"Java online\"}");
+                                             JsonObject hello = new JsonObject();
+                                             hello.addProperty("type", "hello");
+                                             hello.addProperty("msg", "Java WebSocket online");
+                                             sendJson(hello);
                                          } else {
                                              ctx.close();
                                              return false;
@@ -128,32 +143,12 @@ public class PythonWebSocketClient {
                                          headerSize = 4;
                                      } else if (payloadLen == 127) {
                                          if (frameBuffer.readableBytes() < 10) return false;
-                                         // For 64-bit length, only use lower 32 bits and check for overflow
-                                         long longLength = frameBuffer.getLong(frameBuffer.readerIndex() + 2);
-                                         if (longLength > Integer.MAX_VALUE || longLength < 0) {
-                                             System.err.println("⚠️ Frame too large: " + longLength + " bytes");
-                                             frameBuffer.skipBytes(frameBuffer.readableBytes()); // Skip entire buffer
-                                             return true;
-                                         }
-                                         actualPayloadLen = (int) longLength;
+                                         // For simplicity, only handle lower 32 bits
+                                         actualPayloadLen = frameBuffer.getInt(frameBuffer.readerIndex() + 6);
                                          headerSize = 10;
                                      }
                                      
-                                     // Validate payload length
-                                     if (actualPayloadLen < 0) {
-                                         System.err.println("⚠️ Invalid negative payload length: " + actualPayloadLen);
-                                         frameBuffer.skipBytes(Math.min(2, frameBuffer.readableBytes())); // Skip minimal bytes
-                                         return true;
-                                     }
-                                     
                                      int totalFrameSize = headerSize + actualPayloadLen;
-                                     
-                                     // Additional validation
-                                     if (totalFrameSize < 0 || totalFrameSize > frameBuffer.capacity()) {
-                                         System.err.println("⚠️ Invalid frame size: " + totalFrameSize + " (header: " + headerSize + ", payload: " + actualPayloadLen + ")");
-                                         frameBuffer.skipBytes(Math.min(headerSize, frameBuffer.readableBytes()));
-                                         return true;
-                                     }
                                      
                                      // Check if we have the complete frame
                                      if (frameBuffer.readableBytes() < totalFrameSize) {
@@ -178,20 +173,64 @@ public class PythonWebSocketClient {
 
                                      // Handle text frames
                                      if (opcode == 0x1) {
-                                         processTextFrame(frameData, headerSize, actualPayloadLen);
+                                         String jsonText = parseTextFrame(frameData, headerSize, actualPayloadLen);
+                                         if (jsonText != null) {
+                                             handleJsonMessage(jsonText);
+                                         }
                                          return true;
                                      }
 
                                      // Handle binary frames
                                      if (opcode == 0x2) {
-                                         processBinaryFrame(frameData, headerSize, actualPayloadLen);
+                                         byte[] binaryData = parseBinaryFrame(frameData, headerSize, actualPayloadLen);
+                                         if (binaryData != null && binaryMessageHandler != null) {
+                                             binaryMessageHandler.accept(binaryData);
+                                         }
                                          return true;
                                      }
                                      
                                      // Unknown frame type, skip it
                                      return true;
                                  }
-                                 
+
+                                 private String parseTextFrame(byte[] frameData, int headerSize, int payloadLen) {
+                                     try {
+                                         // Extract payload directly using known header size and payload length
+                                         if (payloadLen < 0 || headerSize + payloadLen > frameData.length) {
+                                             System.err.println("⚠️ WebSocket: Invalid text frame - payload: " + payloadLen + 
+                                                              ", header: " + headerSize + ", total: " + frameData.length);
+                                             return null;
+                                         }
+
+                                         byte[] payload = new byte[payloadLen];
+                                         System.arraycopy(frameData, headerSize, payload, 0, payloadLen);
+                                         return new String(payload, StandardCharsets.UTF_8);
+
+                                     } catch (Exception e) {
+                                         System.err.println("⚠️ WebSocket: Text frame parsing error: " + e.getMessage());
+                                         return null;
+                                     }
+                                 }
+
+                                 private byte[] parseBinaryFrame(byte[] frameData, int headerSize, int payloadLen) {
+                                     try {
+                                         // Extract payload directly using known header size and payload length
+                                         if (payloadLen < 0 || headerSize + payloadLen > frameData.length) {
+                                             System.err.println("⚠️ WebSocket: Invalid binary frame - payload: " + payloadLen + 
+                                                              ", header: " + headerSize + ", total: " + frameData.length);
+                                             return null;
+                                         }
+
+                                         byte[] payload = new byte[payloadLen];
+                                         System.arraycopy(frameData, headerSize, payload, 0, payloadLen);
+                                         return payload;
+
+                                     } catch (Exception e) {
+                                         System.err.println("⚠️ WebSocket: Binary frame parsing error: " + e.getMessage());
+                                         return null;
+                                     }
+                                 }
+
                                  private void sendPong(byte[] frameData, int headerSize, int payloadLen, ChannelHandlerContext ctx) {
                                      try {
                                          byte[] payload = new byte[payloadLen];
@@ -210,92 +249,31 @@ public class PythonWebSocketClient {
                                          System.err.println("⚠️ WebSocket: Pong error: " + e.getMessage());
                                      }
                                  }
-                                 
-                                 private void processTextFrame(byte[] frameData, int headerSize, int payloadLen) {
+
+                                 private void handleJsonMessage(String jsonText) {
                                      try {
-                                         // Extract payload directly using known header size and payload length
-                                         if (payloadLen < 0 || headerSize + payloadLen > frameData.length) {
-                                             System.err.println("⚠️ WebSocket: Invalid text frame - payload: " + payloadLen + 
-                                                              ", header: " + headerSize + ", total: " + frameData.length);
-                                             return;
-                                         }
-
-                                         byte[] payload = new byte[payloadLen];
-                                         System.arraycopy(frameData, headerSize, payload, 0, payloadLen);
-                                         String rawText = new String(payload, StandardCharsets.UTF_8);
-
-                                         // Process JSON
-                                         try {
-                                             JsonObject obj = gson.fromJson(rawText, JsonObject.class);
-                                             if (obj == null || !obj.has("type")) return;
-
-                                             String type = obj.get("type").getAsString();
-
-                                             if ("actions_batch".equals(type)) {
-                                                 // Handle batched actions
-                                                 if (obj.has("actions")) {
-                                                     var actionsArray = obj.getAsJsonArray("actions");
-                                                     // Removed logging to reduce overhead
-                                                     for (var actionElement : actionsArray) {
-                                                         JsonObject action = actionElement.getAsJsonObject();
-                                                         processAction(action);
-                                                     }
-                                                 }
-                                             } else {
-                                                 // Handle individual actions (for backward compatibility)
-                                                 processAction(obj);
-                                             }
-                                         } catch (Exception e) {
-                                             // Silently handle JSON parsing errors
+                                         JsonObject obj = gson.fromJson(jsonText, JsonObject.class);
+                                         if (obj != null && messageHandler != null) {
+                                             messageHandler.accept(obj);
                                          }
                                      } catch (Exception e) {
-                                         System.err.println("⚠️ WebSocket: Text frame processing error: " + e.getMessage());
+                                         System.err.println("⚠️ WebSocket: JSON parse error for message length " + jsonText.length());
+                                         // Silently ignore malformed JSON to prevent spam
                                      }
                                  }
 
-                                 private void processBinaryFrame(byte[] frameData, int headerSize, int payloadLen) {
-                                     try {
-                                         // Extract binary payload
-                                         if (payloadLen < 0 || headerSize + payloadLen > frameData.length) {
-                                             System.err.println("⚠️ WebSocket: Invalid binary frame - payload: " + payloadLen + 
-                                                              ", header: " + headerSize + ", total: " + frameData.length);
-                                             return;
-                                         }
-
-                                         byte[] payload = new byte[payloadLen];
-                                         System.arraycopy(frameData, headerSize, payload, 0, payloadLen);
-                                         
-                                         // Use the BinaryActionDecoder to process the binary data
-                                         binaryDecoder.processBinaryMessage(payload);
-                                         
-                                     } catch (Exception e) {
-                                         System.err.println("⚠️ WebSocket: Binary frame processing error: " + e.getMessage());
+                                 @Override
+                                 public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                                     if (!(cause instanceof java.net.ConnectException) &&
+                                         !(cause.getCause() instanceof java.net.ConnectException)) {
+                                         System.err.println("⚠️ WebSocket: Network error: " + cause.getMessage());
                                      }
+                                     ctx.close();
                                  }
 
                                  @Override
                                  public void channelInactive(ChannelHandlerContext ctx) {
-                                     // Clean up frame buffer on disconnect
-                                     if (frameBuffer != null) {
-                                         frameBuffer.release();
-                                         frameBuffer = null;
-                                     }
-                                 }
-                                 
-                                 @Override
-                                 public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                     // Clean up frame buffer on error
-                                     if (frameBuffer != null) {
-                                         frameBuffer.release();
-                                         frameBuffer = null;
-                                     }
-                                     // Only log non-connection errors to avoid spam
-                                     if (!(cause instanceof java.net.ConnectException) && 
-                                         !(cause.getCause() instanceof java.net.ConnectException)) {
-                                         System.err.println("❗ WebSocket error:");
-                                         cause.printStackTrace();
-                                     }
-                                     ctx.close();
+                                     // Silent disconnect
                                  }
                              });
                          }
@@ -304,47 +282,82 @@ public class PythonWebSocketClient {
             channel = bootstrap.connect(host, port).sync().channel();
 
         } catch (Exception e) {
-            // Silent connection failure - no console spam
-            // The exception will be caught by the exceptionCaught handler above
+            System.err.println("⚠️ WebSocket: Connection failed: " + e.getMessage());
         }
     }
 
-    private void processAction(JsonObject obj) {
-        if (obj == null || !obj.has("type")) return;
+    public void sendJson(JsonObject json) {
+        if (!isConnected()) return;
+        sendText(gson.toJson(json));
+    }
 
-        String type = obj.get("type").getAsString();
-        String id = obj.has("id") ? obj.get("id").getAsString() : null;
+    public void sendText(String message) {
+        if (!isConnected()) return;
 
-        if (id == null) return;
-
-        // 🚦 Thread-safe operator lookup to prevent ConcurrentModificationException
         try {
-            for (RLOperator op : RLOperatorRegistry.getAll().toArray(new RLOperator[0])) {
-                if (!op.getUUID().toString().equals(id)) continue;
+            byte[] payload = message.getBytes(StandardCharsets.UTF_8);
+            byte[] mask = new byte[4];
+            new SecureRandom().nextBytes(mask);
 
-                switch (type) {
-                    case "joystick_vector" -> {
-                        JsonObject vector = obj.getAsJsonObject("vector");
-                        if (vector != null && vector.has("angle")) {
-                            float angle = vector.get("angle").getAsFloat();
-                            
-                            // 🎯 Execute movement directly on main thread
-                            op.moveTowards(angle, 0.13f);
-                            // System.out.println("🕹️ Moving operator " + id.substring(0, 8) + " → angle=" + angle + "°");
-                        }
-                    }
-                    case "fire" -> {
-                        // 🎯 Execute firing directly on main thread
-                        op.shootForward();
-                        // System.out.println("🔫 Operator " + id.substring(0, 8) + " fired!");
-                    }
-                }
-                break; // operator found
+            ByteBuf frame = Unpooled.buffer();
+            frame.writeByte(0x81); // Text frame
+
+            int payloadLen = payload.length;
+            if (payloadLen <= 125) {
+                frame.writeByte(0x80 | payloadLen);
+            } else if (payloadLen <= 0xFFFF) {
+                frame.writeByte(0x80 | 126);
+                frame.writeShort(payloadLen);
+            } else {
+                frame.writeByte(0x80 | 127);
+                frame.writeLong(payloadLen);
             }
+
+            frame.writeBytes(mask);
+            for (int i = 0; i < payloadLen; i++) {
+                frame.writeByte(payload[i] ^ mask[i % 4]);
+            }
+
+            channel.writeAndFlush(frame);
         } catch (Exception e) {
-            // Silently handle concurrent modification issues
-            System.err.println("⚠️ Entity access issue: " + e.getMessage());
+            System.err.println("⚠️ WebSocket: Send error: " + e.getMessage());
         }
+    }
+
+    public void sendBinary(byte[] data) {
+        if (!isConnected()) return;
+
+        try {
+            byte[] mask = new byte[4];
+            new SecureRandom().nextBytes(mask);
+
+            ByteBuf frame = Unpooled.buffer();
+            frame.writeByte(0x82); // Binary frame
+
+            int payloadLen = data.length;
+            if (payloadLen <= 125) {
+                frame.writeByte(0x80 | payloadLen);
+            } else if (payloadLen <= 0xFFFF) {
+                frame.writeByte(0x80 | 126);
+                frame.writeShort(payloadLen);
+            } else {
+                frame.writeByte(0x80 | 127);
+                frame.writeLong(payloadLen);
+            }
+
+            frame.writeBytes(mask);
+            for (int i = 0; i < payloadLen; i++) {
+                frame.writeByte(data[i] ^ mask[i % 4]);
+            }
+
+            channel.writeAndFlush(frame);
+        } catch (Exception e) {
+            System.err.println("⚠️ WebSocket: Binary send error: " + e.getMessage());
+        }
+    }
+
+    public boolean isConnected() {
+        return channel != null && channel.isOpen();
     }
 
     public void shutdown() {
@@ -352,38 +365,5 @@ public class PythonWebSocketClient {
             if (channel != null) channel.close().sync();
         } catch (Exception ignored) {}
         group.shutdownGracefully();
-    }
-
-    public boolean isConnected() {
-        return channel != null && channel.isOpen();
-    }
-
-    public void send(String message) {
-        if (!isConnected()) return;
-
-        byte[] payload = message.getBytes(StandardCharsets.UTF_8);
-        byte[] mask = new byte[4];
-        new SecureRandom().nextBytes(mask);
-
-        ByteBuf frame = Unpooled.buffer();
-        frame.writeByte(0x81);
-
-        int payloadLen = payload.length;
-        if (payloadLen <= 125) {
-            frame.writeByte(0x80 | payloadLen);
-        } else if (payloadLen <= 0xFFFF) {
-            frame.writeByte(0x80 | 126);
-            frame.writeShort(payloadLen);
-        } else {
-            frame.writeByte(0x80 | 127);
-            frame.writeLong(payloadLen);
-        }
-
-        frame.writeBytes(mask);
-        for (int i = 0; i < payloadLen; i++) {
-            frame.writeByte(payload[i] ^ mask[i % 4]);
-        }
-
-        channel.writeAndFlush(frame);
     }
 }

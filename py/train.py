@@ -3,8 +3,12 @@ import torch
 
 class TrainState1v1:
 
-    def __init__(self):
+    def __init__(self, strict_sync=True, max_tick_drift=0):
         self.python_ticks = 0
+        self.strict_sync = strict_sync  # Crash on any tick desync
+        self.max_tick_drift = max_tick_drift  # Maximum allowed drift before crash (0 = no drift allowed)
+        self.last_java_tick = -1  # Track last received Java tick for ordering validation
+        
         self.model = torch.nn.Sequential(
             torch.nn.Linear(6, 8),  # [my_x, my_y, my_z, opp_x, opp_y, opp_z]
             torch.nn.Tanh(),
@@ -16,27 +20,72 @@ class TrainState1v1:
             torch.nn.Tanh(),
             torch.nn.Linear(16, 18),  # 8 x-bins, 8 y-bins, 2 binary
         )
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
         # Per-agent memory
         self.agent_data = {}  # uuid -> dict with tick_x, log_probs, rewards, etc.
         self.all_cumulative_rewards = []
 
     def update(self, info: dict):
-        self.python_ticks += 1
         java_tick = info.get("tick", 0)
-
         event = info.get("event")
+        
+        # Handle session/round events without tick validation
         if event == "start_session":
             print(f"🎬 Session started with {info.get('rounds', '?')} rounds!")
+            self.python_ticks = 0  # Reset tick counter on new session
+            self.last_java_tick = -1  # Reset Java tick tracking
+            return
         elif event == "end_session":
             print(f"✅ Session complete.")
+            return
         elif event == "start_round":
             print(f"🌀 Round {info.get('round', '?')+1} starting!")
+            return
         elif event == "end_round":
             print(f"⛔ Round {info.get('round', '?')+1} complete!")
-            self.apply_reinforce()
+            # self.apply_reinforce()
             return
+        
+        # Check for out-of-order packets
+        if java_tick <= self.last_java_tick:
+            error_msg = f"🚨 OUT-OF-ORDER PACKET: java_tick={java_tick} <= last_java_tick={self.last_java_tick}"
+            print(error_msg)
+            if self.strict_sync:
+                raise RuntimeError(f"Out-of-order packet detected! {error_msg}")
+            else:
+                print("   Ignoring out-of-order packet (strict_sync=False)")
+                return
+        
+        # For game ticks, enforce strict 1:1 synchronization
+        expected_python_tick = self.python_ticks + 1
+        tick_drift = abs(java_tick - expected_python_tick)
+        
+        # Check for tick synchronization issues
+        if self.strict_sync and java_tick != expected_python_tick:
+            error_msg = f"🚨 TICK SYNC ERROR: Expected py={expected_python_tick} but got java={java_tick}"
+            print(error_msg)
+            print(f"   Current state: py={self.python_ticks}, java={java_tick}")
+            print(f"   Difference: {tick_drift} ticks")
+            
+            # Force crash to maintain strict synchronization
+            raise RuntimeError(f"Tick synchronization lost! {error_msg}")
+        elif not self.strict_sync and tick_drift > self.max_tick_drift:
+            error_msg = f"🚨 TICK DRIFT EXCEEDED: drift={tick_drift} > max_allowed={self.max_tick_drift}"
+            print(error_msg)
+            raise RuntimeError(f"Maximum tick drift exceeded! {error_msg}")
+        
+        # Update tracking variables
+        self.last_java_tick = java_tick
+        self.python_ticks += 1
+        
+        # Monitor performance
+        self.check_performance_metrics()
+        
+        if tick_drift > 0 and not self.strict_sync:
+            print(f"⚠️ Tick py={self.python_ticks}/java={java_tick} (drift: {tick_drift})")
+        else:
+            print(f"🎯 Tick py={self.python_ticks}/java={java_tick}")
 
         all_ops = info.get("all_operators", {})
         rl_ids = info.get("rl_operator_ids", [])
@@ -79,8 +128,6 @@ class TrainState1v1:
 
             self.agent_data[my_id]["tick_x"] = tick_x
             self.agent_data[my_id]["rewards"].append(reward)
-
-            print(f"🎯 Tick {self.python_ticks}/{java_tick} | 🧠 {my_id[:4]} | 📈 Reward: {reward:.2f}")
 
     def sample_actions(self):
         results = {}
@@ -134,6 +181,8 @@ class TrainState1v1:
         agents = list(self.agent_data.items())
         num_agents = len(agents)
 
+        loss_sum = 0.0
+
         for i, (agent_id, data) in enumerate(agents):
             if not data["log_probs"] or not data["rewards"]:
                 continue
@@ -156,16 +205,56 @@ class TrainState1v1:
             loss = -(log_probs_tensor * norm_reward).mean()
 
             if not torch.isnan(loss):
-                retain = i < num_agents - 1  # only retain graph if more agents remain
+                # retain = i < num_agents - 1  # only retain graph if more agents remain
                 self.optimizer.zero_grad() if i == 0 else None
-                loss.backward(retain_graph=retain)
-                if i == num_agents - 1:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                    self.optimizer.step()
-                    print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+                # loss.backward(retain_graph=retain)
+                loss_sum += loss
             else:
                 print(f"🚨 Loss is NaN for agent {agent_id[:4]} — skipping optimizer step.")
 
             data["log_probs"].clear()
             data["rewards"].clear()
+    
+    
+        loss_sum.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
+        self.optimizer.step()
+        # print(f"✅ Updated model from agent {agent_id[:4]} episode reward")
+
+    def check_performance_metrics(self):
+        """Check if we should recommend switching to binary protocol for better performance"""
+        import time
+        if not hasattr(self, '_last_tick_time'):
+            self._last_tick_time = time.time()
+            self._tick_processing_times = []
+            return
+        
+        current_time = time.time()
+        processing_time = (current_time - self._last_tick_time) * 1000  # Convert to milliseconds
+        self._tick_processing_times.append(processing_time)
+        
+        # Keep only last 100 measurements
+        if len(self._tick_processing_times) > 100:
+            self._tick_processing_times.pop(0)
+        
+        # Check if we're consistently slow (>5ms average over last 50 ticks)
+        if len(self._tick_processing_times) >= 50:
+            avg_time = sum(self._tick_processing_times[-50:]) / 50
+            if avg_time > 5.0:
+                raise RuntimeWarning("Average tick processing time exceeds 5ms, it's highly recommended not to go beyond this latency.")
+
+                print(f"⚠️ PERFORMANCE WARNING: Average tick processing time: {avg_time:.2f}ms")
+                print("   Consider switching to binary protocol for better performance!")
+        
+        self._last_tick_time = current_time
+
+    def reset_sync_state(self):
+        """Reset synchronization state - useful for recovery scenarios"""
+        print("🔄 Resetting synchronization state...")
+        self.python_ticks = 0
+        self.last_java_tick = -1
+        if hasattr(self, '_last_tick_time'):
+            delattr(self, '_last_tick_time')
+        if hasattr(self, '_tick_processing_times'):
+            delattr(self, '_tick_processing_times')
 

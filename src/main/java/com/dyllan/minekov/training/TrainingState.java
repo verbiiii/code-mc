@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
+import com.dyllan.minekov.VectorizedObservationEncoder;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.RLOperator;
@@ -17,7 +18,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 2; // ← change this to 1, 100, etc. for # of 1v1s
+    private static final int NUM_GROUPS = 32; // ← change this to 1, 100, etc. for # of 1v1s
+    private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
@@ -25,31 +27,28 @@ public class TrainingState {
 
     private final int numRounds;
     private int currentRound = 0;
-    private int currentRoundTick = 0;
+    private int globalTick = 0;
     private boolean roundActive = false;
-
-    private final boolean selfPlay = false; // ← set to false to use DumbOperator
 
     public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
 
-        sendTickEvent("start_session", Map.of("rounds", rounds));
+        // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
     }
 
     public void tick() {
         if (!roundActive) return;
 
-        boolean isFirstTick = currentRoundTick == 0;
-        currentRoundTick++;
+        globalTick++;
 
         for (TrainingGroup group : groups) {
             group.tick();
         }
 
-        List<String> rlIds = new ArrayList<>();
+        List<Integer> rlIds = new ArrayList<>();
         Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
 
         Map<String, Team> operatorTeamMap = new HashMap<>();
@@ -98,7 +97,7 @@ public class TrainingState {
                     info.put("opponent", opp);
                 }
 
-                rlIds.add(uuid);
+                rlIds.add(rlOp.getAgentId());  // Use compact agent ID
                 rlOp.clearTickDamageStats();
             }
 
@@ -107,16 +106,42 @@ public class TrainingState {
 
         boolean roundDone = isRoundComplete();
 
-        Map<String, Object> tickPayload = new HashMap<>();
-        tickPayload.put("type", "tick");
-        tickPayload.put("tick", currentRoundTick);
-        tickPayload.put("round", currentRound);
-        tickPayload.put("is_first_tick", isFirstTick);
-        tickPayload.put("is_last_tick", roundDone);
-        tickPayload.put("rl_operator_ids", rlIds);
-        tickPayload.put("all_operators", allOperatorData);
-
-        PythonBridge.tickPython(tickPayload);
+        // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
+        Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
+        
+        // Use consistent ordering: get all RL operators from registry
+        RLOperator[] rlOperators = allOperators.values().stream()
+            .filter(op -> op instanceof RLOperator)
+            .map(op -> (RLOperator) op)
+            .toArray(RLOperator[]::new);
+        
+        for (int i = 0; i < rlOperators.length; i++) {
+            RLOperator rlOp = rlOperators[i];
+            
+            // Find opponent for this RL agent
+            AIOperator opponent = allOperators.values().stream()
+                .filter(other -> !other.getUUID().equals(rlOp.getUUID()))
+                .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(rlOp.getUUID().toString())))
+                .findFirst()
+                .orElse(rlOp); // Use self if no opponent found
+            
+            // Create vectorized observation with sequential index
+            VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
+                rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
+                opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
+                rlOp.getDamageDealtLastTick(),               // Damage dealt
+                rlOp.getDamageTakenLastTick(),               // Damage taken
+                rlOp.getKillsLastTick(),                     // Kills
+                rlOp.getDeathsLastTick()                     // Deaths
+            );
+            
+            observations.put(i, obs);  // Use sequential index instead of agent ID
+            rlOp.clearTickDamageStats();
+        }
+        
+        // Encode and send binary observations
+        byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
+        PythonBridge.sendBinaryToPython(binaryData);
 
         if (roundDone) {
             cleanupRound();
@@ -140,19 +165,17 @@ public class TrainingState {
 
     private void setupRound() {
         groups.clear();
-        currentRoundTick = 0;
         roundActive = true;
 
         ServerLevel world = server.overworld();
         double team1X = 19.5, team1Z = 17.5;
         double team2X = 19.5, team2Z = 9.5;
         double baseY = 2.0;
-        double offsetY = 0.3;
 
         for (int i = 0; i < NUM_GROUPS; i++) {
-            double y = baseY + (i * offsetY);
+            double y = baseY;
 
-            TrainingGroup group = new TrainingGroup(1200); // 600 ticks is 30 seconds
+            TrainingGroup group = new TrainingGroup(200); // 600 ticks is 30 seconds
 
             RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
             rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);
@@ -180,7 +203,7 @@ public class TrainingState {
             groups.add(group);
         }
 
-        sendTickEvent("start_round", Map.of("round", currentRound));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
     }
 
@@ -194,21 +217,13 @@ public class TrainingState {
             }
         }
 
-        sendTickEvent("end_round", Map.of("round", currentRound));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");
     }
 
     private void endSession() {
-        sendTickEvent("end_session", Map.of("rounds", numRounds));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§aTraining session complete!");
-    }
-
-    private void sendTickEvent(String event, Map<String, Object> extra) {
-        Map<String, Object> payload = new HashMap<>(extra);
-        payload.put("type", "tick");
-        payload.put("event", event);
-        payload.put("round", currentRound);
-        PythonBridge.tickPython(payload);
     }
 
     private void broadcastToPlayers(String message) {
@@ -225,9 +240,8 @@ public class TrainingState {
             roundActive = false;
         }
         currentRound = 0;
-        currentRoundTick = 0;
         groups.clear();
-        sendTickEvent("stop_session", Map.of("rounds", numRounds));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§cTraining session forcefully stopped.");
     }
 

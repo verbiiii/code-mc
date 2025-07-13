@@ -3,7 +3,6 @@ package com.dyllan.minekov;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.List;
 import java.util.Map;
 import com.google.gson.Gson;
 
@@ -12,7 +11,7 @@ import com.dyllan.minekov.scene.SceneEncoder;
 public class PythonBridge {
     private static final Gson gson = new Gson();
 
-    public static PythonWebSocketClient websocketClient;
+    public static PythonRLController rlController;
 
     public static void sendSceneVolume(SceneEncoder encoder) {
         try {
@@ -45,13 +44,22 @@ public class PythonBridge {
     }
 
     public static void tickPython(Map<String, Object> data) {
-        if (websocketClient == null || !websocketClient.isConnected()) {
-            System.err.println("[PythonBridge] WebSocket not connected.");
+        if (rlController == null || !rlController.isConnected()) {
+            // Silent - no console spam about connection status
             return;
         }
 
         String json = gson.toJson(data);
-        websocketClient.send(json);
+        rlController.sendToPython(json);
+    }
+
+    public static void sendBinaryToPython(byte[] binaryData) {
+        if (rlController == null || !rlController.isConnected()) {
+            // Silent - no console spam about connection status
+            return;
+        }
+
+        rlController.sendBinaryToPython(binaryData);
     }
 
 }

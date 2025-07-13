@@ -1,5 +1,6 @@
 package com.dyllan.minekov.entities;
 
+import com.dyllan.minekov.AgentIdManager;
 import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
 import net.minecraft.world.entity.EntityType;
@@ -10,6 +11,7 @@ import net.minecraft.world.phys.Vec3;
 
 public class RLOperator extends AIOperator {
     private WatchClosestTargetGoal watchGoal;
+    private int agentId = 0; // Compact agent ID for binary protocol
 
     private float damageTakenLastTick = 0f;
     private float damageDealtLastTick = 0f;
@@ -107,13 +109,22 @@ public class RLOperator extends AIOperator {
     @Override
     public void onAddedToWorld() {
         super.onAddedToWorld();
+        this.agentId = AgentIdManager.assignId(this);
         RLOperatorRegistry.register(this);
     }
 
     @Override
     public void onRemovedFromWorld() {
         super.onRemovedFromWorld();
+        AgentIdManager.releaseId(this);
         RLOperatorRegistry.unregister(this);
+    }
+
+    /**
+     * Get the compact agent ID for binary protocol
+     */
+    public int getAgentId() {
+        return agentId;
     }
 
     // @Override

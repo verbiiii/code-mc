@@ -3,16 +3,11 @@ package com.dyllan.minekov.entities.ai.goals;
 import com.dyllan.minekov.entities.AIOperator;
 
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.entity.LivingEntity;
 
 import java.util.EnumSet;
-import java.util.List;
 
 public class DumbGunAttackGoal extends Goal {
-    public static final boolean TARGET_PLAYERS = false; // Set to true to attack players, false to attack other AIOperators
-
     private final AIOperator mob;
     private LivingEntity target;
     private final double range;
@@ -25,7 +20,7 @@ public class DumbGunAttackGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        this.target = TARGET_PLAYERS ? findVisiblePlayer() : findVisibleBot();
+        this.target = TargetAcquisition.findTarget(mob);
         return this.target != null;
     }
 
@@ -58,30 +53,6 @@ public class DumbGunAttackGoal extends Goal {
         mob.aim(true);
         this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
         tryFireGun();
-    }
-
-    private LivingEntity findVisiblePlayer() {
-        List<Player> players = mob.level().getEntitiesOfClass(Player.class, new AABB(
-                mob.getX() - range, mob.getY() - range, mob.getZ() - range,
-                mob.getX() + range, mob.getY() + range, mob.getZ() + range
-        ));
-
-        return players.stream()
-            .filter(p -> p.isAlive() && mob.hasLineOfSight(p))
-            .min((a, b) -> Double.compare(mob.distanceToSqr(a), mob.distanceToSqr(b)))
-            .orElse(null);
-    }
-
-    private LivingEntity findVisibleBot() {
-        List<AIOperator> bots = mob.level().getEntitiesOfClass(AIOperator.class, new AABB(
-                mob.getX() - range, mob.getY() - range, mob.getZ() - range,
-                mob.getX() + range, mob.getY() + range, mob.getZ() + range
-        ));
-
-        return bots.stream()
-            .filter(bot -> bot != mob && bot.isAlive() && mob.hasLineOfSight(bot))
-            .min((a, b) -> Double.compare(mob.distanceToSqr(a), mob.distanceToSqr(b)))
-            .orElse(null);
     }
 
     private void tryFireGun() {

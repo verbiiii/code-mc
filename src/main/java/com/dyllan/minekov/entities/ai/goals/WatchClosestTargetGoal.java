@@ -3,19 +3,16 @@ package com.dyllan.minekov.entities.ai.goals;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.util.Mth;
 
 import java.util.EnumSet;
-import java.util.List;
 
 import com.dyllan.minekov.entities.AIOperator;
 
 public class WatchClosestTargetGoal extends Goal {
     private final Mob mob;
     private final double range;
-    private AIOperator target;
+    private LivingEntity target;
     private Vec3 currentDirection = Vec3.ZERO; // <-- store direction
 
     public WatchClosestTargetGoal(Mob mob, double range) {
@@ -34,29 +31,12 @@ public class WatchClosestTargetGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        List<AIOperator> operators = mob.level().getEntitiesOfClass(AIOperator.class, new AABB(
-                mob.getX() - range, mob.getY() - range, mob.getZ() - range,
-                mob.getX() + range, mob.getY() + range, mob.getZ() + range
-        ));
-
-        double closestDist = Double.MAX_VALUE;
-        AIOperator closestTarget = null;
-
-        for (AIOperator operator : operators) {
-            // make sure we don't target ourselves
-            if (operator == mob) continue;
-            if (!operator.isAlive()) continue;
-            // if (!mob.hasLineOfSight(operator)) continue;
-
-            double dist = mob.distanceToSqr(operator);
-            if (dist < closestDist) {
-                closestDist = dist;
-                closestTarget = operator;
-            }
+        if (!(mob instanceof AIOperator)) {
+            return false;
         }
-
-        this.target = closestTarget;
-        return target != null;
+        
+        this.target = TargetAcquisition.findTarget((AIOperator) mob);
+        return this.target != null;
     }
 
     @Override
