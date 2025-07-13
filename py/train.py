@@ -241,6 +241,8 @@ class TrainState1v1:
         if len(self._tick_processing_times) >= 50:
             avg_time = sum(self._tick_processing_times[-50:]) / 50
             if avg_time > 5.0:
+                raise RuntimeWarning("Average tick processing time exceeds 5ms, it's highly recommended not to go beyond this latency.")
+
                 print(f"⚠️ PERFORMANCE WARNING: Average tick processing time: {avg_time:.2f}ms")
                 print("   Consider switching to binary protocol for better performance!")
         
