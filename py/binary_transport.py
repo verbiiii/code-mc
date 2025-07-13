@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer, create_trainer
+from fmc import VectorizedTrainer, create_trainer
 
 
 class BinaryTransport:
