@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer
+from train_vectorized import VectorizedTrainer, MAX_AGENTS
 
 
 class BinaryTransport:
@@ -251,7 +251,110 @@ def get_stats() -> Dict:
         return transport.get_performance_stats()
     return {}
 
-# Auto-initialize if run directly
-if __name__ == "__main__":
-    initialize_transport()
-    print("🚀 Binary transport ready!")
+def get_top_agent_parameters() -> Optional[Dict]:
+    """Get the parameters of the best performing agent."""
+    if transport is None:
+        return None
+    
+    # Get the index of the top agent
+    top_indices = transport.trainer.top_k_agent_indices(k=1)
+    if len(top_indices) == 0:
+        return None
+    
+    top_agent_index = top_indices[0].item()
+    
+    # Extract parameters for this agent from the batched model
+    agent_params = {}
+    for name, param in transport.trainer.model.named_parameters():
+        if 'weight' in name or 'bias' in name:
+            # Extract the parameters for the specific agent index
+            agent_param = param[top_agent_index].detach().cpu().numpy()
+            agent_params[name] = agent_param.tolist()  # Convert to list for JSON serialization
+    
+    return {
+        'agent_index': top_agent_index,
+        'cumulative_reward': transport.trainer.cumulative_rewards[top_agent_index].item(),
+        'parameters': agent_params
+    }
+
+def process_top_agent_data(binary_data: bytes) -> bytes:
+    """Process single agent observation through the top performing agent."""
+    if transport is None:
+        return _encode_empty_single_action()
+    
+    # Get the top agent index
+    top_indices = transport.trainer.top_k_agent_indices(k=1)
+    if len(top_indices) == 0:
+        return _encode_empty_single_action()
+    
+    top_agent_index = top_indices[0].item()
+    
+    # Parse single agent observation (similar to regular parsing but for one agent)
+    obs_tensor = _parse_single_observation(binary_data)
+    if obs_tensor is None:
+        return _encode_empty_single_action()
+    
+    # Run forward pass for just the top agent
+    with torch.no_grad():
+        # Expand observation to match batch size and fill with zeros except for top agent
+        batched_obs = torch.zeros(MAX_AGENTS, obs_tensor.shape[-1], device=transport.trainer.device)
+        batched_obs[top_agent_index] = obs_tensor
+        
+        # Forward pass through model
+        x_actions, y_actions, walk_actions, shoot_actions, log_probs = transport.trainer.forward_pass(batched_obs)
+        
+        # Extract actions for the top agent only
+        top_x = x_actions[top_agent_index].item()
+        top_y = y_actions[top_agent_index].item()
+        top_walk = walk_actions[top_agent_index].item()
+        top_shoot = shoot_actions[top_agent_index].item()
+    
+    # Encode single agent action
+    return _encode_single_action(top_x, top_y, top_walk, top_shoot)
+
+def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
+    """Parse binary data for a single agent observation."""
+    try:
+        # Expected format: magic(4) + obs_size(4) + observation_data(obs_size * 4)
+        if len(binary_data) < 8:
+            return None
+        
+        magic, obs_size = struct.unpack('<II', binary_data[:8])
+        if magic != 0xDEADBEEF:
+            return None
+        
+        expected_size = 8 + obs_size * 4
+        if len(binary_data) != expected_size:
+            return None
+        
+        # Parse observation
+        obs_data = struct.unpack(f'<{obs_size}f', binary_data[8:])
+        obs_tensor = torch.tensor(obs_data, device=transport.trainer.device)
+        
+        return obs_tensor
+        
+    except Exception as e:
+        print(f"Error parsing single observation: {e}")
+        return None
+
+def _encode_single_action(x_action: int, y_action: int, walk_action: int, shoot_action: int) -> bytes:
+    """Encode actions for a single agent."""
+    try:
+        # Format: magic(4) + action_count(4) + actions(4*4)
+        magic = 0xBEEFDEAD
+        action_count = 1
+        
+        header = struct.pack('<II', magic, action_count)
+        action_data = struct.pack('<IIII', x_action, y_action, walk_action, shoot_action)
+        
+        return header + action_data
+        
+    except Exception as e:
+        print(f"Error encoding single action: {e}")
+        return _encode_empty_single_action()
+
+def _encode_empty_single_action() -> bytes:
+    """Encode empty action for error cases."""
+    magic = 0xBEEFDEAD
+    action_count = 0
+    return struct.pack('<II', magic, action_count)

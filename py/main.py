@@ -9,7 +9,7 @@ import logging
 import json
 from fastapi import FastAPI, WebSocket
 
-from binary_transport import initialize_transport, process_binary_data, signal_round_end, get_stats
+from binary_transport import initialize_transport, process_binary_data, signal_round_end, get_stats, process_top_agent_data
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -86,6 +86,36 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         connected_clients.discard(websocket)
         logger.info(f"❌ Client {client_id} removed. Total clients: {len(connected_clients)}")
+
+@app.websocket("/top-agent")
+async def top_agent_websocket(websocket: WebSocket):
+    """Dedicated WebSocket endpoint for 1v1 combat with the top performing agent."""
+    await websocket.accept()
+    client_id = id(websocket)
+    
+    logger.info(f"🥊 Top agent client {client_id} connected for 1v1 combat")
+    
+    try:
+        while True:
+            # Receive binary observation data
+            message = await websocket.receive()
+            
+            if "bytes" in message:
+                binary_data = message["bytes"]
+                
+                # Process single agent observation through top agent model
+                response_data = process_top_agent_data(binary_data)
+                
+                # Send binary action response
+                await websocket.send_bytes(response_data)
+                
+            else:
+                logger.warning(f"⚠️ Top agent endpoint only accepts binary data")
+            
+    except Exception as e:
+        logger.warning(f"⚡ Top agent client {client_id} disconnected: {e}")
+    finally:
+        logger.info(f"❌ Top agent client {client_id} removed")
 
 # All communication happens over WebSocket - no HTTP routes needed
 

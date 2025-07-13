@@ -118,6 +118,11 @@ public class Minekov {
                         })
                     )
                 )
+                .then(Commands.literal("play")
+                    .executes(ctx -> {
+                        return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
+                    })
+                )
         );
     }
 
@@ -253,5 +258,51 @@ public class Minekov {
         }
     }
 
+    private static int runPlayCommand(ServerPlayer player, ServerLevel world) {
+        // Check if there's already a training session running
+        if (trainingState != null) {
+            player.sendSystemMessage(Component.literal("§c⚠️ Cannot start play mode while training is active. Stop training first."));
+            return 0;
+        }
 
+        // Request top agent from Python
+        if (pythonController == null || !pythonController.isConnected()) {
+            player.sendSystemMessage(Component.literal("§c⚠️ Python controller not connected. Cannot get top agent."));
+            return 0;
+        }
+
+        // For now, spawn a regular RLOperator and set it to player-attack mode
+        // TODO: Request specific top agent parameters from Python
+        
+        // Use the same spawn positions as training
+        double playerX = 19.5, playerZ = 17.5; // Player spawn (team1 position)
+        double aiX = 19.5, aiZ = 9.5; // AI spawn (team2 position)
+        double y = 2.0;
+
+        // Teleport player to spawn position
+        player.teleportTo(playerX, y + 1, playerZ); // +1 to spawn above ground
+        player.setYRot(180.0f); // Face towards AI spawn
+        player.sendSystemMessage(Component.literal("§e⚔️ Teleported to combat arena!"));
+
+        // Spawn top-performing RLOperator
+        RLOperator topAgent = ModEntities.RL_OPERATOR.get().create(world);
+        if (topAgent != null) {
+            topAgent.moveTo(aiX, y, aiZ, 0.0f, 0.0f); // Face towards player
+            topAgent.setPlayerAttackMode(true); // Enable player targeting
+            world.addFreshEntity(topAgent);
+            
+            player.sendSystemMessage(Component.literal("§a🤖 Top AI agent spawned! Prepare for battle!"));
+            player.sendSystemMessage(Component.literal("§7💡 The AI will target you specifically in this mode."));
+            
+            // Broadcast to server
+            world.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§6🥊 " + player.getName().getString() + " is fighting the top AI agent!"), false
+            );
+        } else {
+            player.sendSystemMessage(Component.literal("§c⚠️ Failed to spawn AI agent."));
+            return 0;
+        }
+
+        return 1;
+    }
 }

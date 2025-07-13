@@ -3,6 +3,7 @@ package com.dyllan.minekov.entities.ai.goals;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
@@ -14,6 +15,9 @@ public class WatchClosestTargetGoal extends Goal {
     private final double range;
     private LivingEntity target;
     private Vec3 currentDirection = Vec3.ZERO; // <-- store direction
+
+    // Player targeting mode for 1v1 combat
+    private boolean playerTargetingMode = false;
 
     public WatchClosestTargetGoal(Mob mob, double range) {
         this.mob = mob;
@@ -29,20 +33,46 @@ public class WatchClosestTargetGoal extends Goal {
         return target;
     }
 
+    /**
+     * Set player targeting mode - when enabled, target nearest player instead of training group targets
+     */
+    public void setPlayerTargetingMode(boolean enabled) {
+        this.playerTargetingMode = enabled;
+        // Clear current target to force re-evaluation
+        this.target = null;
+    }
+
     @Override
     public boolean canUse() {
         if (!(mob instanceof AIOperator)) {
             return false;
         }
         
-        this.target = TargetAcquisition.findTarget((AIOperator) mob);
+        // In player targeting mode, find the nearest player
+        if (playerTargetingMode) {
+            Player nearestPlayer = mob.level().getNearestPlayer(mob.getX(), mob.getY(), mob.getZ(), range, false);
+            this.target = nearestPlayer;
+        } else {
+            // Normal training mode - use training group targeting
+            this.target = TargetAcquisition.findTarget((AIOperator) mob);
+        }
+        
         return this.target != null;
     }
 
     @Override
     public boolean canContinueToUse() {
-        return target != null && target.isAlive()// && mob.hasLineOfSight(target)
-                && mob.distanceToSqr(target) < range * range;
+        if (target == null || !target.isAlive()) {
+            return false;
+        }
+        
+        // In player targeting mode, just check distance and life
+        if (playerTargetingMode) {
+            return mob.distanceToSqr(target) < range * range;
+        } else {
+            // Normal training mode checks
+            return mob.distanceToSqr(target) < range * range;
+        }
     }
 
     @Override

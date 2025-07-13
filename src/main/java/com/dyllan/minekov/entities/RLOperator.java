@@ -22,6 +22,9 @@ public class RLOperator extends AIOperator {
     private int deathsLastTick = 0;
     private int killsLastTick = 0;
 
+    // Player attack mode for 1v1 combat
+    private boolean playerAttackMode = false;
+
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
     }
@@ -180,5 +183,23 @@ public class RLOperator extends AIOperator {
 
     public int getKillsLastTick() {
         return killsLastTick;
+    }
+
+    /**
+     * Set player attack mode - when enabled, this RLOperator will target the nearest player
+     */
+    public void setPlayerAttackMode(boolean enabled) {
+        this.playerAttackMode = enabled;
+        if (enabled && watchGoal != null) {
+            // Force re-evaluation of target
+            watchGoal.setPlayerTargetingMode(true);
+        }
+    }
+
+    /**
+     * Check if this RLOperator is in player attack mode
+     */
+    public boolean isPlayerAttackMode() {
+        return playerAttackMode;
     }
 }
