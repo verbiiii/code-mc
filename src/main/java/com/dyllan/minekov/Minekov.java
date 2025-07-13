@@ -23,13 +23,8 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import com.dyllan.minekov.entities.RLOperator;
-import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
@@ -200,7 +195,7 @@ public class Minekov {
         }
 
         if (pythonController != null && pythonController.isConnected()) {
-            syncRLOperatorsToPython();
+            // Removed sync_operators - unnecessary for pure RL training
         }
 
         // ✅ TICK THE TRAINING STATE IF ACTIVE
@@ -219,38 +214,6 @@ public class Minekov {
             pythonController.sendToPython(message);
         } else {
             System.err.println("[Minekov] Python WebSocket is not open.");
-        }
-    }
-
-    private static void syncRLOperatorsToPython() {
-        if (!pythonController.isConnected()) return;
-
-        List<Map<String, Object>> operators = new ArrayList<>();
-
-        for (RLOperator op : RLOperatorRegistry.getAll()) {
-            if (op.isRemoved() || !op.isAlive()) continue;
-
-            Map<String, Object> info = new HashMap<>();
-            info.put("id", op.getAgentId());  // Use compact agent ID instead of UUID
-            info.put("name", op.getName().getString());
-            info.put("x", op.getX());
-            info.put("y", op.getY());
-            info.put("z", op.getZ());
-            info.put("health", op.getHealth());
-
-            operators.add(info);
-        }
-
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("type", "sync_operators");
-        payload.put("agents", operators);
-
-        try {
-            String json = new com.google.gson.Gson().toJson(payload);
-            pythonController.sendToPython(json);
-        } catch (Exception e) {
-            System.err.println("[Minekov] Failed to send operator sync:");
-            e.printStackTrace();
         }
     }
 
