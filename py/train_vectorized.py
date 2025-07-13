@@ -9,7 +9,7 @@ import numpy as np
 from typing import Tuple
 
 
-MAX_AGENTS = 256
+MAX_AGENTS = 64
 
 
 class VectorizedTrainer:
