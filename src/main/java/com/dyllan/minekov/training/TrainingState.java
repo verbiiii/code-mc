@@ -48,9 +48,6 @@ public class TrainingState {
             group.tick();
         }
 
-        List<Integer> rlIds = new ArrayList<>();
-        Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
-
         Map<String, Team> operatorTeamMap = new HashMap<>();
         Map<String, AIOperator> allOperators = new HashMap<>();
 
@@ -62,46 +59,6 @@ public class TrainingState {
                     allOperators.put(uuid, op);
                 }
             }
-        }
-
-        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
-            String uuid = entry.getKey();
-            AIOperator op = entry.getValue();
-            Team myTeam = operatorTeamMap.get(uuid);
-
-            Map<String, Object> info = new HashMap<>();
-            info.put("x", op.getX());
-            info.put("y", op.getY());
-            info.put("z", op.getZ());
-            info.put("health", op.getHealth());
-            info.put("team", myTeam.getTeamId());
-            info.put("is_rl", op instanceof RLOperator);
-
-            if (op instanceof RLOperator rlOp) {
-                info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
-                info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
-                info.put("deaths_last_tick", rlOp.getDeathsLastTick());
-                info.put("kills_last_tick", rlOp.getKillsLastTick());
-
-                AIOperator opponent = allOperators.values().stream()
-                    .filter(other -> !other.getUUID().equals(op.getUUID()))
-                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(myTeam))
-                    .findFirst()
-                    .orElse(null);
-
-                if (opponent != null) {
-                    Map<String, Object> opp = new HashMap<>();
-                    opp.put("x", opponent.getX());
-                    opp.put("y", opponent.getY());
-                    opp.put("z", opponent.getZ());
-                    info.put("opponent", opp);
-                }
-
-                rlIds.add(rlOp.getAgentId());  // Use compact agent ID
-                rlOp.clearTickDamageStats();
-            }
-
-            allOperatorData.put(uuid, info);
         }
 
         boolean roundDone = isRoundComplete();
@@ -126,13 +83,24 @@ public class TrainingState {
                 .orElse(rlOp); // Use self if no opponent found
             
             // Create vectorized observation with sequential index
+            float damageDealt = rlOp.getDamageDealtLastTick();
+            float damageTaken = rlOp.getDamageTakenLastTick();
+            int kills = rlOp.getKillsLastTick();
+            int deaths = rlOp.getDeathsLastTick();
+            
+            // Debug: print reward data being sent
+            if (damageDealt > 0 || damageTaken > 0 || kills > 0 || deaths > 0) {
+                System.out.println("DEBUG: Agent " + i + " reward data - Dealt: " + damageDealt + 
+                                 ", Taken: " + damageTaken + ", Kills: " + kills + ", Deaths: " + deaths);
+            }
+            
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
                 opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
-                rlOp.getDamageDealtLastTick(),               // Damage dealt
-                rlOp.getDamageTakenLastTick(),               // Damage taken
-                rlOp.getKillsLastTick(),                     // Kills
-                rlOp.getDeathsLastTick()                     // Deaths
+                damageDealt,                                 // Damage dealt
+                damageTaken,                                 // Damage taken
+                kills,                                       // Kills
+                deaths                                       // Deaths
             );
             
             observations.put(i, obs);  // Use sequential index instead of agent ID
