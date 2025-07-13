@@ -59,9 +59,10 @@ class VectorizedTrainer:
         return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), log_probs
 
     def update_episode_data(self, agent_indices: torch.Tensor, rewards: torch.Tensor, log_probs: torch.Tensor):
+        # print(agent_indices)
         print(rewards)
-        self.cumulative_rewards[agent_indices] += rewards
-        print(self.cumulative_rewards)
+        # self.cumulative_rewards[agent_indices] += rewards
+        # print(self.cumulative_rewards)
 
     # def apply_fmc(self, completed_indices: torch.Tensor):
     #     print("🧬 Fitness values (cumulative rewards):")

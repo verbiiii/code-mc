@@ -105,7 +105,13 @@ class BinaryTransport:
         agent_indices = torch.arange(agent_count, device=self.trainer.device)
         
         # Calculate rewards vectorized: dmg_dealt - 0.1*dmg_taken + 100*kills
-        rewards = reward_data[:, 0] - 0.1 * reward_data[:, 1] + 100.0 * reward_data[:, 2]
+        print(reward_data[:4])
+        dmg_dealt = reward_data[:, 0]
+        dmg_taken = reward_data[:, 1]
+        kills = reward_data[:, 2]
+        deaths = reward_data[:, 3]
+
+        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
         
         return positions, agent_indices, rewards
 
