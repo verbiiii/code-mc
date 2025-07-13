@@ -38,30 +38,28 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            try:
-                # Try to receive text message (JSON) 
-                data = await websocket.receive_text()
+            # Receive any message and check its type
+            message = await websocket.receive()
+            
+            if "text" in message:
+                # Handle JSON messages
+                data = message["text"]
                 try:
                     payload = json.loads(data)
                     message_type = payload.get("type")
                     
                     if message_type == "sync_operators":
-                        # Ignore - this message is unnecessary for pure RL training
                         continue
-                    
                     elif message_type == "round_start":
                         logger.info("🟢 Round started")
                         continue
-                    
                     elif message_type == "round_end":
                         logger.info("🔴 Round ended - applying learning updates")
                         signal_round_end()
                         continue
-                    
                     elif message_type == "tick":
                         logger.warning("⚠️ Received JSON tick - Java should use binary protocol")
                         continue
-                    
                     else:
                         logger.info(f"📝 Unknown message: {message_type}")
                         continue
@@ -70,21 +68,22 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.warning(f"⚠️ Invalid JSON: {data}")
                     continue
                     
-            except:
-                # If text fails, try binary (this is where the actual training happens)
-                try:
-                    binary_data = await websocket.receive_bytes()
-                    
-                    # Process through vectorized pipeline and get actions
-                    response_data = process_binary_data(binary_data)
-                    
-                    # Send binary action response
-                    await websocket.send_bytes(response_data)
-                    
-                except Exception as e:
-                    # If both fail, connection is probably closed
-                    logger.warning(f"⚡ Client {client_id} disconnected: {e}")
-                    break
+            elif "bytes" in message:
+                # Handle binary messages
+                binary_data = message["bytes"]
+                
+                # Debug: Log binary data info
+                # logger.info(f"📦 Received binary data: {len(binary_data)} bytes")
+                # logger.info(f"📦 First 40 bytes: {binary_data[:40].hex()}")
+                
+                # Process through vectorized pipeline and get actions
+                response_data = process_binary_data(binary_data)
+                
+                # Send binary action response
+                await websocket.send_bytes(response_data)
+                
+            else:
+                logger.warning(f"⚠️ Unknown message type: {message}")
             
     except Exception as e:
         logger.warning(f"⚡ Client {client_id} disconnected: {e}")
