@@ -203,9 +203,8 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
-        self.trainer.apply_reinforce_update()
         # Reset cumulative rewards for next round
-        self.trainer.reset_cumulative_rewards()
+        self.trainer.on_round_end()
         # Clear agent ID mapping for next round
         self.agent_id_to_index.clear()
         self.next_index = 0

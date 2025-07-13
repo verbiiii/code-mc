@@ -84,20 +84,13 @@ class VectorizedTrainer:
             for i, (idx, reward) in enumerate(zip(active_indices[non_zero_mask], rewards[non_zero_mask])):
                 print(f"Agent {idx}: +{reward:.2f} (cumulative: {self.cumulative_rewards[idx]:.2f})")
 
-    def reset_cumulative_rewards(self):
-        """Reset cumulative rewards at the end of each round."""
-        self.cumulative_rewards.zero_()
-        print("🔄 Cumulative rewards reset for new round")
+    def on_round_end(self):
+        """Called at the end of each round."""
+        self.reset_cumulative_rewards()
+        self.apply_fmc_update()
 
-    def apply_reinforce_update(self):
-        """Apply REINFORCE learning updates at end of round."""
-        # TODO: Implement actual REINFORCE update logic
-        print("🎯 Applied REINFORCE updates")
-
-    # def apply_fmc(self, completed_indices: torch.Tensor):
-    #     print("🧬 Fitness values (cumulative rewards):")
-    #     for idx in completed_indices.tolist():
-    #         print(f" - Agent {idx}: {self.cumulative_rewards[idx].item():.2f}")
+    def apply_fmc_update(self):
+        pass
 
     def get_stats(self):
         if not self.reward_history:
