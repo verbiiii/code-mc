@@ -42,13 +42,15 @@ class BatchedLinear(nn.Module):
             self.bias[clone_to] = self.bias[clone_from]
 
     @torch.no_grad()
-    def mutate(self, mutation_mask: torch.Tensor, mutation_amplitude: float = 0.1):
+    def mutate(self, mutation_mask: torch.Tensor, noise_std: float = 0.01):
         # wherever the mask is True, add random noise from -mutation_amplitude to +mutation_amplitude
         assert mutation_mask.shape == (self.batch_size,)
         assert mutation_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
         mutation_mask = mutation_mask.bool()
         noise_shape = (mutation_mask.sum(), *self.weight.shape[1:])
-        noise = (torch.randn(noise_shape, device=self.weight.device) * 2 - 1) * mutation_amplitude
+        # NOTE: purposefully a normal distribution because it's more likely to produce small perturbations
+        # but still allows for more rare larger mutations.
+        noise = (torch.randn(noise_shape, device=self.weight.device) * 2 - 1) * noise_std
         self.weight[mutation_mask] += noise
 
 if __name__ == "__main__":
@@ -85,5 +87,5 @@ if __name__ == "__main__":
     print("After clone:\n", layer.weight.sum(dim=(1, 2)))
 
     # mutate with the same mask
-    layer.mutate(clone_mask, mutation_amplitude=0.1)
+    layer.mutate(clone_mask)
     print("After mutate:\n", layer.weight.sum(dim=(1, 2)))
