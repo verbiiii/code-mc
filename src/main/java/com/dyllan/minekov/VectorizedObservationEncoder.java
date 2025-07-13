@@ -30,7 +30,7 @@ public class VectorizedObservationEncoder {
         int totalSize = 16 + dataSize;
         
         ByteBuffer buffer = ByteBuffer.allocate(totalSize);
-        buffer.order(ByteOrder.BIG_ENDIAN); // Network byte order
+        buffer.order(ByteOrder.LITTLE_ENDIAN); // Native byte order for numpy compatibility
         
         // Write header
         buffer.putInt(MAGIC_HEADER);
@@ -68,7 +68,7 @@ public class VectorizedObservationEncoder {
     
     private static byte[] createEmptyPacket(int tick) {
         ByteBuffer buffer = ByteBuffer.allocate(16);
-        buffer.order(ByteOrder.BIG_ENDIAN);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
         buffer.putInt(MAGIC_HEADER);
         buffer.putInt(tick);
         buffer.putInt(0); // No agents

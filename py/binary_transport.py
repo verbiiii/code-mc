@@ -75,7 +75,7 @@ class BinaryTransport:
             return None, None, None
             
         # Parse header
-        magic, tick, agent_count, obs_size = struct.unpack('>IIII', binary_data[:16])
+        magic, tick, agent_count, obs_size = struct.unpack('<IIII', binary_data[:16])
         
         if magic != 0xFEEDBEEF:
             print(f"⚠️ Invalid magic: 0x{magic:08X}")
@@ -91,7 +91,7 @@ class BinaryTransport:
         
         # Direct numpy interpretation - ZERO PYTHON LOOPS
         raw_data = binary_data[16:]
-        obs_array = np.frombuffer(raw_data, dtype='>f4').reshape(agent_count, obs_size)
+        obs_array = np.frombuffer(raw_data, dtype='<f4').reshape(agent_count, obs_size)
         
         # Convert to torch tensor
         obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
@@ -132,17 +132,17 @@ class BinaryTransport:
         # Stack into action array [N, 4] - no loops!
         action_array = np.column_stack([indices_np, angles_np, walk_np, shoot_np])
         
-        # Convert to big-endian bytes
-        action_bytes = action_array.astype('>f4').tobytes()
+        # Convert to little-endian bytes
+        action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('>IIII', 0xACE5BEEF, num_actions, self.tick_count, 4)
+        header = struct.pack('<IIII', 0xACE5BEEF, num_actions, self.tick_count, 4)
         
         return header + action_bytes
 
     def _encode_empty_actions(self) -> bytes:
         """Encode empty action response."""
-        return struct.pack('>IIII', 0xACE5BEEF, 0, self.tick_count, 4)
+        return struct.pack('<IIII', 0xACE5BEEF, 0, self.tick_count, 4)
 
     def end_round(self):
         """Signal end of round for learning updates."""

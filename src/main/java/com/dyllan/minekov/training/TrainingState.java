@@ -27,7 +27,6 @@ public class TrainingState {
 
     private final int numRounds;
     private int currentRound = 0;
-    private int currentRoundTick = 0;
     private int globalTick = 0;
     private boolean roundActive = false;
 
@@ -36,14 +35,13 @@ public class TrainingState {
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
 
-        sendTickEvent("start_session", Map.of("rounds", rounds));
+        // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
     }
 
     public void tick() {
         if (!roundActive) return;
 
-        currentRoundTick++;
         globalTick++;
 
         for (TrainingGroup group : groups) {
@@ -163,7 +161,6 @@ public class TrainingState {
 
     private void setupRound() {
         groups.clear();
-        currentRoundTick = 0;
         roundActive = true;
 
         ServerLevel world = server.overworld();
@@ -203,7 +200,7 @@ public class TrainingState {
             groups.add(group);
         }
 
-        sendTickEvent("start_round", Map.of("round", currentRound));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
     }
 
@@ -217,21 +214,13 @@ public class TrainingState {
             }
         }
 
-        sendTickEvent("end_round", Map.of("round", currentRound));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");
     }
 
     private void endSession() {
-        sendTickEvent("end_session", Map.of("rounds", numRounds));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§aTraining session complete!");
-    }
-
-    private void sendTickEvent(String event, Map<String, Object> extra) {
-        Map<String, Object> payload = new HashMap<>(extra);
-        payload.put("type", "tick");
-        payload.put("event", event);
-        payload.put("round", currentRound);
-        PythonBridge.tickPython(payload);
     }
 
     private void broadcastToPlayers(String message) {
@@ -248,9 +237,8 @@ public class TrainingState {
             roundActive = false;
         }
         currentRound = 0;
-        currentRoundTick = 0;
         groups.clear();
-        sendTickEvent("stop_session", Map.of("rounds", numRounds));
+        // No JSON messages - only binary protocol
         broadcastToPlayers("§cTraining session forcefully stopped.");
     }
 

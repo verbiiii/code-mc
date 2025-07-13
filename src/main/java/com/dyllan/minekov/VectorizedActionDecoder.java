@@ -28,12 +28,12 @@ public class VectorizedActionDecoder {
         }
         
         ByteBuffer buffer = ByteBuffer.wrap(binaryData);
-        buffer.order(ByteOrder.BIG_ENDIAN);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
         
         // Parse header
         int magic = buffer.getInt();
         int count = buffer.getInt();
-        int tick = buffer.getInt(); // Tick counter (for debugging/monitoring)
+        buffer.getInt(); // Skip tick counter
         int actionSize = buffer.getInt();
         
         if (magic != ACTION_MAGIC) {
