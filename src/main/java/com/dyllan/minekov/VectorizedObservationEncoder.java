@@ -57,10 +57,11 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.oppY);
             buffer.putFloat((float) obs.oppZ);
             
-            // Reward data
-            // log damage dealt and taken / kills / deaths
-            // System.out.printf("DEBUG: Agent %d observation - Dealt: %.2f, Taken: %.2f, Kills: %d, Deaths: %d%n",
-                    // i, obs.damageDealt, obs.damageTaken, obs.kills, obs.deaths);
+            // Debug: print reward data being sent
+            if (obs.damageDealt > 0 || obs.damageTaken > 0 || obs.kills > 0 || obs.deaths > 0) {
+                System.out.println("DEBUG: Agent " + i + " reward data - Dealt: " + obs.damageDealt +
+                                 ", Taken: " + obs.damageTaken + ", Kills: " + obs.kills + ", Deaths: " + obs.deaths);
+            }
             buffer.putFloat((float) obs.damageDealt);
             buffer.putFloat((float) obs.damageTaken);
             buffer.putFloat((float) obs.kills);

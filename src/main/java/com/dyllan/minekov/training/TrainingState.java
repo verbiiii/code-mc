@@ -89,10 +89,10 @@ public class TrainingState {
             int deaths = rlOp.getDeathsLastTick();
             
             // Debug: print reward data being sent
-            if (damageDealt > 0 || damageTaken > 0 || kills > 0 || deaths > 0) {
-                System.out.println("DEBUG: Agent " + i + " reward data - Dealt: " + damageDealt + 
-                                 ", Taken: " + damageTaken + ", Kills: " + kills + ", Deaths: " + deaths);
-            }
+            // if (damageDealt > 0 || damageTaken > 0 || kills > 0 || deaths > 0) {
+            //     System.out.println("DEBUG: Agent " + i + " reward data - Dealt: " + damageDealt + 
+            //                      ", Taken: " + damageTaken + ", Kills: " + kills + ", Deaths: " + deaths);
+            // }
             
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
