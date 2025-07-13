@@ -97,7 +97,7 @@ async def top_agent_websocket(websocket: WebSocket):
     
     try:
         while True:
-            # Receive binary observation data
+            # Receive any message type
             message = await websocket.receive()
             
             if "bytes" in message:
@@ -109,8 +109,15 @@ async def top_agent_websocket(websocket: WebSocket):
                 # Send binary action response
                 await websocket.send_bytes(response_data)
                 
+            elif "text" in message:
+                # Handle any text messages (like initial handshake messages)
+                text_data = message["text"]
+                logger.info(f"🔗 Top agent received text message: {text_data[:50]}...")
+                # Just ignore text messages for now
+                continue
+                
             else:
-                logger.warning(f"⚠️ Top agent endpoint only accepts binary data")
+                logger.warning(f"⚠️ Top agent received unknown message type: {message}")
             
     except Exception as e:
         logger.warning(f"⚡ Top agent client {client_id} disconnected: {e}")

@@ -23,17 +23,41 @@ public class TopAgentActionDecoder {
         if (server == null) return;
         
         TopAgentAction action;
+        int actionCount = 0;
         while ((action = pendingActions.poll()) != null) {
+            actionCount++;
             // Find the entity by ID
             RLOperator agent = AgentIdManager.getById(action.entityId);
             if (agent != null && !agent.isRemoved()) {
-                // Apply the action using available AIOperator methods
+                System.out.println("🤖 Applying action to agent " + action.entityId + " - Angle: " + action.angle + ", Walk: " + action.walk + ", Shoot: " + action.shoot);
+                
+                // Apply rotation
                 agent.setYRot(action.angle);
-                agent.setDeltaMovement(agent.getDeltaMovement().add(0, 0, action.walk ? 0.1 : 0));
+                agent.setYHeadRot(action.angle);
+                
+                // Apply movement - use the entity's movement system
+                if (action.walk) {
+                    // Calculate forward direction based on rotation
+                    double radians = Math.toRadians(action.angle);
+                    double forwardX = -Math.sin(radians) * 0.2; // Move forward at walking speed
+                    double forwardZ = Math.cos(radians) * 0.2;
+                    
+                    // Set movement
+                    agent.setDeltaMovement(forwardX, agent.getDeltaMovement().y, forwardZ);
+                    System.out.println("🚶 Moving agent - X: " + forwardX + ", Z: " + forwardZ);
+                }
+                
+                // Apply shooting
                 if (action.shoot) {
+                    System.out.println("🔫 Agent shooting!");
                     agent.shootForward();
                 }
+            } else {
+                System.out.println("⚠️ Agent " + action.entityId + " not found or removed");
             }
+        }
+        if (actionCount > 0) {
+            System.out.println("📝 Processed " + actionCount + " top agent actions");
         }
     }
     

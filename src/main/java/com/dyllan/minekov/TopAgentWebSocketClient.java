@@ -44,11 +44,13 @@ public class TopAgentWebSocketClient {
      */
     public void sendTopAgentObservation() {
         if (topAgent == null || playerOpponent == null || !webSocket.isConnected()) {
+            System.out.println("⚠️ Cannot send observation - missing agent, player, or connection");
             return;
         }
         
         // Create single agent observation with player as opponent
         byte[] observationData = encodeSingleAgentObservation(topAgent, playerOpponent);
+        System.out.println("📡 Sending " + observationData.length + " bytes to top-agent endpoint");
         webSocket.sendBinary(observationData);
     }
     
@@ -76,6 +78,7 @@ public class TopAgentWebSocketClient {
     
     private void handleTopAgentActions(byte[] data) {
         if (topAgent == null || data.length < 8) {
+            System.out.println("⚠️ Cannot handle action - missing agent or insufficient data (" + data.length + " bytes)");
             return;
         }
         
@@ -86,7 +89,10 @@ public class TopAgentWebSocketClient {
             int magic = buffer.getInt();
             int actionCount = buffer.getInt();
             
+            System.out.println("🎮 Received action - Magic: 0x" + Integer.toHexString(magic) + ", Count: " + actionCount);
+            
             if (magic != 0xBEEFDEAD || actionCount != 1) {
+                System.out.println("⚠️ Invalid action format");
                 return;
             }
             
@@ -100,6 +106,8 @@ public class TopAgentWebSocketClient {
             float angle = (xAction / 8.0f) * 360.0f;
             boolean walk = walkAction > 0;
             boolean shoot = shootAction > 0;
+            
+            System.out.println("🎯 Applying actions - Angle: " + angle + ", Walk: " + walk + ", Shoot: " + shoot);
             
             // Queue the action for main thread execution
             TopAgentActionDecoder.queueAction(topAgent.getId(), angle, walk, shoot);

@@ -258,20 +258,29 @@ def get_top_agent_parameters() -> Optional[Dict]:
 
 def process_top_agent_data(binary_data: bytes) -> bytes:
     """Process single agent observation through the top performing agent."""
+    print(f"🔍 Top agent received {len(binary_data)} bytes")
+    
     if transport is None:
+        print("⚠️ Transport not initialized")
         return _encode_empty_single_action()
     
-    # Get the top agent index
-    top_indices = transport.trainer.top_k_agent_indices(k=1)
-    if len(top_indices) == 0:
+    # Get the top agent index (highest cumulative reward)
+    if transport.trainer.cumulative_rewards.numel() == 0:
+        print("⚠️ No reward data available")
         return _encode_empty_single_action()
     
-    top_agent_index = top_indices[0].item()
+    # Find the agent with highest cumulative reward
+    top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()
+    top_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+    print(f"🏆 Using top agent index: {top_agent_index} (reward: {top_reward:.2f})")
     
     # Parse single agent observation
     obs_tensor = _parse_single_observation(binary_data)
     if obs_tensor is None:
+        print("⚠️ Failed to parse observation")
         return _encode_empty_single_action()
+    
+    print(f"📊 Parsed observation: {obs_tensor}")
     
     # Run forward pass for just the top agent
     with torch.no_grad():
@@ -287,6 +296,8 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         top_y = y_actions[top_agent_index].item()
         top_walk = walk_actions[top_agent_index].item()
         top_shoot = shoot_actions[top_agent_index].item()
+    
+    print(f"🎮 Generated actions - X: {top_x}, Y: {top_y}, Walk: {top_walk}, Shoot: {top_shoot}")
     
     # Encode single agent action
     return _encode_single_action(top_x, top_y, top_walk, top_shoot)
