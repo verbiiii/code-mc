@@ -32,7 +32,7 @@ public class AgentIdManager {
         Integer id = idsByOperator.remove(op);
         if (id != null) {
             operatorsById.remove(id);
-            System.out.println("💀 Agent " + id + " released");
+            // System.out.println("💀 Agent " + id + " released");
         }
     }
     

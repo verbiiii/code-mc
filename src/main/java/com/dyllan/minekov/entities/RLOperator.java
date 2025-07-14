@@ -22,6 +22,9 @@ public class RLOperator extends AIOperator {
     private int deathsLastTick = 0;
     private int killsLastTick = 0;
 
+    // Player attack mode for 1v1 combat
+    private boolean playerAttackMode = false;
+
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
     }
@@ -93,17 +96,7 @@ public class RLOperator extends AIOperator {
     @Override
     public void tick() {
         super.tick();
-
-        // this.moveTowards(0, 0.13f); // always moving forward (holding W)
-        // this.moveTowards(180, 0.13f); // always moving backward (holding S)
-
-        // if (!level().isClientSide) {
-        //     // Simple forward movement
-        //     this.zza = 1.0f; // forward
-        //     this.xxa = 0.0f; // no strafe
-        //     this.setYRot(90); // face east, or rotate as needed
-        //     this.setSprinting(true); // affects speed multiplier
-        // }
+        // Player attack mode agents are controlled by the same PythonRLController as training agents
     }
 
     @Override
@@ -180,5 +173,23 @@ public class RLOperator extends AIOperator {
 
     public int getKillsLastTick() {
         return killsLastTick;
+    }
+
+    /**
+     * Set player attack mode - when enabled, this RLOperator will target the nearest player
+     */
+    public void setPlayerAttackMode(boolean enabled) {
+        this.playerAttackMode = enabled;
+        if (enabled && watchGoal != null) {
+            // Force re-evaluation of target
+            watchGoal.setPlayerTargetingMode(true);
+        }
+    }
+
+    /**
+     * Check if this RLOperator is in player attack mode
+     */
+    public boolean isPlayerAttackMode() {
+        return playerAttackMode;
     }
 }

@@ -23,8 +23,11 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.dyllan.minekov.entities.RLOperator;
+import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
@@ -40,6 +43,9 @@ public class Minekov {
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
+    
+    // Queue for safe entity removal (to avoid ConcurrentModificationException)
+    private static final java.util.List<Entity> entitiesToRemove = new java.util.ArrayList<>();
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -118,6 +124,11 @@ public class Minekov {
                         })
                     )
                 )
+                .then(Commands.literal("play")
+                    .executes(ctx -> {
+                        return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
+                    })
+                )
         );
     }
 
@@ -176,6 +187,18 @@ public class Minekov {
 
         // Process pending binary actions on main server thread
         BinaryActionDecoder.processPendingActions();
+        
+        // Process queued entity removals (to avoid ConcurrentModificationException)
+        if (!entitiesToRemove.isEmpty()) {
+            synchronized (entitiesToRemove) {
+                for (Entity entity : entitiesToRemove) {
+                    if (entity != null && !entity.isRemoved()) {
+                        entity.setRemoved(Entity.RemovalReason.DISCARDED);
+                    }
+                }
+                entitiesToRemove.clear();
+            }
+        }
 
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
@@ -206,6 +229,12 @@ public class Minekov {
             if (trainingState.isComplete()) {
                 trainingState = null;
             }
+        } else {
+            // Handle play mode (1v1) observations when not in training
+            // Only send observations every 5 ticks to avoid overwhelming the system
+            if (tickCounter % 5 == 0) {
+                sendPlayModeObservations();
+            }
         }
     }
 
@@ -214,6 +243,17 @@ public class Minekov {
             pythonController.sendToPython(message);
         } else {
             System.err.println("[Minekov] Python WebSocket is not open.");
+        }
+    }
+    
+    /**
+     * Queue an entity for safe removal on the next tick (avoids ConcurrentModificationException)
+     */
+    public static void queueEntityForRemoval(Entity entity) {
+        if (entity != null) {
+            synchronized (entitiesToRemove) {
+                entitiesToRemove.add(entity);
+            }
         }
     }
 
@@ -235,7 +275,28 @@ public class Minekov {
         LivingEntity victimEntity = event.getEntity();
         Entity attackerEntity = event.getSource().getEntity();
 
-        // both the victim and attacker must be AIOperator subclasses
+        // Check for 1v1 combat outcome (player vs AI)
+        if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
+            // Player lost to AI - round ends
+            sendRoundEnd(false); // Send round end without model updates
+            player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
+            player.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
+            );
+            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
+            return;
+        } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
+            // Player won against AI - round ends
+            sendRoundEnd(false); // Send round end without model updates
+            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the AI agent!"));
+            player.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§a👑 " + player.getName().getString() + " has defeated the AI agent!"), false
+            );
+            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
+            return;
+        }
+
+        // Regular training logic (both must be AI operators)
         if (!(victimEntity instanceof RLOperator) && !(attackerEntity instanceof RLOperator)) {
             return; // nothing to track
         }
@@ -253,5 +314,108 @@ public class Minekov {
         }
     }
 
+    private static int runPlayCommand(ServerPlayer player, ServerLevel world) {
+        // Check if there's already a training session running
+        if (trainingState != null) {
+            player.sendSystemMessage(Component.literal("§c⚠️ Cannot start play mode while training is active. Stop training first."));
+            return 0;
+        }
 
+        // Use existing Python controller - it already works
+        if (pythonController == null || !pythonController.isConnected()) {
+            player.sendSystemMessage(Component.literal("§c⚠️ Python controller not connected. Start it first."));
+            return 0;
+        }
+        
+        // Use the same spawn positions as training
+        double playerX = 19.5, playerZ = 17.5; // Player spawn (team1 position)
+        double aiX = 19.5, aiZ = 9.5; // AI spawn (team2 position)
+        double y = 2.0;
+
+        // Teleport player to spawn position
+        player.teleportTo(playerX, y + 1, playerZ); // +1 to spawn above ground
+        player.setYRot(180.0f); // Face towards AI spawn
+        player.sendSystemMessage(Component.literal("§e⚔️ Teleported to combat arena!"));
+
+        // Spawn ONE RLOperator (for 1v1)
+        RLOperator topAgent = ModEntities.RL_OPERATOR.get().create(world);
+        if (topAgent != null) {
+            topAgent.moveTo(aiX, y, aiZ, 0.0f, 0.0f); // Face towards player
+            topAgent.setPlayerAttackMode(true); // Enable player targeting
+            world.addFreshEntity(topAgent);
+            
+            player.sendSystemMessage(Component.literal("§a🤖 AI agent spawned! It will use the existing training AI. Prepare for battle!"));
+            player.sendSystemMessage(Component.literal("§7💡 The AI will target you specifically in this mode."));
+            player.sendSystemMessage(Component.literal("§7🏆 Fight until one of you dies - winner takes all!"));
+            
+            // Broadcast to server
+            world.getServer().getPlayerList().broadcastSystemMessage(
+                Component.literal("§6🥊 " + player.getName().getString() + " is fighting the top AI agent!"), false
+            );
+        } else {
+            player.sendSystemMessage(Component.literal("§c⚠️ Failed to spawn AI agent."));
+            return 0;
+        }
+
+        return 1;
+    }
+
+    /**
+     * Send observations for RLOperators in play mode (1v1 combat)
+     */
+    private static void sendPlayModeObservations() {
+        // Only send observations if Python controller is connected
+        if (pythonController == null || !pythonController.isConnected()) {
+            return;
+        }
+        
+        // Find RLOperators in player attack mode (safe copy to avoid concurrent modification)
+        java.util.List<RLOperator> operators = new java.util.ArrayList<>(RLOperatorRegistry.getAll());
+        java.util.Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new java.util.HashMap<>();
+        int globalTick = tickCounter; // Use tick counter as global tick
+        
+        for (RLOperator rlOp : operators) {
+            if (!rlOp.isPlayerAttackMode()) {
+                continue; // Skip non-player-attack-mode agents
+            }
+            
+            LivingEntity target = rlOp.getTarget();
+            if (target == null) {
+                continue; // Skip if no target
+            }
+            
+            // Log which agent we're sending observations for (every 100 ticks to avoid spam)
+            if (globalTick % 100 == 0) {
+                System.out.println("🎮 [Play Mode] Sending observations for agent ID: " + rlOp.getId() + 
+                                 " (Entity: " + rlOp.getStringUUID() + ")");
+            }
+            
+            // Create observation (same format as training)
+            VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
+                rlOp.getX(), rlOp.getY(), rlOp.getZ(),
+                target.getX(), target.getY(), target.getZ(),
+                rlOp.getDamageDealtLastTick(), rlOp.getDamageTakenLastTick(),
+                rlOp.getKillsLastTick(), rlOp.getDeathsLastTick()
+            );
+            
+            observations.put(rlOp.getId(), obs);
+            rlOp.clearTickDamageStats();
+        }
+        
+        // Only send if we have observations
+        if (!observations.isEmpty()) {
+            byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
+            PythonBridge.sendBinaryToPython(binaryData);
+        }
+    }
+    
+    /**
+     * Send round end signal with configurable model update flag
+     */
+    public static void sendRoundEnd(boolean updateModelParameters) {
+        Map<String, Object> roundEndData = new HashMap<>();
+        roundEndData.put("type", "round_end");
+        roundEndData.put("update_model_parameters", updateModelParameters);
+        PythonBridge.tickPython(roundEndData);
+    }
 }

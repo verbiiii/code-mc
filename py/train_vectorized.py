@@ -1,163 +1,247 @@
-#!/usr/bin/env python3
-"""
-Pure vectorized RL model - just the model and forward pass.
-Zero Python loops, pure PyTorch operations.
-"""
-
 import torch
 import numpy as np
 from typing import Tuple
-
+from batched_layers import BatchedLinear
 
 MAX_AGENTS = 64
 
+# FMC Constants
+KEEP_TOP_PERCENT = 0.2
+MUTATION_RATE = 1.0          # percent of weights that will be mutated
+MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 3.0
 
 class VectorizedTrainer:
-    """Pure vectorized RL trainer - model and learning only."""
-    
     def __init__(self, device='cpu'):
         self.device = torch.device(device)
-        
-        # Model: [my_pos(3), opp_pos(3)] -> [x_logits(8), y_logits(8), walk_logit, shoot_logit]
+
+        # Model with BatchedLinear layers
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(6, 64),
+            BatchedLinear(MAX_AGENTS, 6, 64),
             torch.nn.Tanh(),
-            torch.nn.Linear(64, 128),
+            BatchedLinear(MAX_AGENTS, 64, 128),
             torch.nn.Tanh(),
-            torch.nn.Linear(128, 64),
+            BatchedLinear(MAX_AGENTS, 128, 64),
             torch.nn.Tanh(),
-            torch.nn.Linear(64, 18),  # 8 x-bins + 8 y-bins + walk + shoot
+            BatchedLinear(MAX_AGENTS, 64, 18),
         ).to(self.device)
-        
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
-        
-        # Vectorized state tracking
+
         self.log_probs = torch.zeros((MAX_AGENTS, 1000), device=self.device)
         self.rewards = torch.zeros((MAX_AGENTS, 1000), device=self.device)
         self.episode_lengths = torch.zeros(MAX_AGENTS, dtype=torch.long, device=self.device)
         self.reward_history = []
-        
-        print(f"🚀 VectorizedTrainer: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Pure forward pass on observation tensor.
-        Args:
-            observations: [N, 6] tensor of [my_x, my_y, my_z, opp_x, opp_y, opp_z]
-        Returns:
-            x_actions: [N] - sampled x direction bins (0-7)  
-            y_actions: [N] - sampled y direction bins (0-7)
-            walk_actions: [N] - boolean walk flags
-            shoot_actions: [N] - boolean shoot flags
-        """
-        logits = self.model(observations)  # [N, 18]
-        
-        # Split outputs
-        x_logits = logits[:, :8]      # [N, 8]
-        y_logits = logits[:, 8:16]    # [N, 8] 
-        walk_logits = logits[:, 16]   # [N]
-        shoot_logits = logits[:, 17]  # [N]
-        
-        # Sample all actions simultaneously
+        # Fitness tracking
+        self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
+        self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
+        self.best_agent_idx = 0  # Index of current lifetime champion
+
+        print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
+
+    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        logits = self.model(observations)
+        x_logits = logits[:, :8]
+        y_logits = logits[:, 8:16]
+        walk_logits = logits[:, 16]
+        shoot_logits = logits[:, 17]
+
         x_dist = torch.distributions.Categorical(logits=x_logits)
         y_dist = torch.distributions.Categorical(logits=y_logits)
         walk_dist = torch.distributions.Bernoulli(logits=walk_logits)
         shoot_dist = torch.distributions.Bernoulli(logits=shoot_logits)
-        
-        x_actions = x_dist.sample()      # [N]
-        y_actions = y_dist.sample()      # [N]
-        walk_actions = walk_dist.sample() # [N]
-        shoot_actions = shoot_dist.sample() # [N]
-        
-        # Calculate log probabilities for training
+
+        x_actions = x_dist.sample()
+        y_actions = y_dist.sample()
+        walk_actions = walk_dist.sample()
+        shoot_actions = shoot_dist.sample()
+
         log_probs = (
             x_dist.log_prob(x_actions) +
             y_dist.log_prob(y_actions) +
             walk_dist.log_prob(walk_actions) +
             shoot_dist.log_prob(shoot_actions)
-        )  # [N]
-        
+        )
+
         return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), log_probs
 
-    def update_episode_data(self, agent_indices: torch.Tensor, rewards: torch.Tensor, log_probs: torch.Tensor):
-        """Update episode buffers vectorized."""
-        ep_lens = self.episode_lengths[agent_indices]
-        valid_mask = ep_lens < 1000
-        
-        if valid_mask.any():
-            valid_indices = agent_indices[valid_mask] 
-            valid_rewards = rewards[valid_mask]
-            valid_log_probs = log_probs[valid_mask]
-            valid_lens = ep_lens[valid_mask]
+    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs: torch.Tensor):
+        """Update episode data using actual agent indices."""
+        # Filter out inactive agents (agent_indices == -1)
+        active_mask = agent_indices != -1
+        if not active_mask.any():
+            return  # No active agents
             
-            # Vectorized buffer update using advanced indexing
-            self.rewards[valid_indices, valid_lens] = valid_rewards
-            self.log_probs[valid_indices, valid_lens] = valid_log_probs
-            self.episode_lengths[agent_indices] += 1
+        active_indices = agent_indices[active_mask]
+        active_reward_data = reward_data[active_mask]
+        
+        dmg_dealt = active_reward_data[:, 0]
+        dmg_taken = active_reward_data[:, 1]
+        kills = active_reward_data[:, 2]
+        deaths = active_reward_data[:, 3]
 
-    def apply_reinforce_update(self, completed_indices: torch.Tensor):
-        """Apply REINFORCE updates vectorized."""
-        if len(completed_indices) == 0:
-            return
+        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
+        
+        # Use the actual agent indices from the data
+        self.cumulative_rewards[active_indices] += rewards
+        self.lifetime_cumulative_rewards[active_indices] += rewards  # Also update lifetime rewards
+        
+        # Debug: Only print non-zero rewards
+        non_zero_mask = rewards != 0
+        if non_zero_mask.any():
+            pass  # Removed individual agent reward prints for cleaner output
+
+    def on_round_end(self):
+        """Called at the end of each round."""
+        # Update lifetime champion before applying FMC (which may cause cloning)
+        self.update_lifetime_champion()
+        
+        self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
+        self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
+    
+    def update_lifetime_champion(self):
+        """Update tracking of lifetime champion based on lifetime cumulative rewards."""
+        if torch.any(self.lifetime_cumulative_rewards > 0):
+            current_lifetime_best_idx = torch.argmax(self.lifetime_cumulative_rewards).item()
+            current_lifetime_best_reward = self.lifetime_cumulative_rewards[current_lifetime_best_idx].item()
+            previous_champion_reward = self.lifetime_cumulative_rewards[self.best_agent_idx].item()
             
-        # Get episode data
-        episode_lens = self.episode_lengths[completed_indices]
-        max_len = episode_lens.max().item()
-        
-        if max_len == 0:
-            return
-            
-        # Create timestep mask
-        timestep_mask = torch.arange(max_len, device=self.device).unsqueeze(0) < episode_lens.unsqueeze(1)
-        
-        # Extract data
-        log_probs = self.log_probs[completed_indices, :max_len]
-        rewards = self.rewards[completed_indices, :max_len]
-        
-        # Calculate returns vectorized
-        returns = torch.cumsum(torch.flip(rewards, [1]), dim=1)
-        returns = torch.flip(returns, [1])
-        
-        # Normalize returns
-        valid_returns = returns[timestep_mask]
-        if len(valid_returns) > 1:
-            return_std = valid_returns.std()
-            if return_std > 0:
-                normalized_returns = (returns - valid_returns.mean()) / return_std
+            if current_lifetime_best_idx != self.best_agent_idx:
+                self.best_agent_idx = current_lifetime_best_idx
+                print(f"🏆 NEW LIFETIME CHAMPION: Agent {current_lifetime_best_idx} with lifetime reward {current_lifetime_best_reward:.2f}")
             else:
-                normalized_returns = returns - valid_returns.mean()
-        else:
-            normalized_returns = returns
-        
-        # Policy loss
-        policy_loss = -(log_probs * normalized_returns * timestep_mask).sum() / timestep_mask.sum()
-        
-        # Update
-        self.optimizer.zero_grad()
-        policy_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        self.optimizer.step()
-        
-        # Reset episodes
-        self.episode_lengths[completed_indices] = 0
-        self.log_probs[completed_indices] = 0
-        self.rewards[completed_indices] = 0
-        
-        # Track performance
-        avg_return = returns[:, 0].mean().item()
-        self.reward_history.extend(returns[:, 0].cpu().numpy().tolist())
-        if len(self.reward_history) > 1000:
-            self.reward_history = self.reward_history[-1000:]
+                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.cumulative_rewards[self.best_agent_idx].item():.2f})")
+
+    def apply_fmc_update(self):
+        """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
+        if torch.all(self.cumulative_rewards == 0):
+            print("🧬 FMC: No rewards to base updates on, skipping evolution")
+            return  # No rewards to base updates on
             
-        print(f"🎯 {len(completed_indices)} episodes | Return: {avg_return:.2f} | Loss: {policy_loss.item():.4f}")
+        scores = self.cumulative_rewards.clone()
+        arange = torch.arange(MAX_AGENTS, device=self.device)
+        
+        # Select partners uniformly at random
+        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        
+        # Calculate virtual rewards
+        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
+        partner_vr = vr[partner_indices]
+        
+        # Determine cloning probability based on virtual rewards
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        
+        # Random threshold for cloning decision
+        r = torch.rand(MAX_AGENTS, device=self.device)
+        will_clone = value >= r
+        
+        # Protect top agents from being cloned (they keep their parameters)
+        top_k = int(MAX_AGENTS * KEEP_TOP_PERCENT)
+        if top_k > 0:
+            top_agent_indices = torch.topk(scores, top_k).indices
+            will_clone[top_agent_indices] = False
+        
+        # Get top k rewards for display
+        top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
+        
+        # Perform cloning and mutation
+        if will_clone.any():
+            clone_indices_to_clone_from = partner_indices[will_clone]
+            
+            # Clone parameters for each BatchedLinear layer in the model
+            for module in self.model.modules():
+                if isinstance(module, BatchedLinear):
+                    module.clone(will_clone, partner_indices)
+                    # Mutate the cloned parameters
+                    module.mutate(will_clone, MUTATION_AMPLITUDE)
+            
+            # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
+            self.lifetime_cumulative_rewards[will_clone] = 0.0
+            cloned_count = will_clone.sum().item()
+            print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
+            
+            # Enhanced FMC metrics
+            num_cloned = will_clone.sum().item()
+            mean_score = scores.mean().item()
+            std_score = scores.std().item()
+            max_score = scores.max().item()
+            
+            print(f"🧬 FMC Evolution:")
+            print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
+            print(f"   🔄 Cloned: {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
+            if len(top_k_rewards) > 0:
+                print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+        else:
+            print(f"🧬 FMC: No agents cloned (mean score: {scores.mean().item():.2f})")
+
+    def _calculate_virtual_rewards(self, scores: torch.Tensor, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate virtual rewards based on scores and parameter distances."""
+        # Calculate distances between agents and their partners
+        dists = self._calculate_distances(agent_indices, partner_indices)
+        
+        # Relativize distances and scores
+        rel_dists = self._relativize(dists)
+        rel_scores = self._relativize(scores) ** FMC_BALANCE
+        
+        # Virtual rewards are the product of relativized scores and distances
+        return rel_scores * rel_dists
+
+    def _calculate_distances(self, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate Euclidean distances between agent parameters and their partners."""
+        distances = torch.zeros(MAX_AGENTS, device=self.device)
+        
+        for module in self.model.modules():
+            if isinstance(module, BatchedLinear):
+                # Calculate distances for weights
+                weight_diffs = module.weight[agent_indices] - module.weight[partner_indices]
+                weight_distances = torch.norm(weight_diffs.view(MAX_AGENTS, -1), dim=1)
+                distances += weight_distances
+                
+                # Calculate distances for biases if they exist
+                if module.bias is not None:
+                    bias_diffs = module.bias[agent_indices] - module.bias[partner_indices]
+                    bias_distances = torch.norm(bias_diffs, dim=1)
+                    distances += bias_distances
+        
+        return distances
+
+    def _relativize(self, vector: torch.Tensor) -> torch.Tensor:
+        """Relativize a vector using log/exp transformation as in the JAX implementation."""
+        std = vector.std()
+        if std == 0:
+            return torch.ones_like(vector)
+        
+        standard = (vector - vector.mean()) / std
+        
+        # Apply log transformation for positive values
+        positive_mask = standard > 0
+        standard[positive_mask] = torch.log(1 + standard[positive_mask]) + 1
+        
+        # Apply exp transformation for non-positive values
+        non_positive_mask = standard <= 0
+        standard[non_positive_mask] = torch.exp(standard[non_positive_mask])
+        
+        return standard
+
+    def reset_cumulative_rewards(self):
+        """Reset cumulative rewards for all agents."""
+        self.cumulative_rewards.zero_()
+
+    def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
+        """Get indices of top-k agents based on cumulative rewards."""
+        if self.cumulative_rewards.numel() == 0:
+            return torch.tensor([], device=self.device, dtype=torch.long)
+        
+        top_k_values, top_k_indices = torch.topk(self.cumulative_rewards, k, sorted=True)
+        return top_k_indices
 
     def get_stats(self):
-        """Get training statistics."""
         if not self.reward_history:
             return {"avg_return": 0.0, "episodes": 0}
         recent = self.reward_history[-100:]
         return {
             "avg_return": np.mean(recent),
-            "std_return": np.std(recent), 
+            "std_return": np.std(recent),
             "episodes": len(self.reward_history)
         }

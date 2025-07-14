@@ -12,7 +12,7 @@ import java.util.Map;
 public class VectorizedObservationEncoder {
     
     private static final int MAGIC_HEADER = 0xFEEDBEEF;
-    private static final int OBSERVATION_SIZE = 10; // [my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths] - NO agent index
+    private static final int OBSERVATION_SIZE = 11; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
     
     /**
      * Encode observations for all agents into binary format.
@@ -38,11 +38,18 @@ public class VectorizedObservationEncoder {
         buffer.putInt(agentCount);
         buffer.putInt(OBSERVATION_SIZE);
         
-        // Write observation data - vectorized approach, sequential ordering
+        // Write observation data - including agent indices
         for (Map.Entry<Integer, AgentObservation> entry : observations.entrySet()) {
+            int agentIndex = entry.getKey();
             AgentObservation obs = entry.getValue();
             
-            // Pack observation: [my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths] - NO agent index
+            if (obs == null) {
+                System.err.println("ERROR: Missing observation for agent index " + agentIndex);
+                continue;
+            }
+            
+            // Pack observation: [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
+            buffer.putFloat((float) agentIndex);  // Agent index first
             // Agent position
             buffer.putFloat((float) obs.myX);
             buffer.putFloat((float) obs.myY);
@@ -53,7 +60,11 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.oppY);
             buffer.putFloat((float) obs.oppZ);
             
-            // Reward data
+            // Debug: print reward data being sent
+            if (obs.damageDealt > 0 || obs.damageTaken > 0 || obs.kills > 0 || obs.deaths > 0) {
+                System.out.println("DEBUG: Agent " + agentIndex + " reward data - Dealt: " + obs.damageDealt +
+                                 ", Taken: " + obs.damageTaken + ", Kills: " + obs.kills + ", Deaths: " + obs.deaths);
+            }
             buffer.putFloat((float) obs.damageDealt);
             buffer.putFloat((float) obs.damageTaken);
             buffer.putFloat((float) obs.kills);

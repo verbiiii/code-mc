@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer
+from train_vectorized import VectorizedTrainer, MAX_AGENTS
 
 
 class BinaryTransport:
@@ -22,6 +22,10 @@ class BinaryTransport:
         
         # Performance monitoring
         self.processing_times = []
+        
+        # Agent ID mapping: large entity IDs -> small indices (0-63)
+        self.agent_id_to_index = {}
+        self.next_index = 0
         
         print("🚀 BinaryTransport initialized")
 
@@ -39,18 +43,73 @@ class BinaryTransport:
         
         try:
             # Parse and validate header
-            obs_tensor, agent_indices, rewards = self._parse_observations(binary_data)
+            obs_tensor, agent_indices, reward_data = self._parse_observations(binary_data)
             if obs_tensor is None:
                 return self._encode_empty_actions()
             
             # Forward pass through model
             x_actions, y_actions, walk_actions, shoot_actions, log_probs = self.trainer.forward_pass(obs_tensor)
             
-            # Update training data
-            self.trainer.update_episode_data(agent_indices, rewards, log_probs)
+            # Log agent activity for play mode (every 20 ticks to avoid spam)
+            if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
+                active_mask = agent_indices != -1
+                active_count = active_mask.sum().item()
+                if active_count > 0:
+                    active_agent_indices = agent_indices[active_mask]
+                    cumulative_rewards = self.trainer.cumulative_rewards
+                    
+                    # Show current champion info occasionally
+                    if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
+                        best_idx = self.trainer.best_agent_idx
+                        best_lifetime_reward = self.trainer.lifetime_cumulative_rewards[best_idx].item()
+                        print(f"👑 LIFETIME CHAMPION: Agent {best_idx} (lifetime: {best_lifetime_reward:.2f})")
+                    
+                    # Show which agent indices are active and their current rewards
+                    for i, agent_idx in enumerate(active_agent_indices):
+                        agent_idx_val = agent_idx.item()
+                        if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
+                            reward = cumulative_rewards[agent_idx_val].item()
+                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx_val].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
+                            champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
+                            print(f"🎮 Active agent {agent_idx_val}: round={reward:.2f}, lifetime={lifetime_reward:.2f} {champion_indicator}")
             
+            # Update training data
+            self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
+
             # Convert actions and encode response
             angles = (x_actions.float() / 8.0) * 360.0
+            
+            # Log actions for play mode (every 10 ticks to show AI behavior without spam)
+            if hasattr(self, 'tick_count') and self.tick_count % 10 == 0:
+                active_mask = agent_indices != -1
+                if torch.any(active_mask):
+                    # Show actions for active agents (likely 1v1 play mode)
+                    active_indices = agent_indices[active_mask]
+                    active_angles = angles[active_mask]
+                    active_walk = walk_actions[active_mask]
+                    active_shoot = shoot_actions[active_mask]
+                    
+                    for i, agent_idx in enumerate(active_indices):
+                        if agent_idx.item() >= 0:  # Valid agent
+                            angle_deg = active_angles[i].item()
+                            walk_val = active_walk[i].item()
+                            shoot_val = active_shoot[i].item()
+                            
+                            # Add champion indicator if this is the best agent
+                            champion_indicator = ""
+                            if hasattr(self.trainer, 'best_agent_idx') and agent_idx.item() == self.trainer.best_agent_idx:
+                                champion_indicator = "👑 "
+                            
+                            # Create action description
+                            walk_desc = "WALKING" if walk_val > 0.5 else "standing"
+                            shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
+                            
+                            # Show both round and lifetime rewards
+                            round_reward = reward
+                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx.item()].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
+                            
+                            print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
+            
             actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions)
             
             # Performance tracking
@@ -59,7 +118,7 @@ class BinaryTransport:
             if len(self.processing_times) > 100:
                 self.processing_times.pop(0)
                 
-            if processing_time > 1.0:  # Warn if >1ms
+            if processing_time > 5.0:  # Only warn if >5ms (reduced noise)
                 print(f"⚠️ Slow processing: {processing_time:.2f}ms")
                 
             return actions_binary
@@ -81,6 +140,10 @@ class BinaryTransport:
             print(f"⚠️ Invalid magic: 0x{magic:08X}")
             return None, None, None
             
+        # Debug: Alert if we're getting too many agents (reduced verbosity)
+        if agent_count > 64:
+            print(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
+            
         self.tick_count = tick
         
         # Validate data size
@@ -96,28 +159,94 @@ class BinaryTransport:
         # Convert to torch tensor
         obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
         
-        # Extract components vectorized - NO AGENT INDEX FILTERING
-        # Format: [my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        positions = obs_tensor[:, 0:6]          # [N, 6] - my_pos + opp_pos  
-        reward_data = obs_tensor[:, 6:10]       # [N, 4] - damage/kill data
+        # Extract components vectorized - NOW WITH AGENT INDICES
+        # Format: [agent_index, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
+        raw_agent_ids = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
+        positions = obs_tensor[:, 1:7]           # [N, 6] - my_pos + opp_pos  
+        reward_data = obs_tensor[:, 7:11]        # [N, 4] - damage/kill data
         
-        # Sequential agent indices (0, 1, 2, ..., N-1)
-        agent_indices = torch.arange(agent_count, device=self.trainer.device)
+        # Map large agent IDs to small indices (0-63)
+        mapped_indices = torch.zeros_like(raw_agent_ids)
+        skipped_count = 0
         
-        # Calculate rewards vectorized: dmg_dealt - 0.1*dmg_taken + 100*kills
-        rewards = reward_data[:, 0] - 0.1 * reward_data[:, 1] + 100.0 * reward_data[:, 2]
+        # If we're getting way too many agents, force a reset
+        if agent_count > 128:
+            print(f"🔥 EMERGENCY RESET: Too many agents ({agent_count}), forcing agent mapping reset")
+            self.agent_id_to_index.clear()
+            self.next_index = 0
         
-        return positions, agent_indices, rewards
+        # If mapping is full but no agents are active, reset the mapping
+        if len(self.agent_id_to_index) >= 64 and agent_count > 0:
+            # Check if any of the current agent IDs are in our mapping
+            current_ids_in_mapping = any(agent_id.item() in self.agent_id_to_index for agent_id in raw_agent_ids)
+            if not current_ids_in_mapping:
+                print(f"🔄 STALE MAPPING RESET: Agent mapping full ({len(self.agent_id_to_index)}) but no current agents found, resetting")
+                self.agent_id_to_index.clear()
+                self.next_index = 0
+        
+        for i, agent_id in enumerate(raw_agent_ids):
+            agent_id_int = agent_id.item()
+            if agent_id_int not in self.agent_id_to_index:
+                if self.next_index >= 64:
+                    skipped_count += 1
+                    mapped_indices[i] = -1  # Mark as inactive
+                    continue
+                self.agent_id_to_index[agent_id_int] = self.next_index
+                # Removed individual agent mapping prints for cleaner output
+                self.next_index += 1
+            
+            mapped_indices[i] = self.agent_id_to_index[agent_id_int]
+            
+        if skipped_count > 0:
+            print(f"⚠️ Skipped {skipped_count} agents due to 64-agent limit")
+            # If we're skipping a lot, show some stats
+            if skipped_count > 32:
+                active_agents = (mapped_indices != -1).sum().item()
+                print(f"📊 Active agents: {active_agents}, Mapped agents: {len(self.agent_id_to_index)}")
+        
+        # Pad to MAX_AGENTS for BatchedLinear compatibility
+        MAX_AGENTS = 64
+        if agent_count < MAX_AGENTS:
+            # Removed padding message for cleaner output
+            
+            # Create padding for inactive agents
+            padding_size = MAX_AGENTS - agent_count
+            
+            # Pad positions with zeros
+            positions_padded = torch.zeros(MAX_AGENTS, 6, device=self.trainer.device)
+            positions_padded[:agent_count] = positions
+            
+            # Pad agent indices (use -1 for inactive agents)
+            agent_indices_padded = torch.full((MAX_AGENTS,), -1, dtype=torch.long, device=self.trainer.device)
+            agent_indices_padded[:agent_count] = mapped_indices
+            
+            # Pad reward data with zeros
+            reward_data_padded = torch.zeros(MAX_AGENTS, 4, device=self.trainer.device)
+            reward_data_padded[:agent_count] = reward_data
+            
+            return positions_padded, agent_indices_padded, reward_data_padded
+        
+        return positions, mapped_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor) -> bytes:
-        """Encode actions into ultra-compact binary format - sequential ordering only."""
-        num_actions = len(angles)  # Use angles length since we ignore agent_indices now
+        """Encode actions into ultra-compact binary format - only for active agents."""
+        # Filter out inactive agents (agent_indices == -1)
+        active_mask = agent_indices != -1
+        active_count = active_mask.sum().item()
+        
+        if active_count == 0:
+            return self._encode_empty_actions()
+        
+        # Get actions only for active agents
+        angles_active = angles[active_mask]
+        walk_active = walk[active_mask]
+        shoot_active = shoot[active_mask]
         
         # Convert to numpy arrays (pure vectorized) - NO AGENT INDICES
-        angles_np = angles.cpu().numpy().astype(np.float32)
-        walk_np = walk.cpu().numpy().astype(np.float32)
-        shoot_np = shoot.cpu().numpy().astype(np.float32)
+        angles_np = angles_active.cpu().numpy().astype(np.float32)
+        walk_np = walk_active.cpu().numpy().astype(np.float32)
+        shoot_np = shoot_active.cpu().numpy().astype(np.float32)
         
         # Stack into action array [N, 3] - no loops, no indices!
         action_array = np.column_stack([angles_np, walk_np, shoot_np])
@@ -126,7 +255,7 @@ class BinaryTransport:
         action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('<IIII', 0xACE5BEEF, num_actions, self.tick_count, 3)
+        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, 3)
         
         return header + action_bytes
 
@@ -136,8 +265,14 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
-        self.trainer.apply_reinforce_update(torch.arange(self.trainer.max_agents, device=self.trainer.device))
-        print(f"🏁 Round complete - applied learning updates")
+        print(f"🏁 Ending round - clearing {len(self.agent_id_to_index)} agent mappings")
+        # Reset cumulative rewards for next round
+        self.trainer.on_round_end()
+        # Clear agent ID mapping for next round
+        self.agent_id_to_index.clear()
+        self.next_index = 0
+        print(f"✅ Agent mapping reset complete - next_index: {self.next_index}, mappings: {len(self.agent_id_to_index)}")
+        # Removed round complete message for cleaner output
 
     def get_performance_stats(self) -> Dict:
         """Get performance and training statistics."""
@@ -182,7 +317,114 @@ def get_stats() -> Dict:
         return transport.get_performance_stats()
     return {}
 
-# Auto-initialize if run directly
-if __name__ == "__main__":
-    initialize_transport()
-    print("🚀 Binary transport ready!")
+def get_top_agent_parameters() -> Optional[Dict]:
+    """Get the parameters of the best performing agent (deprecated - use WebSocket endpoint)."""
+    # This function is deprecated in favor of the /top-agent WebSocket endpoint
+    return None
+
+def process_top_agent_data(binary_data: bytes) -> bytes:
+    """Process single agent observation through the top performing agent."""
+    print(f"🔍 Top agent received {len(binary_data)} bytes")
+    
+    if transport is None:
+        print("⚠️ Transport not initialized")
+        return _encode_empty_single_action()
+    
+    # Get the top agent index (highest cumulative reward)
+    if transport.trainer.cumulative_rewards.numel() == 0:
+        print("⚠️ No reward data available")
+        return _encode_empty_single_action()
+    
+    # Get the all-time best agent index (based on lifetime rewards)
+    if hasattr(transport.trainer, 'best_agent_idx') and hasattr(transport.trainer, 'lifetime_cumulative_rewards'):
+        # Use the tracked lifetime champion
+        top_agent_index = transport.trainer.best_agent_idx
+        lifetime_reward = transport.trainer.lifetime_cumulative_rewards[top_agent_index].item()
+        current_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        print(f"🏆 Using LIFETIME CHAMPION agent {top_agent_index} (lifetime: {lifetime_reward:.2f}, current round: {current_reward:.2f})")
+    else:
+        # Fallback to current round best (old behavior)
+        top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()
+        top_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        print(f"🏆 Using current round best agent {top_agent_index} (reward: {top_reward:.2f})")
+    
+    # Parse single agent observation
+    obs_tensor = _parse_single_observation(binary_data)
+    if obs_tensor is None:
+        print("⚠️ Failed to parse observation")
+        return _encode_empty_single_action()
+    
+    print(f"📊 Parsed observation: {obs_tensor}")
+    
+    # Run forward pass for just the top agent
+    with torch.no_grad():
+        # Expand observation to match batch size and fill with zeros except for top agent
+        batched_obs = torch.zeros(MAX_AGENTS, obs_tensor.shape[-1], device=transport.trainer.device)
+        batched_obs[top_agent_index] = obs_tensor
+        
+        # Forward pass through model
+        x_actions, y_actions, walk_actions, shoot_actions, _ = transport.trainer.forward_pass(batched_obs)
+        
+        # Extract actions for the top agent only
+        top_x = x_actions[top_agent_index].item()
+        top_y = y_actions[top_agent_index].item()
+        top_walk = walk_actions[top_agent_index].item()
+        top_shoot = shoot_actions[top_agent_index].item()
+    
+    print(f"🎮 Generated actions - X: {top_x}, Y: {top_y}, Walk: {top_walk}, Shoot: {top_shoot}")
+    
+    # Convert to more readable format
+    angle_deg = (top_x / 8.0) * 360.0
+    walk_desc = "WALKING" if top_walk > 0.5 else "standing"
+    shoot_desc = "SHOOTING" if top_shoot > 0.5 else "not shooting"
+    print(f"🏆 TOP AGENT ACTIONS: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc}")
+    
+    # Encode single agent action
+    return _encode_single_action(top_x, top_y, top_walk, top_shoot)
+
+def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
+    """Parse binary data for a single agent observation."""
+    try:
+        # Expected format: magic(4) + obs_size(4) + observation_data(obs_size * 4)
+        if len(binary_data) < 8:
+            return None
+        
+        magic, obs_size = struct.unpack('<II', binary_data[:8])
+        if magic != 0xDEADBEEF:
+            return None
+        
+        expected_size = 8 + obs_size * 4
+        if len(binary_data) != expected_size:
+            return None
+        
+        # Parse observation (just positions: my_pos(3), opp_pos(3))
+        obs_data = struct.unpack(f'<{obs_size}f', binary_data[8:])
+        obs_tensor = torch.tensor(obs_data, device=transport.trainer.device)
+        
+        return obs_tensor
+        
+    except Exception as e:
+        print(f"Error parsing single observation: {e}")
+        return None
+
+def _encode_single_action(x_action: int, y_action: int, walk_action: int, shoot_action: int) -> bytes:
+    """Encode actions for a single agent."""
+    try:
+        # Format: magic(4) + action_count(4) + actions(4*4)
+        magic = 0xBEEFDEAD
+        action_count = 1
+        
+        header = struct.pack('<II', magic, action_count)
+        action_data = struct.pack('<IIII', x_action, y_action, walk_action, shoot_action)
+        
+        return header + action_data
+        
+    except Exception as e:
+        print(f"Error encoding single action: {e}")
+        return _encode_empty_single_action()
+
+def _encode_empty_single_action() -> bytes:
+    """Encode empty action for error cases."""
+    magic = 0xBEEFDEAD
+    action_count = 0
+    return struct.pack('<II', magic, action_count)

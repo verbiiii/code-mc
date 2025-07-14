@@ -44,12 +44,31 @@ public class TrainingState {
 
         globalTick++;
 
+        // Check for completed groups and handle cleanup
+        List<TrainingGroup> completedGroups = new ArrayList<>();
         for (TrainingGroup group : groups) {
             group.tick();
+            if (group.isComplete()) {
+                completedGroups.add(group);
+            }
         }
-
-        List<Integer> rlIds = new ArrayList<>();
-        Map<String, Map<String, Object>> allOperatorData = new HashMap<>();
+        
+        // Clean up completed groups
+        for (TrainingGroup group : completedGroups) {
+            Team winningTeam = group.getWinningTeam();
+            if (winningTeam != null) {
+                System.out.println("🏆 Group completed with winner: " + winningTeam.getTeamId());
+                // Clean up without death signals (winners shouldn't get death penalty)
+                group.cleanupGroup(false);
+            } else {
+                System.out.println("⏰ Group completed by timeout");
+                // Clean up with death signals (timeout = everyone loses)
+                group.cleanupGroup(true);
+            }
+        }
+        
+        // DON'T remove completed groups yet - wait for round end
+        // groups.removeAll(completedGroups);
 
         Map<String, Team> operatorTeamMap = new HashMap<>();
         Map<String, AIOperator> allOperators = new HashMap<>();
@@ -62,46 +81,6 @@ public class TrainingState {
                     allOperators.put(uuid, op);
                 }
             }
-        }
-
-        for (Map.Entry<String, AIOperator> entry : allOperators.entrySet()) {
-            String uuid = entry.getKey();
-            AIOperator op = entry.getValue();
-            Team myTeam = operatorTeamMap.get(uuid);
-
-            Map<String, Object> info = new HashMap<>();
-            info.put("x", op.getX());
-            info.put("y", op.getY());
-            info.put("z", op.getZ());
-            info.put("health", op.getHealth());
-            info.put("team", myTeam.getTeamId());
-            info.put("is_rl", op instanceof RLOperator);
-
-            if (op instanceof RLOperator rlOp) {
-                info.put("damage_taken_last_tick", rlOp.getDamageTakenLastTick());
-                info.put("damage_dealt_last_tick", rlOp.getDamageDealtLastTick());
-                info.put("deaths_last_tick", rlOp.getDeathsLastTick());
-                info.put("kills_last_tick", rlOp.getKillsLastTick());
-
-                AIOperator opponent = allOperators.values().stream()
-                    .filter(other -> !other.getUUID().equals(op.getUUID()))
-                    .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(myTeam))
-                    .findFirst()
-                    .orElse(null);
-
-                if (opponent != null) {
-                    Map<String, Object> opp = new HashMap<>();
-                    opp.put("x", opponent.getX());
-                    opp.put("y", opponent.getY());
-                    opp.put("z", opponent.getZ());
-                    info.put("opponent", opp);
-                }
-
-                rlIds.add(rlOp.getAgentId());  // Use compact agent ID
-                rlOp.clearTickDamageStats();
-            }
-
-            allOperatorData.put(uuid, info);
         }
 
         boolean roundDone = isRoundComplete();
@@ -125,17 +104,24 @@ public class TrainingState {
                 .findFirst()
                 .orElse(rlOp); // Use self if no opponent found
             
-            // Create vectorized observation with sequential index
+            // Create vectorized observation with actual agent ID
+            float damageDealt = rlOp.getDamageDealtLastTick();
+            float damageTaken = rlOp.getDamageTakenLastTick();
+            int kills = rlOp.getKillsLastTick();
+            int deaths = rlOp.getDeathsLastTick();
+            
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
                 opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
-                rlOp.getDamageDealtLastTick(),               // Damage dealt
-                rlOp.getDamageTakenLastTick(),               // Damage taken
-                rlOp.getKillsLastTick(),                     // Kills
-                rlOp.getDeathsLastTick()                     // Deaths
+                damageDealt,                                 // Damage dealt
+                damageTaken,                                 // Damage taken
+                kills,                                       // Kills
+                deaths                                       // Deaths
             );
             
-            observations.put(i, obs);  // Use sequential index instead of agent ID
+            // Use actual agent ID instead of sequential index
+            int agentId = rlOp.getId(); // Entity ID as unique identifier
+            observations.put(agentId, obs);
             rlOp.clearTickDamageStats();
         }
         
@@ -164,6 +150,8 @@ public class TrainingState {
     }
 
     private void setupRound() {
+        System.out.println("🚀 Setting up round " + (currentRound + 1));
+        
         groups.clear();
         roundActive = true;
 
@@ -208,14 +196,28 @@ public class TrainingState {
     }
 
     private void cleanupRound() {
+        System.out.println("🧹 Cleaning up round " + (currentRound + 1) + " with " + groups.size() + " groups");
+        
         roundActive = false;
+        int totalEntitiesKilled = 0;
+        
         for (TrainingGroup group : groups) {
             for (Team team : group.getTeams()) {
                 for (AIOperator op : team.getOperators()) {
-                    op.kill();
+                    if (op.isAlive()) {
+                        // Use deferred removal to prevent ConcurrentModificationException
+                        com.dyllan.minekov.Minekov.queueEntityForRemoval(op);
+                        totalEntitiesKilled++;
+                    }
                 }
             }
         }
+        
+        groups.clear(); // Clear groups after cleanup
+        System.out.println("✅ Round cleanup complete - killed " + totalEntitiesKilled + " entities");
+
+        // Send round end signal to Python with training update flag
+        com.dyllan.minekov.Minekov.sendRoundEnd(true); // Training mode - update parameters
 
         // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");
