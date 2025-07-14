@@ -15,7 +15,7 @@ class VectorizedTrainer:
     def __init__(self, device='cpu'):
         self.device = torch.device(device)
 
-        # Model with BatchedLinear layers
+        # Model with BatchedLinear layers - updated for pitch/yaw aiming
         self.model = torch.nn.Sequential(
             BatchedLinear(MAX_AGENTS, 6, 64),
             torch.nn.Tanh(),
@@ -23,7 +23,7 @@ class VectorizedTrainer:
             torch.nn.Tanh(),
             BatchedLinear(MAX_AGENTS, 128, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 18),
+            BatchedLinear(MAX_AGENTS, 64, 34),  # [x(8) + y(8) + walk(1) + shoot(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
@@ -40,31 +40,39 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         logits = self.model(observations)
         x_logits = logits[:, :8]
         y_logits = logits[:, 8:16]
         walk_logits = logits[:, 16]
         shoot_logits = logits[:, 17]
+        pitch_logits = logits[:, 18:26]  # 8 categories for pitch (-90 to +90 degrees)
+        yaw_logits = logits[:, 26:34]    # 8 categories for yaw (0 to 360 degrees)
 
         x_dist = torch.distributions.Categorical(logits=x_logits)
         y_dist = torch.distributions.Categorical(logits=y_logits)
         walk_dist = torch.distributions.Bernoulli(logits=walk_logits)
         shoot_dist = torch.distributions.Bernoulli(logits=shoot_logits)
+        pitch_dist = torch.distributions.Categorical(logits=pitch_logits)
+        yaw_dist = torch.distributions.Categorical(logits=yaw_logits)
 
         x_actions = x_dist.sample()
         y_actions = y_dist.sample()
         walk_actions = walk_dist.sample()
         shoot_actions = shoot_dist.sample()
+        pitch_actions = pitch_dist.sample()
+        yaw_actions = yaw_dist.sample()
 
         log_probs = (
             x_dist.log_prob(x_actions) +
             y_dist.log_prob(y_actions) +
             walk_dist.log_prob(walk_actions) +
-            shoot_dist.log_prob(shoot_actions)
+            shoot_dist.log_prob(shoot_actions) +
+            pitch_dist.log_prob(pitch_actions) +
+            yaw_dist.log_prob(yaw_actions)
         )
 
-        return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), log_probs
+        return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), pitch_actions, yaw_actions, log_probs
 
     def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs: torch.Tensor):
         """Update episode data using actual agent indices."""

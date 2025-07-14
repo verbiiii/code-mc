@@ -82,6 +82,9 @@ public class PythonRLController {
                 if (action.shoot) {
                     op.shootForward();
                 }
+                
+                // Apply RL-predicted aiming
+                op.lookInDirection(action.pitch, action.yaw);
             }
         }
     }
