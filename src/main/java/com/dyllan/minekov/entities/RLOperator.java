@@ -238,4 +238,21 @@ public class RLOperator extends AIOperator {
         // Preserve Y velocity and apply movement
         this.setDeltaMovement(moveVec.x, this.getDeltaMovement().y, moveVec.z);
     }
+
+    // === Combat control ===
+    public void shootForward() {
+        this.aim(true);
+        this.shoot(null, null);
+    }
+
+    // === Movement control ===
+    public void jumpEntity() {
+        this.setJumping(true);
+        // Also use the jump control to trigger the actual jump mechanics
+        this.getJumpControl().jump();
+    }
+
+    public void sneakEntity(boolean shouldSneak) {
+        this.setShiftKeyDown(shouldSneak);
+    }
 }

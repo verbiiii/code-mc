@@ -83,6 +83,16 @@ public class PythonRLController {
                     op.shootForward();
                 }
                 
+                if (action.jump) {
+                    op.jumpEntity();
+                }
+                
+                if (action.sneak) {
+                    op.sneakEntity(true);
+                } else {
+                    op.sneakEntity(false);
+                }
+                
                 // Apply RL-predicted aiming
                 op.lookInDirection(action.pitch, action.yaw);
             }

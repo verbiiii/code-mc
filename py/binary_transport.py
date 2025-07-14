@@ -48,7 +48,7 @@ class BinaryTransport:
                 return self._encode_empty_actions()
             
             # Forward pass through model
-            x_actions, y_actions, walk_actions, shoot_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
+            x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
             
             # Log agent activity for play mode (every 20 ticks to avoid spam)
             if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
@@ -116,7 +116,7 @@ class BinaryTransport:
                             
                             print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
             
-            actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, pitch_degrees, yaw_degrees)
+            actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
             
             # Performance tracking
             processing_time = (time.perf_counter() - start_time) * 1000
@@ -235,7 +235,7 @@ class BinaryTransport:
         return positions, mapped_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
-                       walk: torch.Tensor, shoot: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:
+                       walk: torch.Tensor, shoot: torch.Tensor, jump: torch.Tensor, sneak: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:
         """Encode actions into ultra-compact binary format - only for active agents."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
@@ -248,6 +248,8 @@ class BinaryTransport:
         angles_active = angles[active_mask]
         walk_active = walk[active_mask]
         shoot_active = shoot[active_mask]
+        jump_active = jump[active_mask]
+        sneak_active = sneak[active_mask]
         pitch_active = pitch[active_mask]
         yaw_active = yaw[active_mask]
         
@@ -255,23 +257,25 @@ class BinaryTransport:
         angles_np = angles_active.cpu().numpy().astype(np.float32)
         walk_np = walk_active.cpu().numpy().astype(np.float32)
         shoot_np = shoot_active.cpu().numpy().astype(np.float32)
+        jump_np = jump_active.cpu().numpy().astype(np.float32)
+        sneak_np = sneak_active.cpu().numpy().astype(np.float32)
         pitch_np = pitch_active.cpu().numpy().astype(np.float32)
         yaw_np = yaw_active.cpu().numpy().astype(np.float32)
         
-        # Stack into action array [N, 5] - [angle, walk, shoot, pitch, yaw]
-        action_array = np.column_stack([angles_np, walk_np, shoot_np, pitch_np, yaw_np])
+        # Stack into action array [N, 7] - [angle, walk, shoot, jump, sneak, pitch, yaw]
+        action_array = np.column_stack([angles_np, walk_np, shoot_np, jump_np, sneak_np, pitch_np, yaw_np])
         
         # Convert to little-endian bytes
         action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, 5)
+        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, 7)
         
         return header + action_bytes
 
     def _encode_empty_actions(self) -> bytes:
         """Encode empty action response."""
-        return struct.pack('<IIII', 0xACE5BEEF, 0, self.tick_count, 5)
+        return struct.pack('<IIII', 0xACE5BEEF, 0, self.tick_count, 7)
 
     def end_round(self):
         """Signal end of round for learning updates."""
@@ -373,13 +377,15 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         batched_obs[top_agent_index] = obs_tensor
         
         # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, pitch_actions, yaw_actions, _ = transport.trainer.forward_pass(batched_obs)
+        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, _ = transport.trainer.forward_pass(batched_obs)
         
         # Extract actions for the top agent only
         top_x = x_actions[top_agent_index].item()
         top_y = y_actions[top_agent_index].item()
         top_walk = walk_actions[top_agent_index].item()
         top_shoot = shoot_actions[top_agent_index].item()
+        top_jump = jump_actions[top_agent_index].item()
+        top_sneak = sneak_actions[top_agent_index].item()
         top_pitch = pitch_actions[top_agent_index].item()
         top_yaw = yaw_actions[top_agent_index].item()
     
@@ -388,14 +394,16 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
     pitch_deg = (top_pitch / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
     yaw_deg = (top_yaw / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
     
-    print(f"🎮 Generated actions - Move: {angle_deg:.1f}°, Aim: ({pitch_deg:.1f}°, {yaw_deg:.1f}°), Walk: {top_walk}, Shoot: {top_shoot}")
+    print(f"🎮 Generated actions - Move: {angle_deg:.1f}°, Aim: ({pitch_deg:.1f}°, {yaw_deg:.1f}°), Walk: {top_walk}, Shoot: {top_shoot}, Jump: {top_jump}, Sneak: {top_sneak}")
     
     walk_desc = "WALKING" if top_walk > 0.5 else "standing"
     shoot_desc = "SHOOTING" if top_shoot > 0.5 else "not shooting"
-    print(f"🏆 TOP AGENT ACTIONS: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc}")
+    jump_desc = "JUMPING" if top_jump > 0.5 else "not jumping"
+    sneak_desc = "SNEAKING" if top_sneak > 0.5 else "not sneaking"
+    print(f"🏆 TOP AGENT ACTIONS: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc}, {jump_desc}, {sneak_desc}")
     
-    # Encode single agent action with pitch and yaw
-    return _encode_single_action(top_x, top_y, top_walk, top_shoot, top_pitch, top_yaw)
+    # Encode single agent action with pitch, yaw, jump, and sneak
+    return _encode_single_action(top_x, top_y, top_walk, top_shoot, top_jump, top_sneak, top_pitch, top_yaw)
 
 def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
     """Parse binary data for a single agent observation."""
@@ -422,15 +430,15 @@ def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
         print(f"Error parsing single observation: {e}")
         return None
 
-def _encode_single_action(x_action: int, y_action: int, walk_action: int, shoot_action: int, pitch_action: int, yaw_action: int) -> bytes:
+def _encode_single_action(x_action: int, y_action: int, walk_action: int, shoot_action: int, jump_action: int, sneak_action: int, pitch_action: int, yaw_action: int) -> bytes:
     """Encode actions for a single agent."""
     try:
-        # Format: magic(4) + action_count(4) + actions(6*4)
+        # Format: magic(4) + action_count(4) + actions(8*4)
         magic = 0xBEEFDEAD
         action_count = 1
         
         header = struct.pack('<II', magic, action_count)
-        action_data = struct.pack('<IIIIII', x_action, y_action, walk_action, shoot_action, pitch_action, yaw_action)
+        action_data = struct.pack('<IIIIIIII', x_action, y_action, walk_action, shoot_action, jump_action, sneak_action, pitch_action, yaw_action)
         
         return header + action_data
         
