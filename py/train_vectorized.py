@@ -35,6 +35,8 @@ class VectorizedTrainer:
 
         # Fitness tracking
         self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)
+        self.best_agents_ever = torch.zeros(MAX_AGENTS, device=self.device)  # Track all-time best rewards
+        self.best_agent_idx = 0  # Index of current best agent
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
@@ -91,8 +93,29 @@ class VectorizedTrainer:
 
     def on_round_end(self):
         """Called at the end of each round."""
+        # Update all-time best agents before applying FMC
+        self.update_best_agents()
+        
         self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset for next round
+    
+    def update_best_agents(self):
+        """Update tracking of all-time best performing agents."""
+        # Update all-time best rewards
+        improved_mask = self.cumulative_rewards > self.best_agents_ever
+        self.best_agents_ever[improved_mask] = self.cumulative_rewards[improved_mask]
+        
+        # Update best agent index
+        if torch.any(self.cumulative_rewards > 0):
+            current_best_idx = torch.argmax(self.cumulative_rewards).item()
+            current_best_reward = self.cumulative_rewards[current_best_idx].item()
+            all_time_best_reward = self.best_agents_ever[self.best_agent_idx].item()
+            
+            if current_best_reward > all_time_best_reward:
+                self.best_agent_idx = current_best_idx
+                print(f"🏆 NEW CHAMPION: Agent {current_best_idx} with reward {current_best_reward:.2f}")
+            else:
+                print(f"👑 Current champion: Agent {self.best_agent_idx} (all-time: {all_time_best_reward:.2f}, this round: {current_best_reward:.2f})")
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""

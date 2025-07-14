@@ -50,6 +50,28 @@ class BinaryTransport:
             # Forward pass through model
             x_actions, y_actions, walk_actions, shoot_actions, log_probs = self.trainer.forward_pass(obs_tensor)
             
+            # Log agent activity for play mode (every 20 ticks to avoid spam)
+            if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
+                active_mask = agent_indices != -1
+                active_count = active_mask.sum().item()
+                if active_count > 0:
+                    active_agent_indices = agent_indices[active_mask]
+                    cumulative_rewards = self.trainer.cumulative_rewards
+                    
+                    # Show current champion info occasionally
+                    if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
+                        best_idx = self.trainer.best_agent_idx
+                        best_reward = self.trainer.best_agents_ever[best_idx].item()
+                        print(f"👑 ALL-TIME CHAMPION: Agent {best_idx} (reward: {best_reward:.2f})")
+                    
+                    # Show which agent indices are active and their current rewards
+                    for i, agent_idx in enumerate(active_agent_indices):
+                        agent_idx_val = agent_idx.item()
+                        if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
+                            reward = cumulative_rewards[agent_idx_val].item()
+                            champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
+                            print(f"🎮 Active agent {agent_idx_val}: reward={reward:.2f} {champion_indicator}")
+            
             # Update training data
             self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
 
@@ -269,10 +291,18 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         print("⚠️ No reward data available")
         return _encode_empty_single_action()
     
-    # Find the agent with highest cumulative reward
-    top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()
-    top_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
-    print(f"🏆 Using top agent index: {top_agent_index} (reward: {top_reward:.2f})")
+    # Get the all-time best agent index
+    if hasattr(transport.trainer, 'best_agent_idx'):
+        # Use the tracked all-time best agent
+        top_agent_index = transport.trainer.best_agent_idx
+        all_time_reward = transport.trainer.best_agents_ever[top_agent_index].item()
+        current_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        print(f"🏆 Using ALL-TIME CHAMPION agent {top_agent_index} (all-time: {all_time_reward:.2f}, current: {current_reward:.2f})")
+    else:
+        # Fallback to current round best (old behavior)
+        top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()
+        top_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        print(f"🏆 Using current round best agent {top_agent_index} (reward: {top_reward:.2f})")
     
     # Parse single agent observation
     obs_tensor = _parse_single_observation(binary_data)

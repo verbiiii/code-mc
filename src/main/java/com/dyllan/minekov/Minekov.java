@@ -249,18 +249,20 @@ public class Minekov {
 
         // Check for 1v1 combat outcome (player vs AI)
         if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
-            // Player lost to AI
+            // Player lost to AI - round ends
             player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
             player.getServer().getPlayerList().broadcastSystemMessage(
                 Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
             );
+            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
             return;
         } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
-            // Player won against AI
-            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the top AI agent!"));
+            // Player won against AI - round ends
+            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the AI agent!"));
             player.getServer().getPlayerList().broadcastSystemMessage(
-                Component.literal("§a👑 " + player.getName().getString() + " has defeated the top AI agent!"), false
+                Component.literal("§a👑 " + player.getName().getString() + " has defeated the AI agent!"), false
             );
+            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
             return;
         }
 
@@ -350,6 +352,12 @@ public class Minekov {
             LivingEntity target = rlOp.getTarget();
             if (target == null) {
                 continue; // Skip if no target
+            }
+            
+            // Log which agent we're sending observations for (every 100 ticks to avoid spam)
+            if (globalTick % 100 == 0) {
+                System.out.println("🎮 [Play Mode] Sending observations for agent ID: " + rlOp.getId() + 
+                                 " (Entity: " + rlOp.getStringUUID() + ")");
             }
             
             // Create observation (same format as training)
