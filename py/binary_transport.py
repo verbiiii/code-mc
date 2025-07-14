@@ -79,42 +79,6 @@ class BinaryTransport:
         angles = (x_actions.float() / 8.0) * 360.0
         pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
         yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
-        
-        # Log actions for play mode (every 10 ticks to show AI behavior without spam)
-        if hasattr(self, 'tick_count') and self.tick_count % 10 == 0:
-            active_mask = agent_indices != -1
-            if torch.any(active_mask):
-                # Show actions for active agents (likely 1v1 play mode)
-                active_indices = agent_indices[active_mask]
-                active_angles = angles[active_mask]
-                active_walk = walk_actions[active_mask]
-                active_shoot = shoot_actions[active_mask]
-                active_pitch = pitch_degrees[active_mask]
-                active_yaw = yaw_degrees[active_mask]
-                
-                for i, agent_idx in enumerate(active_indices):
-                    if agent_idx.item() >= 0:  # Valid agent
-                        angle_deg = active_angles[i].item()
-                        walk_val = active_walk[i].item()
-                        shoot_val = active_shoot[i].item()
-                        pitch_deg = active_pitch[i].item()
-                        yaw_deg = active_yaw[i].item()
-                        
-                        # Add champion indicator if this is the best agent
-                        champion_indicator = ""
-                        if hasattr(self.trainer, 'best_agent_idx') and agent_idx.item() == self.trainer.best_agent_idx:
-                            champion_indicator = "👑 "
-                        
-                        # Create action description
-                        walk_desc = "WALKING" if walk_val > 0.5 else "standing"
-                        shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
-                        
-                        # Show both round and lifetime rewards
-                        round_reward = reward
-                        lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx.item()].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
-                        
-                        print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
-        
         actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
         
         # Performance tracking
