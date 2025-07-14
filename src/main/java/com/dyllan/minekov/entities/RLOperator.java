@@ -6,6 +6,7 @@ import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
@@ -254,5 +255,11 @@ public class RLOperator extends AIOperator {
 
     public void sneakEntity(boolean shouldSneak) {
         this.setShiftKeyDown(shouldSneak);
+        // Manually set pose since we're not a Player entity (no automatic pose management)
+        if (shouldSneak) {
+            this.setPose(Pose.CROUCHING);
+        } else {
+            this.setPose(Pose.STANDING);
+        }
     }
 }
