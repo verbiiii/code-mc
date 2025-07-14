@@ -41,6 +41,9 @@ public class Minekov {
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
+    
+    // Queue for safe entity removal (to avoid ConcurrentModificationException)
+    private static final java.util.List<Entity> entitiesToRemove = new java.util.ArrayList<>();
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -182,6 +185,18 @@ public class Minekov {
 
         // Process pending binary actions on main server thread
         BinaryActionDecoder.processPendingActions();
+        
+        // Process queued entity removals (to avoid ConcurrentModificationException)
+        if (!entitiesToRemove.isEmpty()) {
+            synchronized (entitiesToRemove) {
+                for (Entity entity : entitiesToRemove) {
+                    if (entity != null && !entity.isRemoved()) {
+                        entity.setRemoved(Entity.RemovalReason.DISCARDED);
+                    }
+                }
+                entitiesToRemove.clear();
+            }
+        }
 
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
@@ -226,6 +241,17 @@ public class Minekov {
             pythonController.sendToPython(message);
         } else {
             System.err.println("[Minekov] Python WebSocket is not open.");
+        }
+    }
+    
+    /**
+     * Queue an entity for safe removal on the next tick (avoids ConcurrentModificationException)
+     */
+    public static void queueEntityForRemoval(Entity entity) {
+        if (entity != null) {
+            synchronized (entitiesToRemove) {
+                entitiesToRemove.add(entity);
+            }
         }
     }
 

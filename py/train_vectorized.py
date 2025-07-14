@@ -34,9 +34,9 @@ class VectorizedTrainer:
         self.reward_history = []
 
         # Fitness tracking
-        self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)
-        self.best_agents_ever = torch.zeros(MAX_AGENTS, device=self.device)  # Track all-time best rewards
-        self.best_agent_idx = 0  # Index of current best agent
+        self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
+        self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
+        self.best_agent_idx = 0  # Index of current lifetime champion
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
@@ -85,6 +85,7 @@ class VectorizedTrainer:
         
         # Use the actual agent indices from the data
         self.cumulative_rewards[active_indices] += rewards
+        self.lifetime_cumulative_rewards[active_indices] += rewards  # Also update lifetime rewards
         
         # Debug: Only print non-zero rewards
         non_zero_mask = rewards != 0
@@ -93,29 +94,24 @@ class VectorizedTrainer:
 
     def on_round_end(self):
         """Called at the end of each round."""
-        # Update all-time best agents before applying FMC
-        self.update_best_agents()
+        # Update lifetime champion before applying FMC (which may cause cloning)
+        self.update_lifetime_champion()
         
         self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
-        self.reset_cumulative_rewards()  # Then reset for next round
+        self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
     
-    def update_best_agents(self):
-        """Update tracking of all-time best performing agents."""
-        # Update all-time best rewards
-        improved_mask = self.cumulative_rewards > self.best_agents_ever
-        self.best_agents_ever[improved_mask] = self.cumulative_rewards[improved_mask]
-        
-        # Update best agent index
-        if torch.any(self.cumulative_rewards > 0):
-            current_best_idx = torch.argmax(self.cumulative_rewards).item()
-            current_best_reward = self.cumulative_rewards[current_best_idx].item()
-            all_time_best_reward = self.best_agents_ever[self.best_agent_idx].item()
+    def update_lifetime_champion(self):
+        """Update tracking of lifetime champion based on lifetime cumulative rewards."""
+        if torch.any(self.lifetime_cumulative_rewards > 0):
+            current_lifetime_best_idx = torch.argmax(self.lifetime_cumulative_rewards).item()
+            current_lifetime_best_reward = self.lifetime_cumulative_rewards[current_lifetime_best_idx].item()
+            previous_champion_reward = self.lifetime_cumulative_rewards[self.best_agent_idx].item()
             
-            if current_best_reward > all_time_best_reward:
-                self.best_agent_idx = current_best_idx
-                print(f"🏆 NEW CHAMPION: Agent {current_best_idx} with reward {current_best_reward:.2f}")
+            if current_lifetime_best_idx != self.best_agent_idx:
+                self.best_agent_idx = current_lifetime_best_idx
+                print(f"🏆 NEW LIFETIME CHAMPION: Agent {current_lifetime_best_idx} with lifetime reward {current_lifetime_best_reward:.2f}")
             else:
-                print(f"👑 Current champion: Agent {self.best_agent_idx} (all-time: {all_time_best_reward:.2f}, this round: {current_best_reward:.2f})")
+                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.cumulative_rewards[self.best_agent_idx].item():.2f})")
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
@@ -159,6 +155,11 @@ class VectorizedTrainer:
                     module.clone(will_clone, partner_indices)
                     # Mutate the cloned parameters
                     module.mutate(will_clone, MUTATION_AMPLITUDE)
+            
+            # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
+            self.lifetime_cumulative_rewards[will_clone] = 0.0
+            cloned_count = will_clone.sum().item()
+            print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
             
             # Enhanced FMC metrics
             num_cloned = will_clone.sum().item()

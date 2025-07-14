@@ -61,16 +61,17 @@ class BinaryTransport:
                     # Show current champion info occasionally
                     if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
                         best_idx = self.trainer.best_agent_idx
-                        best_reward = self.trainer.best_agents_ever[best_idx].item()
-                        print(f"👑 ALL-TIME CHAMPION: Agent {best_idx} (reward: {best_reward:.2f})")
+                        best_lifetime_reward = self.trainer.lifetime_cumulative_rewards[best_idx].item()
+                        print(f"👑 LIFETIME CHAMPION: Agent {best_idx} (lifetime: {best_lifetime_reward:.2f})")
                     
                     # Show which agent indices are active and their current rewards
                     for i, agent_idx in enumerate(active_agent_indices):
                         agent_idx_val = agent_idx.item()
                         if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
                             reward = cumulative_rewards[agent_idx_val].item()
+                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx_val].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
                             champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
-                            print(f"🎮 Active agent {agent_idx_val}: reward={reward:.2f} {champion_indicator}")
+                            print(f"🎮 Active agent {agent_idx_val}: round={reward:.2f}, lifetime={lifetime_reward:.2f} {champion_indicator}")
             
             # Update training data
             self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
@@ -103,7 +104,11 @@ class BinaryTransport:
                             walk_desc = "WALKING" if walk_val > 0.5 else "standing"
                             shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
                             
-                            print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc}")
+                            # Show both round and lifetime rewards
+                            round_reward = reward
+                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx.item()].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
+                            
+                            print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
             
             actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions)
             
@@ -169,6 +174,15 @@ class BinaryTransport:
             print(f"🔥 EMERGENCY RESET: Too many agents ({agent_count}), forcing agent mapping reset")
             self.agent_id_to_index.clear()
             self.next_index = 0
+        
+        # If mapping is full but no agents are active, reset the mapping
+        if len(self.agent_id_to_index) >= 64 and agent_count > 0:
+            # Check if any of the current agent IDs are in our mapping
+            current_ids_in_mapping = any(agent_id.item() in self.agent_id_to_index for agent_id in raw_agent_ids)
+            if not current_ids_in_mapping:
+                print(f"🔄 STALE MAPPING RESET: Agent mapping full ({len(self.agent_id_to_index)}) but no current agents found, resetting")
+                self.agent_id_to_index.clear()
+                self.next_index = 0
         
         for i, agent_id in enumerate(raw_agent_ids):
             agent_id_int = agent_id.item()
@@ -251,11 +265,13 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
+        print(f"🏁 Ending round - clearing {len(self.agent_id_to_index)} agent mappings")
         # Reset cumulative rewards for next round
         self.trainer.on_round_end()
         # Clear agent ID mapping for next round
         self.agent_id_to_index.clear()
         self.next_index = 0
+        print(f"✅ Agent mapping reset complete - next_index: {self.next_index}, mappings: {len(self.agent_id_to_index)}")
         # Removed round complete message for cleaner output
 
     def get_performance_stats(self) -> Dict:
@@ -319,13 +335,13 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         print("⚠️ No reward data available")
         return _encode_empty_single_action()
     
-    # Get the all-time best agent index
-    if hasattr(transport.trainer, 'best_agent_idx'):
-        # Use the tracked all-time best agent
+    # Get the all-time best agent index (based on lifetime rewards)
+    if hasattr(transport.trainer, 'best_agent_idx') and hasattr(transport.trainer, 'lifetime_cumulative_rewards'):
+        # Use the tracked lifetime champion
         top_agent_index = transport.trainer.best_agent_idx
-        all_time_reward = transport.trainer.best_agents_ever[top_agent_index].item()
+        lifetime_reward = transport.trainer.lifetime_cumulative_rewards[top_agent_index].item()
         current_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
-        print(f"🏆 Using ALL-TIME CHAMPION agent {top_agent_index} (all-time: {all_time_reward:.2f}, current: {current_reward:.2f})")
+        print(f"🏆 Using LIFETIME CHAMPION agent {top_agent_index} (lifetime: {lifetime_reward:.2f}, current round: {current_reward:.2f})")
     else:
         # Fallback to current round best (old behavior)
         top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()

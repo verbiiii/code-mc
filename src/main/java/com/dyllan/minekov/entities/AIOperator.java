@@ -265,8 +265,8 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
      * Used for group cleanup when training is complete.
      */
     public void removeFromWorld() {
-        this.setRemoved(RemovalReason.DISCARDED);
-        // Entity will be cleaned up automatically on next tick
+        // Queue for safe removal to avoid ConcurrentModificationException
+        com.dyllan.minekov.Minekov.queueEntityForRemoval(this);
     }
 
     // === Combat control ===
