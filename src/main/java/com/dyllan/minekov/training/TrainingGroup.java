@@ -101,10 +101,10 @@ public class TrainingGroup {
                 if (operator.isAlive()) {
                     if (sendDeathSignals) {
                         // Normal death - send death signal for reward tracking
-                        operator.kill();
+                        com.dyllan.minekov.Minekov.queueEntityForRemoval(operator);
                     } else {
                         // Group completion - remove without death signal
-                        operator.removeFromWorld();
+                        com.dyllan.minekov.Minekov.queueEntityForRemoval(operator);
                     }
                 }
             }

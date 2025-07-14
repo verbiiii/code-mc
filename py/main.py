@@ -54,8 +54,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Reduced logging noise
                         continue
                     elif message_type == "round_end":
-                        logger.info("🔴 Round ended - applying learning updates")
-                        signal_round_end()
+                        update_model = payload.get("update_model_parameters", True)  # Default to True for backwards compatibility
+                        if update_model:
+                            logger.info("🔴 Round ended - applying learning updates")
+                            signal_round_end()
+                        else:
+                            logger.info("🔄 Round ended - skipping learning updates (play mode)")
                         continue
                     elif message_type == "tick":
                         logger.warning("⚠️ Received JSON tick - Java should use binary protocol")

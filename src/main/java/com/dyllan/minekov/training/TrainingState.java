@@ -205,7 +205,8 @@ public class TrainingState {
             for (Team team : group.getTeams()) {
                 for (AIOperator op : team.getOperators()) {
                     if (op.isAlive()) {
-                        op.kill();
+                        // Use deferred removal to prevent ConcurrentModificationException
+                        com.dyllan.minekov.Minekov.queueEntityForRemoval(op);
                         totalEntitiesKilled++;
                     }
                 }
@@ -215,10 +216,8 @@ public class TrainingState {
         groups.clear(); // Clear groups after cleanup
         System.out.println("✅ Round cleanup complete - killed " + totalEntitiesKilled + " entities");
 
-        // Send round end signal to Python
-        Map<String, Object> roundEndData = new HashMap<>();
-        roundEndData.put("type", "round_end");
-        PythonBridge.tickPython(roundEndData);
+        // Send round end signal to Python with training update flag
+        com.dyllan.minekov.Minekov.sendRoundEnd(true); // Training mode - update parameters
 
         // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");

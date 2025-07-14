@@ -23,6 +23,8 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.entities.RLOperatorRegistry;
@@ -276,6 +278,7 @@ public class Minekov {
         // Check for 1v1 combat outcome (player vs AI)
         if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
             // Player lost to AI - round ends
+            sendRoundEnd(false); // Send round end without model updates
             player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
             player.getServer().getPlayerList().broadcastSystemMessage(
                 Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
@@ -284,6 +287,7 @@ public class Minekov {
             return;
         } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
             // Player won against AI - round ends
+            sendRoundEnd(false); // Send round end without model updates
             player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the AI agent!"));
             player.getServer().getPlayerList().broadcastSystemMessage(
                 Component.literal("§a👑 " + player.getName().getString() + " has defeated the AI agent!"), false
@@ -403,5 +407,15 @@ public class Minekov {
             byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
             PythonBridge.sendBinaryToPython(binaryData);
         }
+    }
+    
+    /**
+     * Send round end signal with configurable model update flag
+     */
+    public static void sendRoundEnd(boolean updateModelParameters) {
+        Map<String, Object> roundEndData = new HashMap<>();
+        roundEndData.put("type", "round_end");
+        roundEndData.put("update_model_parameters", updateModelParameters);
+        PythonBridge.tickPython(roundEndData);
     }
 }
