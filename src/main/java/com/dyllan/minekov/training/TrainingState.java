@@ -91,7 +91,20 @@ public class TrainingState {
 
         globalTick++;
 
+        this.groups.forEach(TrainingGroup::tick);
         boolean roundDone = isRoundComplete();
+        if (roundDone) {
+            cleanupRound();
+            currentRound++;
+            if (currentRound >= numRounds) {
+                endSession();
+            } else {
+                setupRound();
+            }
+
+            // no need to send actions and stuff, just skip the rest of the tick logic
+            return;
+        }
 
         // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
         Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
@@ -129,17 +142,6 @@ public class TrainingState {
         // Encode and send binary observations
         byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
         PythonBridge.sendBinaryToPython(binaryData);
-
-        if (roundDone) {
-            cleanupRound();
-            currentRound++;
-
-            if (currentRound >= numRounds) {
-                endSession();
-            } else {
-                setupRound();
-            }
-        }
     }
 
     public boolean isComplete() {
@@ -147,7 +149,7 @@ public class TrainingState {
     }
 
     private boolean isRoundComplete() {
-        return groups.stream().allMatch(TrainingGroup::isComplete);
+        return groups.stream().allMatch(TrainingGroup::isRoundComplete);
     }
 
     private void setupRound() {

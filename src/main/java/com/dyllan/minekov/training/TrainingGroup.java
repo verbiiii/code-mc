@@ -26,12 +26,9 @@ public class TrainingGroup {
 
     public void tick() {
         currentTick++;
-        // for (Team team : teams) {
-        //     team.tick();  // delegate control logic
-        // }
     }
 
-    public boolean isComplete() {
+    public boolean isRoundComplete() {
         // e.g., only one team alive or time is up
         long aliveTeams = teams.stream().filter(Team::isAlive).count();
         return aliveTeams <= 1 || currentTick >= maxTicks;
