@@ -6,7 +6,7 @@ from batched_layers import BatchedLinear
 MAX_AGENTS = 64
 
 # FMC Constants
-KEEP_TOP_PERCENT = 0.2
+KEEP_TOP_PERCENT = 0.05
 MUTATION_RATE = 1.0          # percent of weights that will be mutated
 MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
 FMC_BALANCE = 3.0
@@ -34,7 +34,7 @@ class VectorizedTrainer:
         self.reward_history = []
 
         # Fitness tracking
-        self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
+        self.round_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
         self.best_agent_idx = 0  # Index of current lifetime champion
 
@@ -92,7 +92,7 @@ class VectorizedTrainer:
         rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
         
         # Use the actual agent indices from the data
-        self.cumulative_rewards[active_indices] += rewards
+        self.round_cumulative_rewards[active_indices] += rewards
         self.lifetime_cumulative_rewards[active_indices] += rewards  # Also update lifetime rewards
         
         # Debug: Only print non-zero rewards
@@ -119,15 +119,16 @@ class VectorizedTrainer:
                 self.best_agent_idx = current_lifetime_best_idx
                 print(f"🏆 NEW LIFETIME CHAMPION: Agent {current_lifetime_best_idx} with lifetime reward {current_lifetime_best_reward:.2f}")
             else:
-                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.cumulative_rewards[self.best_agent_idx].item():.2f})")
+                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.round_cumulative_rewards[self.best_agent_idx].item():.2f})")
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
-        if torch.all(self.cumulative_rewards == 0):
+        if torch.all(self.round_cumulative_rewards == 0):
             print("🧬 FMC: No rewards to base updates on, skipping evolution")
             return  # No rewards to base updates on
             
-        scores = self.cumulative_rewards.clone()
+        scores = self.round_cumulative_rewards.clone()
+        # scores = self.lifetime_cumulative_rewards.clone()
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
@@ -145,10 +146,12 @@ class VectorizedTrainer:
         will_clone = value >= r
         
         # Protect top agents from being cloned (they keep their parameters)
-        top_k = int(MAX_AGENTS * KEEP_TOP_PERCENT)
-        if top_k > 0:
-            top_agent_indices = torch.topk(scores, top_k).indices
-            will_clone[top_agent_indices] = False
+        top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
+        if top_k <= 0:
+            raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
+
+        top_agent_indices = torch.topk(scores, top_k).indices
+        will_clone[top_agent_indices] = False
         
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
@@ -234,14 +237,14 @@ class VectorizedTrainer:
 
     def reset_cumulative_rewards(self):
         """Reset cumulative rewards for all agents."""
-        self.cumulative_rewards.zero_()
+        self.round_cumulative_rewards.zero_()
 
     def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
         """Get indices of top-k agents based on cumulative rewards."""
-        if self.cumulative_rewards.numel() == 0:
+        if self.round_cumulative_rewards.numel() == 0:
             return torch.tensor([], device=self.device, dtype=torch.long)
         
-        top_k_values, top_k_indices = torch.topk(self.cumulative_rewards, k, sorted=True)
+        top_k_values, top_k_indices = torch.topk(self.round_cumulative_rewards, k, sorted=True)
         return top_k_indices
 
     def get_stats(self):

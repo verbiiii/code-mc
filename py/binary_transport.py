@@ -56,7 +56,7 @@ class BinaryTransport:
                 active_count = active_mask.sum().item()
                 if active_count > 0:
                     active_agent_indices = agent_indices[active_mask]
-                    cumulative_rewards = self.trainer.cumulative_rewards
+                    cumulative_rewards = self.trainer.round_cumulative_rewards
                     
                     # Show current champion info occasionally
                     if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
@@ -341,7 +341,7 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         return _encode_empty_single_action()
     
     # Get the top agent index (highest cumulative reward)
-    if transport.trainer.cumulative_rewards.numel() == 0:
+    if transport.trainer.round_cumulative_rewards.numel() == 0:
         print("⚠️ No reward data available")
         return _encode_empty_single_action()
     
@@ -350,12 +350,12 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         # Use the tracked lifetime champion
         top_agent_index = transport.trainer.best_agent_idx
         lifetime_reward = transport.trainer.lifetime_cumulative_rewards[top_agent_index].item()
-        current_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        current_reward = transport.trainer.round_cumulative_rewards[top_agent_index].item()
         print(f"🏆 Using LIFETIME CHAMPION agent {top_agent_index} (lifetime: {lifetime_reward:.2f}, current round: {current_reward:.2f})")
     else:
         # Fallback to current round best (old behavior)
-        top_agent_index = torch.argmax(transport.trainer.cumulative_rewards).item()
-        top_reward = transport.trainer.cumulative_rewards[top_agent_index].item()
+        top_agent_index = torch.argmax(transport.trainer.round_cumulative_rewards).item()
+        top_reward = transport.trainer.round_cumulative_rewards[top_agent_index].item()
         print(f"🏆 Using current round best agent {top_agent_index} (reward: {top_reward:.2f})")
     
     # Parse single agent observation
