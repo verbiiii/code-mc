@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.dyllan.minekov.entities.RLOperator;
-import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
@@ -43,9 +42,6 @@ public class Minekov {
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
     private static final int RECONNECT_INTERVAL = 20; // try every second
-    
-    // Queue for safe entity removal (to avoid ConcurrentModificationException)
-    private static final java.util.List<Entity> entitiesToRemove = new java.util.ArrayList<>();
 
     public Minekov() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -187,18 +183,6 @@ public class Minekov {
 
         // Process pending binary actions on main server thread
         BinaryActionDecoder.processPendingActions();
-        
-        // Process queued entity removals (to avoid ConcurrentModificationException)
-        if (!entitiesToRemove.isEmpty()) {
-            synchronized (entitiesToRemove) {
-                for (Entity entity : entitiesToRemove) {
-                    if (entity != null && !entity.isRemoved()) {
-                        entity.setRemoved(Entity.RemovalReason.DISCARDED);
-                    }
-                }
-                entitiesToRemove.clear();
-            }
-        }
 
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
@@ -217,10 +201,6 @@ public class Minekov {
             }
         }
 
-        if (pythonController != null && pythonController.isConnected()) {
-            // Removed sync_operators - unnecessary for pure RL training
-        }
-
         // ✅ TICK THE TRAINING STATE IF ACTIVE
         if (trainingState != null) {
             trainingState.tick();
@@ -228,12 +208,6 @@ public class Minekov {
             // clear instance if we're done
             if (trainingState.isComplete()) {
                 trainingState = null;
-            }
-        } else {
-            // Handle play mode (1v1) observations when not in training
-            // Only send observations every 5 ticks to avoid overwhelming the system
-            if (tickCounter % 5 == 0) {
-                sendPlayModeObservations();
             }
         }
     }
@@ -358,49 +332,6 @@ public class Minekov {
         }
 
         return 1;
-    }
-
-    /**
-     * Send observations for RLOperators in play mode (1v1 combat)
-     */
-    private static void sendPlayModeObservations() {
-        // Only send observations if Python controller is connected
-        if (pythonController == null || !pythonController.isConnected()) {
-            return;
-        }
-        
-        // Find RLOperators in player attack mode (safe copy to avoid concurrent modification)
-        java.util.List<RLOperator> operators = new java.util.ArrayList<>(RLOperatorRegistry.getAll());
-        java.util.Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new java.util.HashMap<>();
-        int globalTick = tickCounter; // Use tick counter as global tick
-        
-        for (RLOperator rlOp : operators) {
-            if (!rlOp.isPlayerAttackMode()) {
-                continue; // Skip non-player-attack-mode agents
-            }
-            
-            LivingEntity target = rlOp.getTarget();
-            if (target == null) {
-                continue; // Skip if no target
-            }
-            
-            // Create observation (same format as training)
-            VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
-                rlOp.getX(), rlOp.getY(), rlOp.getZ(),
-                target.getX(), target.getY(), target.getZ(),
-                rlOp.getDamageDealtLastTick(), rlOp.getDamageTakenLastTick(),
-                rlOp.getKillsLastTick(), rlOp.getDeathsLastTick()
-            );
-            
-            observations.put(rlOp.getId(), obs);
-            rlOp.clearTickDamageStats();
-        }
-        
-        // Only send if we have observations
-        if (!observations.isEmpty()) {
-            byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
-            PythonBridge.sendBinaryToPython(binaryData);
-        }
     }
     
     /**

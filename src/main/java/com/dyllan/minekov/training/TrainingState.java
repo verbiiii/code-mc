@@ -44,70 +44,50 @@ public class TrainingState {
         setupRound(); // begin first round
     }
 
+    public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
+        ArrayList<AIOperator> opponents = new ArrayList<>();
+        for (TrainingGroup group : groups) {
+            // only look at the group that contains the operator (SHOULD ONLY BE CONTAINED BY ONE TODO make that always true)
+            if (!group.contains(operator)) continue;
+
+            for (Team team : group.getTeams()) {
+                // ignore our own team
+                if (team.getOperators().contains(operator)) continue;
+
+                for (AIOperator op : team.getOperators()) {
+                    if (op != operator && !opponents.contains(op)) {
+                        opponents.add(op);
+                    }
+                }
+            }
+        }
+
+        // raise illegal state exception if > 1 opponent found (temporarily)
+        if (opponents.size() > 1) {
+            throw new IllegalStateException("Multiple opponents found for operator " + operator.getId() + ": " + opponents.size());
+        }
+
+        return opponents;
+    }
+
     public void tick() {
         if (!roundActive) return;
 
         globalTick++;
-
-        // Check for completed groups and handle cleanup
-        List<TrainingGroup> completedGroups = new ArrayList<>();
-        for (TrainingGroup group : groups) {
-            group.tick();
-            if (group.isComplete()) {
-                completedGroups.add(group);
-            }
-        }
-        
-        // Clean up completed groups
-        for (TrainingGroup group : completedGroups) {
-            Team winningTeam = group.getWinningTeam();
-            if (winningTeam != null) {
-                System.out.println("🏆 Group completed with winner: " + winningTeam.getTeamId());
-                // Clean up without death signals (winners shouldn't get death penalty)
-                group.cleanupGroup(false);
-            } else {
-                System.out.println("⏰ Group completed by timeout");
-                // Clean up with death signals (timeout = everyone loses)
-                group.cleanupGroup(true);
-            }
-        }
-        
-        // DON'T remove completed groups yet - wait for round end
-        // groups.removeAll(completedGroups);
-
-        Map<String, Team> operatorTeamMap = new HashMap<>();
-        Map<String, AIOperator> allOperators = new HashMap<>();
-
-        for (TrainingGroup group : groups) {
-            for (Team team : group.getTeams()) {
-                for (AIOperator op : team.getOperators()) {
-                    String uuid = op.getUUID().toString();
-                    operatorTeamMap.put(uuid, team);
-                    allOperators.put(uuid, op);
-                }
-            }
-        }
 
         boolean roundDone = isRoundComplete();
 
         // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
         Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
         
-        // Use consistent ordering: get all RL operators from registry
-        RLOperator[] rlOperators = allOperators.values().stream()
-            .filter(op -> op instanceof RLOperator)
-            .map(op -> (RLOperator) op)
-            .toArray(RLOperator[]::new);
-        
-        for (int i = 0; i < rlOperators.length; i++) {
-            RLOperator rlOp = rlOperators[i];
-            
-            // Find opponent for this RL agent
-            AIOperator opponent = allOperators.values().stream()
-                .filter(other -> !other.getUUID().equals(rlOp.getUUID()))
-                .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(rlOp.getUUID().toString())))
-                .findFirst()
-                .orElse(rlOp); // Use self if no opponent found
+        for (int i = 0; i < operatorsArray.length; i++) {
+            // if it's an RLOperator we can use it, otherwise let's skip
+            if (!(operatorsArray[i] instanceof RLOperator)) continue;
+
+            RLOperator rlOp = (RLOperator) operatorsArray[i];
+
+            // Get the opponent from the same group (TODO: multiple opponents/team mates)
+            AIOperator opponent = getOpponentsForOperator(rlOp).get(0);
             
             // Create vectorized observation with actual agent ID
             float damageDealt = rlOp.getDamageDealtLastTick();
@@ -229,15 +209,13 @@ public class TrainingState {
         roundActive = false;
         int totalEntitiesKilled = 0;
         
-        for (TrainingGroup group : groups) {
-            for (Team team : group.getTeams()) {
-                for (AIOperator op : team.getOperators()) {
-                    if (op.isAlive()) {
-                        // Use deferred removal to prevent ConcurrentModificationException
-                        com.dyllan.minekov.Minekov.queueEntityForRemoval(op);
-                        totalEntitiesKilled++;
-                    }
-                }
+        // loop through our array and kill them all, making sure to null their positions
+        for (int i = 0; i < operatorsArray.length; i++) {
+            AIOperator operator = operatorsArray[i];
+            if (operator != null) {
+                operator.kill(); // Remove from world without triggering death mechanics
+                totalEntitiesKilled++;
+                operatorsArray[i] = null;
             }
         }
         
