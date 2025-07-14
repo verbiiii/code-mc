@@ -106,10 +106,5 @@ public class BinaryActionDecoder {
                 queued++;
             }
         }
-        
-        // Only log every 10th batch to reduce console spam
-        if (queued > 0 && (System.currentTimeMillis() % 500) < 50) {
-            System.out.println("⚡ Queued " + queued + " actions from " + actionCount + " agents");
-        }
     }
 }

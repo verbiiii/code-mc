@@ -384,12 +384,6 @@ public class Minekov {
                 continue; // Skip if no target
             }
             
-            // Log which agent we're sending observations for (every 100 ticks to avoid spam)
-            if (globalTick % 100 == 0) {
-                System.out.println("🎮 [Play Mode] Sending observations for agent ID: " + rlOp.getId() + 
-                                 " (Entity: " + rlOp.getStringUUID() + ")");
-            }
-            
             // Create observation (same format as training)
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),

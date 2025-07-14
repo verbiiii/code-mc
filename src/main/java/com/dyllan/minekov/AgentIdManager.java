@@ -19,6 +19,7 @@ public class AgentIdManager {
      */
     public static int assignId(RLOperator op) {
         int id = nextId.getAndIncrement();
+        System.out.println("💀 Agent " + id + " assigned to " + op);
         operatorsById.put(id, op);
         idsByOperator.put(op, id);
         // Removed debug log for performance
@@ -62,12 +63,5 @@ public class AgentIdManager {
      */
     public static int getActiveCount() {
         return operatorsById.size();
-    }
-    
-    /**
-     * Get next ID that will be assigned (for debugging)
-     */
-    public static int getNextId() {
-        return nextId.get();
     }
 }

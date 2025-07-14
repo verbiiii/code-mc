@@ -107,7 +107,7 @@ public class PythonRLController {
 
         try {
             var actionsArray = obj.getAsJsonArray("actions");
-            System.out.println("📦 Processing batch with " + actionsArray.size() + " actions");
+            // System.out.println("📦 Processing batch with " + actionsArray.size() + " actions");
             
             for (var actionElement : actionsArray) {
                 JsonObject action = actionElement.getAsJsonObject();

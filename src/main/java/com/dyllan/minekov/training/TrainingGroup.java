@@ -94,7 +94,7 @@ public class TrainingGroup {
     }
 
     public void cleanupGroup(boolean sendDeathSignals) {
-        System.out.println("🧹 Cleaning up training group - sendDeathSignals: " + sendDeathSignals);
+        // System.out.println("🧹 Cleaning up training group - sendDeathSignals: " + sendDeathSignals);
         
         for (Team team : teams) {
             for (AIOperator operator : team.getOperators()) {
