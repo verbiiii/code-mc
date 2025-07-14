@@ -25,6 +25,7 @@ import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
 import java.net.URI;
 
 import com.dyllan.minekov.entities.RLOperator;
+import com.dyllan.minekov.entities.RLOperatorRegistry;
 import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
@@ -211,6 +212,12 @@ public class Minekov {
             if (trainingState.isComplete()) {
                 trainingState = null;
             }
+        } else {
+            // Handle play mode (1v1) observations when not in training
+            // Only send observations every 5 ticks to avoid overwhelming the system
+            if (tickCounter % 5 == 0) {
+                sendPlayModeObservations();
+            }
         }
     }
 
@@ -319,5 +326,48 @@ public class Minekov {
         }
 
         return 1;
+    }
+
+    /**
+     * Send observations for RLOperators in play mode (1v1 combat)
+     */
+    private static void sendPlayModeObservations() {
+        // Only send observations if Python controller is connected
+        if (pythonController == null || !pythonController.isConnected()) {
+            return;
+        }
+        
+        // Find RLOperators in player attack mode (safe copy to avoid concurrent modification)
+        java.util.List<RLOperator> operators = new java.util.ArrayList<>(RLOperatorRegistry.getAll());
+        java.util.Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new java.util.HashMap<>();
+        int globalTick = tickCounter; // Use tick counter as global tick
+        
+        for (RLOperator rlOp : operators) {
+            if (!rlOp.isPlayerAttackMode()) {
+                continue; // Skip non-player-attack-mode agents
+            }
+            
+            LivingEntity target = rlOp.getTarget();
+            if (target == null) {
+                continue; // Skip if no target
+            }
+            
+            // Create observation (same format as training)
+            VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
+                rlOp.getX(), rlOp.getY(), rlOp.getZ(),
+                target.getX(), target.getY(), target.getZ(),
+                rlOp.getDamageDealtLastTick(), rlOp.getDamageTakenLastTick(),
+                rlOp.getKillsLastTick(), rlOp.getDeathsLastTick()
+            );
+            
+            observations.put(rlOp.getId(), obs);
+            rlOp.clearTickDamageStats();
+        }
+        
+        // Only send if we have observations
+        if (!observations.isEmpty()) {
+            byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
+            PythonBridge.sendBinaryToPython(binaryData);
+        }
     }
 }
