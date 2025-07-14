@@ -37,10 +37,8 @@ public class RLOperator extends AIOperator {
         super.registerGoals();
 
         watchGoal = new WatchClosestTargetGoal(this, 64.0D);
-        // Only add the watch goal if not using RL aiming
-        if (!useRLAiming) {
-            this.goalSelector.addGoal(1, watchGoal);
-        }
+        // Always register the goal, but we'll control its behavior via useRLAiming flag
+        this.goalSelector.addGoal(1, watchGoal);
     }
 
     /**
@@ -83,7 +81,8 @@ public class RLOperator extends AIOperator {
             // Calculate direction from current yaw rotation
             float yaw = this.getYRot();
             double yawRad = Math.toRadians(yaw + 90.0); // Adjust for coordinate system
-            return new Vec3(-Math.cos(yawRad), 0, -Math.sin(yawRad)).normalize();
+            Vec3 direction = new Vec3(-Math.cos(yawRad), 0, -Math.sin(yawRad));
+            return direction.lengthSqr() > 1e-6 ? direction.normalize() : Vec3.ZERO;
         }
     }
 
@@ -202,17 +201,8 @@ public class RLOperator extends AIOperator {
      */
     public void setUseRLAiming(boolean useRLAiming) {
         this.useRLAiming = useRLAiming;
-        
-        // Dynamically add/remove the watch goal based on RL aiming mode
-        if (useRLAiming) {
-            // Remove auto-targeting goal when using RL aiming
-            this.goalSelector.removeGoal(watchGoal);
-        } else {
-            // Add auto-targeting goal when not using RL aiming
-            if (watchGoal != null) {
-                this.goalSelector.addGoal(1, watchGoal);
-            }
-        }
+        // Note: We don't dynamically add/remove goals to avoid ConcurrentModificationException
+        // Instead, the WatchClosestTargetGoal checks the useRLAiming flag internally
     }
 
     /**
@@ -231,9 +221,10 @@ public class RLOperator extends AIOperator {
     public void moveTowards(float thetaDeg, float speed) {
         Vec3 baseDir = this.getCurrentDirection();
 
-        // if (baseDir.lengthSqr() < 1e-6) {
-        //     return;
-        // }
+        if (baseDir.lengthSqr() < 1e-6) {
+            // No direction available, don't move
+            return;
+        }
 
         // Normalize and flatten the base direction
         Vec3 forward = new Vec3(baseDir.x, 0, baseDir.z).normalize();
@@ -244,7 +235,7 @@ public class RLOperator extends AIOperator {
         // Combine forward + right based on relative angle
         Vec3 moveVec = forward.scale(Math.cos(thetaRad)).add(right.scale(Math.sin(thetaRad))).normalize().scale(speed);
 
-        // Preserve Y velocity
+        // Preserve Y velocity and apply movement
         this.setDeltaMovement(moveVec.x, this.getDeltaMovement().y, moveVec.z);
     }
 }
