@@ -40,98 +40,93 @@ class BinaryTransport:
         Returns binary action data in same format.
         """
         start_time = time.perf_counter()
-        
-        try:
-            # Parse and validate header
-            obs_tensor, agent_indices, reward_data = self._parse_observations(binary_data)
-            if obs_tensor is None:
-                return self._encode_empty_actions()
-            
-            # Forward pass through model
-            x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
-            
-            # Log agent activity for play mode (every 20 ticks to avoid spam)
-            if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
-                active_mask = agent_indices != -1
-                active_count = active_mask.sum().item()
-                if active_count > 0:
-                    active_agent_indices = agent_indices[active_mask]
-                    cumulative_rewards = self.trainer.round_cumulative_rewards
-                    
-                    # Show current champion info occasionally
-                    if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
-                        best_idx = self.trainer.best_agent_idx
-                        best_lifetime_reward = self.trainer.lifetime_cumulative_rewards[best_idx].item()
-                        print(f"👑 LIFETIME CHAMPION: Agent {best_idx} (lifetime: {best_lifetime_reward:.2f})")
-                    
-                    # Show which agent indices are active and their current rewards
-                    for i, agent_idx in enumerate(active_agent_indices):
-                        agent_idx_val = agent_idx.item()
-                        if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
-                            reward = cumulative_rewards[agent_idx_val].item()
-                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx_val].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
-                            champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
-                            print(f"🎮 Active agent {agent_idx_val}: round={reward:.2f}, lifetime={lifetime_reward:.2f} {champion_indicator}")
-            
-            # Update training data
-            self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
-
-            # Convert actions and encode response
-            angles = (x_actions.float() / 8.0) * 360.0
-            pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
-            yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
-            
-            # Log actions for play mode (every 10 ticks to show AI behavior without spam)
-            if hasattr(self, 'tick_count') and self.tick_count % 10 == 0:
-                active_mask = agent_indices != -1
-                if torch.any(active_mask):
-                    # Show actions for active agents (likely 1v1 play mode)
-                    active_indices = agent_indices[active_mask]
-                    active_angles = angles[active_mask]
-                    active_walk = walk_actions[active_mask]
-                    active_shoot = shoot_actions[active_mask]
-                    active_pitch = pitch_degrees[active_mask]
-                    active_yaw = yaw_degrees[active_mask]
-                    
-                    for i, agent_idx in enumerate(active_indices):
-                        if agent_idx.item() >= 0:  # Valid agent
-                            angle_deg = active_angles[i].item()
-                            walk_val = active_walk[i].item()
-                            shoot_val = active_shoot[i].item()
-                            pitch_deg = active_pitch[i].item()
-                            yaw_deg = active_yaw[i].item()
-                            
-                            # Add champion indicator if this is the best agent
-                            champion_indicator = ""
-                            if hasattr(self.trainer, 'best_agent_idx') and agent_idx.item() == self.trainer.best_agent_idx:
-                                champion_indicator = "👑 "
-                            
-                            # Create action description
-                            walk_desc = "WALKING" if walk_val > 0.5 else "standing"
-                            shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
-                            
-                            # Show both round and lifetime rewards
-                            round_reward = reward
-                            lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx.item()].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
-                            
-                            print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
-            
-            actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
-            
-            # Performance tracking
-            processing_time = (time.perf_counter() - start_time) * 1000
-            self.processing_times.append(processing_time)
-            if len(self.processing_times) > 100:
-                self.processing_times.pop(0)
-                
-            if processing_time > 5.0:  # Only warn if >5ms (reduced noise)
-                print(f"⚠️ Slow processing: {processing_time:.2f}ms")
-                
-            return actions_binary
-            
-        except Exception as e:
-            print(f"🚨 Error processing observations: {e}")
+    
+        # Parse and validate header
+        obs_tensor, agent_indices, reward_data = self._parse_observations(binary_data)
+        if obs_tensor is None:
             return self._encode_empty_actions()
+        
+        # Forward pass through model
+        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
+        
+        # Log agent activity for play mode (every 20 ticks to avoid spam)
+        if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
+            active_mask = agent_indices != -1
+            active_count = active_mask.sum().item()
+            if active_count > 0:
+                active_agent_indices = agent_indices[active_mask]
+                cumulative_rewards = self.trainer.round_cumulative_rewards
+                
+                # Show current champion info occasionally
+                if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
+                    best_idx = self.trainer.best_agent_idx
+                    best_lifetime_reward = self.trainer.lifetime_cumulative_rewards[best_idx].item()
+                    print(f"👑 LIFETIME CHAMPION: Agent {best_idx} (lifetime: {best_lifetime_reward:.2f})")
+                
+                # Show which agent indices are active and their current rewards
+                for i, agent_idx in enumerate(active_agent_indices):
+                    agent_idx_val = agent_idx.item()
+                    if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
+                        reward = cumulative_rewards[agent_idx_val].item()
+                        lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx_val].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
+                        champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
+                        print(f"🎮 Active agent {agent_idx_val}: round={reward:.2f}, lifetime={lifetime_reward:.2f} {champion_indicator}")
+        
+        # Update training data
+        self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
+
+        # Convert actions and encode response
+        angles = (x_actions.float() / 8.0) * 360.0
+        pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
+        yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
+        
+        # Log actions for play mode (every 10 ticks to show AI behavior without spam)
+        if hasattr(self, 'tick_count') and self.tick_count % 10 == 0:
+            active_mask = agent_indices != -1
+            if torch.any(active_mask):
+                # Show actions for active agents (likely 1v1 play mode)
+                active_indices = agent_indices[active_mask]
+                active_angles = angles[active_mask]
+                active_walk = walk_actions[active_mask]
+                active_shoot = shoot_actions[active_mask]
+                active_pitch = pitch_degrees[active_mask]
+                active_yaw = yaw_degrees[active_mask]
+                
+                for i, agent_idx in enumerate(active_indices):
+                    if agent_idx.item() >= 0:  # Valid agent
+                        angle_deg = active_angles[i].item()
+                        walk_val = active_walk[i].item()
+                        shoot_val = active_shoot[i].item()
+                        pitch_deg = active_pitch[i].item()
+                        yaw_deg = active_yaw[i].item()
+                        
+                        # Add champion indicator if this is the best agent
+                        champion_indicator = ""
+                        if hasattr(self.trainer, 'best_agent_idx') and agent_idx.item() == self.trainer.best_agent_idx:
+                            champion_indicator = "👑 "
+                        
+                        # Create action description
+                        walk_desc = "WALKING" if walk_val > 0.5 else "standing"
+                        shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
+                        
+                        # Show both round and lifetime rewards
+                        round_reward = reward
+                        lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx.item()].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
+                        
+                        print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc} (round: {round_reward:.2f}, lifetime: {lifetime_reward:.2f})")
+        
+        actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
+        
+        # Performance tracking
+        processing_time = (time.perf_counter() - start_time) * 1000
+        self.processing_times.append(processing_time)
+        if len(self.processing_times) > 100:
+            self.processing_times.pop(0)
+            
+        if processing_time > 5.0:  # Only warn if >5ms (reduced noise)
+            print(f"⚠️ Slow processing: {processing_time:.2f}ms")
+            
+        return actions_binary
 
     def _parse_observations(self, binary_data: bytes) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Parse binary observation data into tensors."""

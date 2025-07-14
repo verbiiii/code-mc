@@ -70,8 +70,9 @@ public class PythonRLController {
             } else {
                 operator.sneakEntity(false);
             }
-            
-            // operator.lookInDirection(action.pitch, action.yaw);
+
+            // use action.pitch, action.yaw to look in the specified direction
+            operator.lookInDirection(action.pitch, action.yaw);
         }
     }
 

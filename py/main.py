@@ -36,60 +36,53 @@ async def websocket_endpoint(websocket: WebSocket):
     
     logger.info(f"🔗 Client {client_id} connected. Total clients: {len(connected_clients)}")
     
-    try:
-        while True:
-            # Receive any message and check its type
-            message = await websocket.receive()
-            
-            if "text" in message:
-                # Handle JSON messages
-                data = message["text"]
-                try:
-                    payload = json.loads(data)
-                    message_type = payload.get("type")
-                    
-                    if message_type == "sync_operators":
-                        continue
-                    elif message_type == "round_start":
-                        # Reduced logging noise
-                        continue
-                    elif message_type == "round_end":
-                        update_model = payload.get("update_model_parameters", True)  # Default to True for backwards compatibility
-                        if update_model:
-                            logger.info("🔴 Round ended - applying learning updates")
-                            signal_round_end()
-                        else:
-                            logger.info("🔄 Round ended - skipping learning updates (play mode)")
-                        continue
-                    elif message_type == "tick":
-                        logger.warning("⚠️ Received JSON tick - Java should use binary protocol")
-                        continue
+    while True:
+        # Receive any message and check its type
+        message = await websocket.receive()
+        
+        if "text" in message:
+            # Handle JSON messages
+            data = message["text"]
+            try:
+                payload = json.loads(data)
+                message_type = payload.get("type")
+                
+                if message_type == "sync_operators":
+                    continue
+                elif message_type == "round_start":
+                    # Reduced logging noise
+                    continue
+                elif message_type == "round_end":
+                    update_model = payload.get("update_model_parameters", True)  # Default to True for backwards compatibility
+                    if update_model:
+                        logger.info("🔴 Round ended - applying learning updates")
+                        signal_round_end()
                     else:
-                        logger.info(f"📝 Unknown message: {message_type}")
-                        continue
-                        
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ Invalid JSON: {data}")
+                        logger.info("🔄 Round ended - skipping learning updates (play mode)")
+                    continue
+                elif message_type == "tick":
+                    logger.warning("⚠️ Received JSON tick - Java should use binary protocol")
+                    continue
+                else:
+                    logger.info(f"📝 Unknown message: {message_type}")
                     continue
                     
-            elif "bytes" in message:
-                # Handle binary messages
-                binary_data = message["bytes"]
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ Invalid JSON: {data}")
+                continue
                 
-                # Process through vectorized pipeline and get actions
-                response_data = process_binary_data(binary_data)
-                
-                # Send binary action response
-                await websocket.send_bytes(response_data)
-                
-            else:
-                logger.warning(f"⚠️ Unknown message type: {message}")
+        elif "bytes" in message:
+            # Handle binary messages
+            binary_data = message["bytes"]
             
-    except Exception as e:
-        logger.warning(f"⚡ Client {client_id} disconnected: {e}")
-    finally:
-        connected_clients.discard(websocket)
-        logger.info(f"❌ Client {client_id} removed. Total clients: {len(connected_clients)}")
+            # Process through vectorized pipeline and get actions
+            response_data = process_binary_data(binary_data)
+            
+            # Send binary action response
+            await websocket.send_bytes(response_data)
+            
+        else:
+            logger.warning(f"⚠️ Unknown message type: {message}")
 
 @app.websocket("/top-agent")
 async def top_agent_websocket(websocket: WebSocket):
@@ -99,34 +92,28 @@ async def top_agent_websocket(websocket: WebSocket):
     
     logger.info(f"🥊 Top agent client {client_id} connected for 1v1 combat")
     
-    try:
-        while True:
-            # Receive any message type
-            message = await websocket.receive()
+    while True:
+        # Receive any message type
+        message = await websocket.receive()
+        
+        if "bytes" in message:
+            binary_data = message["bytes"]
             
-            if "bytes" in message:
-                binary_data = message["bytes"]
-                
-                # Process single agent observation through top agent model
-                response_data = process_top_agent_data(binary_data)
-                
-                # Send binary action response
-                await websocket.send_bytes(response_data)
-                
-            elif "text" in message:
-                # Handle any text messages (like initial handshake messages)
-                text_data = message["text"]
-                logger.info(f"🔗 Top agent received text message: {text_data[:50]}...")
-                # Just ignore text messages for now
-                continue
-                
-            else:
-                logger.warning(f"⚠️ Top agent received unknown message type: {message}")
+            # Process single agent observation through top agent model
+            response_data = process_top_agent_data(binary_data)
             
-    except Exception as e:
-        logger.warning(f"⚡ Top agent client {client_id} disconnected: {e}")
-    finally:
-        logger.info(f"❌ Top agent client {client_id} removed")
+            # Send binary action response
+            await websocket.send_bytes(response_data)
+            
+        elif "text" in message:
+            # Handle any text messages (like initial handshake messages)
+            text_data = message["text"]
+            logger.info(f"🔗 Top agent received text message: {text_data[:50]}...")
+            # Just ignore text messages for now
+            continue
+            
+        else:
+            logger.warning(f"⚠️ Top agent received unknown message type: {message}")
 
 # All communication happens over WebSocket - no HTTP routes needed
 
