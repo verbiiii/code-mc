@@ -77,6 +77,34 @@ class BinaryTransport:
 
             # Convert actions and encode response
             angles = (x_actions.float() / 8.0) * 360.0
+            
+            # Log actions for play mode (every 10 ticks to show AI behavior without spam)
+            if hasattr(self, 'tick_count') and self.tick_count % 10 == 0:
+                active_mask = agent_indices != -1
+                if torch.any(active_mask):
+                    # Show actions for active agents (likely 1v1 play mode)
+                    active_indices = agent_indices[active_mask]
+                    active_angles = angles[active_mask]
+                    active_walk = walk_actions[active_mask]
+                    active_shoot = shoot_actions[active_mask]
+                    
+                    for i, agent_idx in enumerate(active_indices):
+                        if agent_idx.item() >= 0:  # Valid agent
+                            angle_deg = active_angles[i].item()
+                            walk_val = active_walk[i].item()
+                            shoot_val = active_shoot[i].item()
+                            
+                            # Add champion indicator if this is the best agent
+                            champion_indicator = ""
+                            if hasattr(self.trainer, 'best_agent_idx') and agent_idx.item() == self.trainer.best_agent_idx:
+                                champion_indicator = "👑 "
+                            
+                            # Create action description
+                            walk_desc = "WALKING" if walk_val > 0.5 else "standing"
+                            shoot_desc = "SHOOTING" if shoot_val > 0.5 else "not shooting"
+                            
+                            print(f"🎮 {champion_indicator}Agent {agent_idx.item()} actions: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc}")
+            
             actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions)
             
             # Performance tracking
@@ -328,6 +356,12 @@ def process_top_agent_data(binary_data: bytes) -> bytes:
         top_shoot = shoot_actions[top_agent_index].item()
     
     print(f"🎮 Generated actions - X: {top_x}, Y: {top_y}, Walk: {top_walk}, Shoot: {top_shoot}")
+    
+    # Convert to more readable format
+    angle_deg = (top_x / 8.0) * 360.0
+    walk_desc = "WALKING" if top_walk > 0.5 else "standing"
+    shoot_desc = "SHOOTING" if top_shoot > 0.5 else "not shooting"
+    print(f"🏆 TOP AGENT ACTIONS: angle={angle_deg:.1f}°, {walk_desc}, {shoot_desc}")
     
     # Encode single agent action
     return _encode_single_action(top_x, top_y, top_walk, top_shoot)
