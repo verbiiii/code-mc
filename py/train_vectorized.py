@@ -116,9 +116,6 @@ class VectorizedTrainer:
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
-        if torch.all(self.round_cumulative_rewards == 0):
-            print("🧬 FMC: No rewards to base updates on, skipping evolution")
-            return  # No rewards to base updates on
             
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()

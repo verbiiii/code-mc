@@ -49,29 +49,6 @@ class BinaryTransport:
         # Forward pass through model
         x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
         
-        # Log agent activity for play mode (every 20 ticks to avoid spam)
-        if hasattr(self, 'tick_count') and self.tick_count % 20 == 0:
-            active_mask = agent_indices != -1
-            active_count = active_mask.sum().item()
-            if active_count > 0:
-                active_agent_indices = agent_indices[active_mask]
-                cumulative_rewards = self.trainer.round_cumulative_rewards
-                
-                # Show current champion info occasionally
-                if hasattr(self.trainer, 'best_agent_idx') and self.tick_count % 100 == 0:
-                    best_idx = self.trainer.best_agent_idx
-                    best_lifetime_reward = self.trainer.lifetime_cumulative_rewards[best_idx].item()
-                    print(f"👑 LIFETIME CHAMPION: Agent {best_idx} (lifetime: {best_lifetime_reward:.2f})")
-                
-                # Show which agent indices are active and their current rewards
-                for i, agent_idx in enumerate(active_agent_indices):
-                    agent_idx_val = agent_idx.item()
-                    if agent_idx_val >= 0 and agent_idx_val < len(cumulative_rewards):
-                        reward = cumulative_rewards[agent_idx_val].item()
-                        lifetime_reward = self.trainer.lifetime_cumulative_rewards[agent_idx_val].item() if hasattr(self.trainer, 'lifetime_cumulative_rewards') else 0.0
-                        champion_indicator = "👑" if hasattr(self.trainer, 'best_agent_idx') and agent_idx_val == self.trainer.best_agent_idx else ""
-                        print(f"🎮 Active agent {agent_idx_val}: round={reward:.2f}, lifetime={lifetime_reward:.2f} {champion_indicator}")
-        
         # Update training data
         self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
 
