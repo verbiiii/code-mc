@@ -44,6 +44,13 @@ public class TrainingState {
         setupRound(); // begin first round
     }
 
+    public AIOperator getOperator(int index) {
+        if (index < 0 || index >= operatorsArray.length) {
+            throw new IndexOutOfBoundsException("Invalid operator index: " + index);
+        }
+        return operatorsArray[index];
+    }
+
     public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
         ArrayList<AIOperator> opponents = new ArrayList<>();
         for (TrainingGroup group : groups) {

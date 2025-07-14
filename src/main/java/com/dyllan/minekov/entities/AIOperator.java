@@ -16,7 +16,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 import com.dyllan.minekov.loadouts.GunCustomization;
-import com.dyllan.minekov.training.TrainingIsolationHandler;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -258,15 +257,6 @@ public abstract class AIOperator extends PathfinderMob implements IGunOperator {
     public void zoom() {
         // Optional: implement if your AI needs scope zoom control
         // For now we can just leave this empty
-    }
-
-    /**
-     * Remove entity from world without triggering death mechanics.
-     * Used for group cleanup when training is complete.
-     */
-    public void removeFromWorld() {
-        // Queue for safe removal to avoid ConcurrentModificationException
-        com.dyllan.minekov.Minekov.queueEntityForRemoval(this);
     }
 
     // === Combat control ===

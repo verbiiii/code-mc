@@ -219,17 +219,6 @@ public class Minekov {
             System.err.println("[Minekov] Python WebSocket is not open.");
         }
     }
-    
-    /**
-     * Queue an entity for safe removal on the next tick (avoids ConcurrentModificationException)
-     */
-    public static void queueEntityForRemoval(Entity entity) {
-        if (entity != null) {
-            synchronized (entitiesToRemove) {
-                entitiesToRemove.add(entity);
-            }
-        }
-    }
 
     @SubscribeEvent
     public static void onRLCombatEvent(LivingHurtEvent event) {

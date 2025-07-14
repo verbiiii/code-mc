@@ -1,5 +1,6 @@
 package com.dyllan.minekov;
 
+import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.RLOperator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -79,29 +80,37 @@ public class BinaryActionDecoder {
         for (int i = 0; i < actionCount; i++) {
             if (buf.remaining() < 12) break;
             
-            int agentId = buf.getInt();
+            int operatorIndex = buf.getInt();
             short angleRaw = buf.getShort();
             short flags = buf.getShort();
             buf.getInt(); // skip reserved bytes
+
+            // AIOperator operator = Minekov.trainingState.getOperator(operatorIndex);
+            // try getting the operator at the index, but if it's not an RLOperator, raise an invalid state exception
+            AIOperator aiOperator_ = Minekov.trainingState.getOperator(operatorIndex);
+
+            if (aiOperator_ == null) {
+                throw new IllegalStateException("Invalid operator index: " + operatorIndex);
+            }
+            
+            if (!(aiOperator_ instanceof RLOperator)) {
+                throw new IllegalStateException("Operator at index " + operatorIndex + " is not an RLOperator");
+            }
+
+            RLOperator operator = (RLOperator) aiOperator_;
             
             // Queue actions for main thread execution to prevent ConcurrentModificationException
             if ((flags & 2) != 0) { // Move flag
                 float angle = (angleRaw & 0xFFFF) * 360.0f / 65535.0f;
                 pendingActions.offer(() -> {
-                    RLOperator op = AgentIdManager.getById(agentId);
-                    if (op != null) {
-                        op.moveTowards(angle, 0.13f);
-                    }
+                    operator.moveTowards(angle, 0.13f);
                 });
                 queued++;
             }
             
             if ((flags & 1) != 0) { // Fire flag
                 pendingActions.offer(() -> {
-                    RLOperator op = AgentIdManager.getById(agentId);
-                    if (op != null) {
-                        op.shootForward();
-                    }
+                    operator.shootForward();
                 });
                 queued++;
             }
