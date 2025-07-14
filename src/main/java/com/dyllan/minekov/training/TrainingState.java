@@ -51,6 +51,15 @@ public class TrainingState {
         return operatorsArray[index];
     }
 
+    public RLOperator getRLOperator(int index) {
+        AIOperator operator = getOperator(index);
+        if (operator instanceof RLOperator) {
+            return (RLOperator) operator;
+        } else {
+            throw new IllegalArgumentException("Operator at index " + index + " is not an RLOperator");
+        }
+    }
+
     public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
         ArrayList<AIOperator> opponents = new ArrayList<>();
         for (TrainingGroup group : groups) {

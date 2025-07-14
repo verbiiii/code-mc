@@ -181,9 +181,6 @@ public class Minekov {
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
-        // Process pending binary actions on main server thread
-        BinaryActionDecoder.processPendingActions();
-
         tickCounter++;
         if (tickCounter >= RECONNECT_INTERVAL) {
             tickCounter = 0;
