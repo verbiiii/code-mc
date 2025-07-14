@@ -6,10 +6,9 @@ from batched_layers import BatchedLinear
 MAX_AGENTS = 64
 
 # FMC Constants
-KEEP_TOP_PERCENT = 0.05
-MUTATION_RATE = 1.0          # percent of weights that will be mutated
-MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 3.0
+KEEP_TOP_PERCENT = 0.1
+MUTATION_AMPLITUDE = 1.0    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 1.0
 
 class VectorizedTrainer:
     def __init__(self, device='cpu'):
@@ -35,7 +34,6 @@ class VectorizedTrainer:
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
-        self.best_agent_idx = 0  # Index of current lifetime champion
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
@@ -95,30 +93,15 @@ class VectorizedTrainer:
 
     def on_round_end(self):
         """Called at the end of each round."""
-        # Update lifetime champion before applying FMC (which may cause cloning)
-        self.update_lifetime_champion()
-        
+
         self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
-    
-    def update_lifetime_champion(self):
-        """Update tracking of lifetime champion based on lifetime cumulative rewards."""
-        if torch.any(self.lifetime_cumulative_rewards > 0):
-            current_lifetime_best_idx = torch.argmax(self.lifetime_cumulative_rewards).item()
-            current_lifetime_best_reward = self.lifetime_cumulative_rewards[current_lifetime_best_idx].item()
-            previous_champion_reward = self.lifetime_cumulative_rewards[self.best_agent_idx].item()
-            
-            if current_lifetime_best_idx != self.best_agent_idx:
-                self.best_agent_idx = current_lifetime_best_idx
-                print(f"🏆 NEW LIFETIME CHAMPION: Agent {current_lifetime_best_idx} with lifetime reward {current_lifetime_best_reward:.2f}")
-            else:
-                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.round_cumulative_rewards[self.best_agent_idx].item():.2f})")
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
             
-        scores = self.round_cumulative_rewards.clone()
-        # scores = self.lifetime_cumulative_rewards.clone()
+        # scores = self.round_cumulative_rewards.clone()
+        scores = self.lifetime_cumulative_rewards.clone()
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
