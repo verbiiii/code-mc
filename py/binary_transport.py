@@ -83,8 +83,8 @@ class BinaryTransport:
             return None, None, None
             
         # Debug: Alert if we're getting too many agents (reduced verbosity)
-        if agent_count > 64:
-            print(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
+        if agent_count > MAX_AGENTS:
+            raise RuntimeError(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
             
         self.tick_count = tick
         
@@ -139,20 +139,16 @@ class BinaryTransport:
             
             mapped_indices[i] = self.agent_id_to_index[agent_id_int]
             
-        if skipped_count > 0:
-            print(f"⚠️ Skipped {skipped_count} agents due to 64-agent limit")
+        # if skipped_count > 0:
+            # print(f"⚠️ Skipped {skipped_count} agents due to 64-agent limit")
             # If we're skipping a lot, show some stats
-            if skipped_count > 32:
-                active_agents = (mapped_indices != -1).sum().item()
-                print(f"📊 Active agents: {active_agents}, Mapped agents: {len(self.agent_id_to_index)}")
+            # if skipped_count > 32:
+                # active_agents = (mapped_indices != -1).sum().item()
+                # print(f"📊 Active agents: {active_agents}, Mapped agents: {len(self.agent_id_to_index)}")
         
         # Pad to MAX_AGENTS for BatchedLinear compatibility
-        MAX_AGENTS = 64
         if agent_count < MAX_AGENTS:
             # Removed padding message for cleaner output
-            
-            # Create padding for inactive agents
-            padding_size = MAX_AGENTS - agent_count
             
             # Pad positions with zeros
             positions_padded = torch.zeros(MAX_AGENTS, 6, device=self.trainer.device)

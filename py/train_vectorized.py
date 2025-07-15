@@ -3,12 +3,12 @@ import numpy as np
 from typing import Tuple
 from batched_layers import BatchedLinear
 
-MAX_AGENTS = 64
+MAX_AGENTS = 128
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.1
-MUTATION_AMPLITUDE = 1.0    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 1.0
+MUTATION_AMPLITUDE = 5.0    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 2.0
 
 class VectorizedTrainer:
     def __init__(self, device='cpu'):
@@ -16,19 +16,21 @@ class VectorizedTrainer:
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
-            BatchedLinear(MAX_AGENTS, 6, 64),
+            BatchedLinear(MAX_AGENTS, 6, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 128),
+            BatchedLinear(MAX_AGENTS, 32, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 128, 64),
+            BatchedLinear(MAX_AGENTS, 32, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
-
-        self.rewards = torch.zeros((MAX_AGENTS, 1000), device=self.device)
-        self.episode_lengths = torch.zeros(MAX_AGENTS, dtype=torch.long, device=self.device)
         self.reward_history = []
 
         # Fitness tracking
@@ -99,6 +101,9 @@ class VectorizedTrainer:
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
+
+        print("This Round's Cumulative Rewards:")
+        print(self.round_cumulative_rewards)
             
         # scores = self.round_cumulative_rewards.clone()
         scores = self.lifetime_cumulative_rewards.clone()
