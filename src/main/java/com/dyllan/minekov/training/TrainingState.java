@@ -79,12 +79,16 @@ public class TrainingState {
         var actionQueue = PythonRLController.ACTION_QUEUE;
 
         int size = actionQueue.size();
-        if (size > 1) {
-            // warn that we have a lot of actions queued up
+        if (size == 0) {
+            // print another warning if the queue is empty
+            System.out.println("⚠️ Warning: Action queue is empty, no actions received from Python. This may indicate a problem with the WebSocket connection or Python script.");
+        } else if (size > 1) {
             System.out.println("⚠️ Warning: Action queue size is " + size + ", latency for action predictions appears to be slower than the main server tick loop.");            
         }
 
-        actionQueue.forEach(actions -> {
+        // Poll and process each queued action map (thread-safe removal)
+        Map<Integer, VectorizedActionDecoder.AgentAction> actions;
+        while ((actions = actionQueue.poll()) != null) {
             for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
                 int sequentialIndex = entry.getKey();
                 VectorizedActionDecoder.AgentAction action = entry.getValue();
@@ -96,7 +100,7 @@ public class TrainingState {
 
                 action.performAction(operator);
             }
-        });
+        }
     }
 
     public AIOperator getOperator(int index) {
