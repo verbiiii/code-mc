@@ -102,10 +102,14 @@ public class TrainingState {
                 setupRound();
             }
 
-            // no need to send actions and stuff, just skip the rest of the tick logic
+            // no need to send observations and stuff, just skip the rest of the tick logic
             return;
         }
 
+        givePythonOurObservations();
+    }
+
+    public void givePythonOurObservations() {
         // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
         Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
         
