@@ -47,32 +47,11 @@ public class PythonRLController {
             VectorizedActionDecoder.AgentAction action = entry.getValue();
 
             RLOperator operator = Minekov.trainingState.getRLOperator(sequentialIndex);
-
-            // raise an exception (illegal state) if the operator is null
             if (operator == null) {
                 throw new IllegalStateException("No RLOperator found for index: " + sequentialIndex);
             }
             
-            if (action.walk) {
-                operator.moveTowards(action.angle, 0.13f);
-            }
-            
-            if (action.shoot) {
-                operator.shootForward();
-            }
-            
-            if (action.jump) {
-                operator.jumpEntity();
-            }
-            
-            if (action.sneak) {
-                operator.sneakEntity(true);
-            } else {
-                operator.sneakEntity(false);
-            }
-
-            // use action.pitch, action.yaw to look in the specified direction
-            operator.lookInDirection(action.pitch, action.yaw);
+            action.performAction(operator);
         }
     }
 

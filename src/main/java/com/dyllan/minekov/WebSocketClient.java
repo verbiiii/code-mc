@@ -25,15 +25,15 @@ public class WebSocketClient {
     private Channel channel;
     private final EventLoopGroup group = new NioEventLoopGroup();
     private final Gson gson = new Gson();
-    private Consumer<JsonObject> messageHandler;
+    private Consumer<JsonObject> messageJSONHandler;
     private Consumer<byte[]> binaryMessageHandler;
 
     public WebSocketClient(URI uri) {
         this.uri = uri;
     }
 
-    public void setMessageHandler(Consumer<JsonObject> handler) {
-        this.messageHandler = handler;
+    public void setMessageJSONHandler(Consumer<JsonObject> handler) {
+        this.messageJSONHandler = handler;
     }
 
     public void setBinaryMessageHandler(Consumer<byte[]> handler) {
@@ -253,8 +253,8 @@ public class WebSocketClient {
                                  private void handleJsonMessage(String jsonText) {
                                      try {
                                          JsonObject obj = gson.fromJson(jsonText, JsonObject.class);
-                                         if (obj != null && messageHandler != null) {
-                                             messageHandler.accept(obj);
+                                         if (obj != null && messageJSONHandler != null) {
+                                             messageJSONHandler.accept(obj);
                                          }
                                      } catch (Exception e) {
                                          System.err.println("⚠️ WebSocket: JSON parse error for message length " + jsonText.length());

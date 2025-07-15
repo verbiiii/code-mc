@@ -5,6 +5,8 @@ import java.nio.ByteOrder;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.dyllan.minekov.entities.RLOperator;
+
 /**
  * Ultra-fast vectorized action decoder for binary protocol.
  * Decodes numpy-compatible byte arrays into agent actions.
@@ -100,6 +102,34 @@ public class VectorizedActionDecoder {
         public String toString() {
             return String.format("Action{angle=%.1f°, walk=%s, shoot=%s, jump=%s, sneak=%s, pitch=%.1f°, yaw=%.1f°}", 
                                angle, walk, shoot, jump, sneak, pitch, yaw);
+        }
+
+        // Apply actions using sequential indices
+        public void performAction(RLOperator operator) {
+            // raise an exception (illegal state) if the operator is null
+            if (operator == null) {
+                throw new IllegalStateException("A null operator cannot take an action.");
+            }
+            
+            if (this.walk) {
+                operator.moveTowards(this.angle, 0.13f);
+            }
+            
+            if (this.shoot) {
+                operator.shootForward();
+            }
+            
+            if (this.jump) {
+                operator.jumpEntity();
+            }
+            
+            if (this.sneak) {
+                operator.sneakEntity(true);
+            } else {
+                operator.sneakEntity(false);
+            }
+
+            operator.lookInDirection(this.pitch, this.yaw);
         }
     }
 }
