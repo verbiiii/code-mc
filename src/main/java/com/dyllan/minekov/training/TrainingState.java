@@ -44,6 +44,29 @@ public class TrainingState {
         setupRound(); // begin first round
     }
 
+    public void tick() {
+        if (!roundActive) return;
+
+        globalTick++;
+
+        this.groups.forEach(TrainingGroup::tick);
+        boolean roundDone = isRoundComplete();
+        if (roundDone) {
+            cleanupRound();
+            currentRound++;
+            if (currentRound >= numRounds) {
+                endSession();
+            } else {
+                setupRound();
+            }
+
+            // no need to send observations and stuff, just skip the rest of the tick logic
+            return;
+        }
+
+        givePythonOurObservations();
+    }
+
     public AIOperator getOperator(int index) {
         if (index < 0 || index >= operatorsArray.length) {
             throw new IndexOutOfBoundsException("Invalid operator index: " + index);
@@ -84,29 +107,6 @@ public class TrainingState {
         }
 
         return opponents;
-    }
-
-    public void tick() {
-        if (!roundActive) return;
-
-        globalTick++;
-
-        this.groups.forEach(TrainingGroup::tick);
-        boolean roundDone = isRoundComplete();
-        if (roundDone) {
-            cleanupRound();
-            currentRound++;
-            if (currentRound >= numRounds) {
-                endSession();
-            } else {
-                setupRound();
-            }
-
-            // no need to send observations and stuff, just skip the rest of the tick logic
-            return;
-        }
-
-        givePythonOurObservations();
     }
 
     public void givePythonOurObservations() {
