@@ -21,7 +21,7 @@ import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
     private static final int NUM_GROUPS = 64; // ← change this to 1, 100, etc. for # of 1v1s
-    private final boolean selfPlay = true; // ← set to false to use DumbOperator
+    private final boolean selfPlay = false; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
@@ -111,12 +111,20 @@ public class TrainingState {
     }
 
     public RLOperator getRLOperator(int index) {
-        AIOperator operator = getOperator(index);
-        if (operator instanceof RLOperator) {
-            return (RLOperator) operator;
-        } else {
-            throw new IllegalArgumentException("Operator at index " + index + " is not an RLOperator");
+        // filter array first (kinda slow, but hmm)
+        ArrayList<RLOperator> rlOperators = new ArrayList<>();
+        for (AIOperator op : operatorsArray) {
+            if (op instanceof RLOperator) {
+                rlOperators.add((RLOperator) op);
+            }
         }
+
+        // then check if the index is valid
+        if (index < 0 || index >= rlOperators.size()) {
+            throw new IndexOutOfBoundsException("Invalid RLOperator index: " + index);
+        }
+
+        return rlOperators.get(index);
     }
 
     public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
