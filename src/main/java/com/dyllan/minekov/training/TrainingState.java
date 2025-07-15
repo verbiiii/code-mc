@@ -7,6 +7,8 @@ import java.util.Map;
 
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
+import com.dyllan.minekov.PythonRLController;
+import com.dyllan.minekov.VectorizedActionDecoder;
 import com.dyllan.minekov.VectorizedObservationEncoder;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
@@ -47,6 +49,8 @@ public class TrainingState {
     public void tick() {
         if (!roundActive) return;
 
+        performOperatorActions();
+
         globalTick++;
 
         this.groups.forEach(TrainingGroup::tick);
@@ -65,6 +69,34 @@ public class TrainingState {
         }
 
         givePythonOurObservations();
+    }
+
+    public void performOperatorActions() {
+        // The WebSocketClient will put all actions it receives from python into the
+        // static ACTION_QUEUE in the PythonRLController class.
+        // This is the method that will ingest those actions, applying them to the
+        // current tick.
+        var actionQueue = PythonRLController.ACTION_QUEUE;
+
+        int size = actionQueue.size();
+        if (size > 1) {
+            // warn that we have a lot of actions queued up
+            System.out.println("⚠️ Warning: Action queue size is " + size + ", latency for action predictions appears to be slower than the main server tick loop.");            
+        }
+
+        actionQueue.forEach(actions -> {
+            for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
+                int sequentialIndex = entry.getKey();
+                VectorizedActionDecoder.AgentAction action = entry.getValue();
+                RLOperator operator = getRLOperator(sequentialIndex);
+
+                if (operator == null) {
+                    throw new IllegalStateException("No RLOperator found for index: " + sequentialIndex);
+                }
+
+                action.performAction(operator);
+            }
+        });
     }
 
     public AIOperator getOperator(int index) {

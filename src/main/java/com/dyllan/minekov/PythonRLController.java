@@ -1,10 +1,13 @@
 package com.dyllan.minekov;
 
+import com.dyllan.minekov.VectorizedActionDecoder.AgentAction;
 import com.dyllan.minekov.entities.RLOperator;
 import com.google.gson.JsonObject;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Game-specific controller that handles RL agent actions.
@@ -14,6 +17,7 @@ import java.util.Map;
 public class PythonRLController {
 
     private final WebSocketClient webSocket;
+    public static final Queue<Map<Integer, AgentAction>> ACTION_QUEUE = new ConcurrentLinkedQueue<>();
 
     public PythonRLController(URI uri) {
         this.webSocket = new WebSocketClient(uri);
@@ -34,24 +38,12 @@ public class PythonRLController {
         return webSocket.isConnected();
     }
 
-    /**
-     * Handle incoming binary messages from Python (ultra-efficient)
-     */
     private void handleBinaryMessage(byte[] data) {
-        // Use new vectorized decoder for better performance
-        Map<Integer, VectorizedActionDecoder.AgentAction> actions = VectorizedActionDecoder.decodeActions(data);
-        
-        // Apply actions using sequential indices
-        for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
-            int sequentialIndex = entry.getKey();
-            VectorizedActionDecoder.AgentAction action = entry.getValue();
-
-            RLOperator operator = Minekov.trainingState.getRLOperator(sequentialIndex);
-            if (operator == null) {
-                throw new IllegalStateException("No RLOperator found for index: " + sequentialIndex);
-            }
-            
-            action.performAction(operator);
+        // This will be used by the WebSocketClient to prepare actions by putting them in the ACTION_QUEUE for us to
+        // process in the main tick loop.
+        Map<Integer, AgentAction> actions = VectorizedActionDecoder.decodeActions(data);
+        if (actions != null && !actions.isEmpty()) {
+            ACTION_QUEUE.add(actions);  // Thread-safe enqueue
         }
     }
 
