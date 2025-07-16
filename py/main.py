@@ -80,7 +80,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     update_model = payload.get("update_model_parameters", True)  # Default to True for backwards compatibility
                     if update_model:
                         logger.info("🔴 Round ended - applying learning updates")
-                        trainer.on_round_end()
+                        TRAINER.on_round_end()
                     else:
                         logger.info("🔄 Round ended - skipping learning updates (play mode)")
                     continue
