@@ -3,7 +3,7 @@ import numpy as np
 from typing import Tuple
 from batched_layers import BatchedLinear
 
-MAX_AGENTS = 128
+MAX_AGENTS = 64
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.05

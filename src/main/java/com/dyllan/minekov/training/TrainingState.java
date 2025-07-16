@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.PythonRLController;
@@ -103,6 +104,21 @@ public class TrainingState {
         }
     }
 
+    public int getIndexForRLOperator(RLOperator operator) {
+        // custom for loop because the index skips over non-RLOperator entities
+
+        // use getRLOperators()
+        int i = 0;
+        for (RLOperator op : getRLOperators()) {
+            if (op == operator) {
+                return i; // return the index of the RLOperator
+            }
+            i++;
+        }
+
+        throw new IllegalStateException("RLOperator not found in array: " + operator.getId());
+    }
+
     public AIOperator getOperator(int index) {
         if (index < 0 || index >= operatorsArray.length) {
             throw new IndexOutOfBoundsException("Invalid operator index: " + index);
@@ -110,14 +126,19 @@ public class TrainingState {
         return operatorsArray[index];
     }
 
-    public RLOperator getRLOperator(int index) {
-        // filter array first (kinda slow, but hmm)
+    public ArrayList<RLOperator> getRLOperators() {
         ArrayList<RLOperator> rlOperators = new ArrayList<>();
         for (AIOperator op : operatorsArray) {
             if (op instanceof RLOperator) {
                 rlOperators.add((RLOperator) op);
             }
         }
+        return rlOperators;
+    }
+
+    public RLOperator getRLOperator(int index) {
+        // filter array first (kinda slow, but hmm)
+        ArrayList<RLOperator> rlOperators = getRLOperators();
 
         // then check if the index is valid
         if (index < 0 || index >= rlOperators.size()) {
@@ -182,8 +203,9 @@ public class TrainingState {
             );
             
             // Use actual agent ID instead of sequential index
-            int agentId = rlOp.getId(); // Entity ID as unique identifier
-            observations.put(agentId, obs);
+            // int agentId = rlOp.getId(); // Entity ID as unique identifier (THIS LINE IS A MAJOR BUG! HAD TO FIX BELOW)
+            int opIndex = getIndexForRLOperator(rlOp);
+            observations.put(opIndex, obs);
             rlOp.clearTickDamageStats();
         }
         
