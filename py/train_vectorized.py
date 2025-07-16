@@ -185,30 +185,29 @@ class VectorizedTrainer:
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
-        # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
 
         # Select partners based on scores (higher score higher probability of selection)
-        normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+        # normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+        # same but protect against division by zero
+        normalized_scores = torch.clamp((scores - scores.min()) / torch.clamp((scores.max() - scores.min()), min=1e-8), min=1e-8)
 
         # check for nans or infs (crash if so)
         if torch.isnan(normalized_scores).any() or torch.isinf(normalized_scores).any():
             raise ValueError("Normalized scores contain NaN or Inf values. Check your reward calculations.")
         
-        distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
+        # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, arange, distance_partner_is)
-        clone_partner_indices = torch.multinomial(vr, MAX_AGENTS, replacement=True)
+        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
+        partner_vr = vr[partner_indices]
         
         # Determine cloning probability based on virtual rewards
-        # value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
         
         # Random threshold for cloning decision
-        # r = torch.rand(MAX_AGENTS, device=self.device)
-        # will_clone = value >= r
-        clone_percent = 0.75
-        # generate a will clone mask totally randomly using our clone percent
-        will_clone = torch.rand(MAX_AGENTS, device=self.device) < clone_percent
+        r = torch.rand(MAX_AGENTS, device=self.device)
+        will_clone = value >= r
         
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
@@ -228,7 +227,7 @@ class VectorizedTrainer:
             # Clone parameters for each BatchedLinear layer in the model
             for module in self.model.modules():
                 if isinstance(module, BatchedLinear):
-                    module.clone(will_clone, clone_partner_indices)
+                    module.clone(will_clone, partner_indices)
                     # Mutate the cloned parameters
                     module.mutate(will_clone, MUTATION_AMPLITUDE)
             
