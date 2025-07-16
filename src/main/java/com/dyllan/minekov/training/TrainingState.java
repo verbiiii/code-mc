@@ -157,7 +157,6 @@ public class TrainingState {
     public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
         ArrayList<AIOperator> opponents = new ArrayList<>();
         for (TrainingGroup group : groups) {
-            // only look at the group that contains the operator (SHOULD ONLY BE CONTAINED BY ONE TODO make that always true)
             if (!group.contains(operator)) continue;
 
             for (Team team : group.getTeams()) {
@@ -190,22 +189,23 @@ public class TrainingState {
 
             RLOperator rlOp = (RLOperator) operatorsArray[i];
 
-            // Get the opponent from the same group (TODO: multiple opponents/team mates)
-            AIOperator opponent = getOpponentsForOperator(rlOp).get(0);
-            
             // Create vectorized observation with actual agent ID
             float damageDealt = rlOp.getDamageDealtLastTick();
             float damageTaken = rlOp.getDamageTakenLastTick();
             int kills = rlOp.getKillsLastTick();
             int deaths = rlOp.getDeathsLastTick();
+
+            int groupIndex = getGroupIndexForRLOperator(rlOp);
+            int teamIndex = getTeamIndexForRLOperator(rlOp);
             
             VectorizedObservationEncoder.AgentObservation obs = new VectorizedObservationEncoder.AgentObservation(
                 rlOp.getX(), rlOp.getY(), rlOp.getZ(),       // Agent position
-                opponent.getX(), opponent.getY(), opponent.getZ(), // Opponent position
                 damageDealt,                                 // Damage dealt
                 damageTaken,                                 // Damage taken
                 kills,                                       // Kills
-                deaths                                       // Deaths
+                deaths,                                      // Deaths
+                groupIndex,
+                teamIndex
             );
             
             // Use actual agent ID instead of sequential index
@@ -218,6 +218,27 @@ public class TrainingState {
         // Encode and send binary observations
         byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
         PythonBridge.sendBinaryToPython(binaryData);
+    }
+
+    public int getGroupIndexForRLOperator(RLOperator operator) {
+        for (int i = 0; i < groups.size(); i++) {
+            if (groups.get(i).contains(operator)) {
+                return i; // Return the index of the group containing this operator
+            }
+        }
+        throw new IllegalStateException("RLOperator not found in any group: " + operator.getId());
+    }
+
+    public int getTeamIndexForRLOperator(RLOperator operator) {
+        for (TrainingGroup group : groups) {
+            for (int i = 0; i < group.getTeams().size(); i++) {
+                Team team = group.getTeams().get(i);
+                if (team.getOperators().contains(operator)) {
+                    return i; // Return the index of the team containing this operator
+                }
+            }
+        }
+        throw new IllegalStateException("RLOperator not found in any team: " + operator.getId());
     }
 
     public boolean isComplete() {
