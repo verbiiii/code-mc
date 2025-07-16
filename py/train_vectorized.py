@@ -126,7 +126,7 @@ class VectorizedTrainer:
         yaw_actions = torch.argmax(yaw_logits, dim=1)
 
         # Dummy distance for now (fill in later)
-        distance_to_enemy = torch.zeros_like(walk_logits)
+        distance_to_enemy = None #torch.zeros_like(walk_logits)
 
         return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, None, distance_to_enemy
 
@@ -153,7 +153,7 @@ class VectorizedTrainer:
         # rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
-        rewards += (1 / (distance_to_enemy[active_mask] + 1))
+        # rewards += (1 / (distance_to_enemy[active_mask] + 1))
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
