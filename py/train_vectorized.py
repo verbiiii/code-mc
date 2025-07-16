@@ -119,7 +119,7 @@ class VectorizedTrainer:
         # rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
-        rewards += (1 / distance_to_enemy[active_mask])
+        rewards += (1 / (distance_to_enemy[active_mask] + 1))
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
@@ -154,7 +154,12 @@ class VectorizedTrainer:
         # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
 
         # Select partners based on scores (higher score higher probability of selection)
-        normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
+        normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+
+        # check for nans or infs (crash if so)
+        if torch.isnan(normalized_scores).any() or torch.isinf(normalized_scores).any():
+            raise ValueError("Normalized scores contain NaN or Inf values. Check your reward calculations.")
+        
         distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
