@@ -23,10 +23,6 @@ class BinaryTransport:
         # Performance monitoring
         self.processing_times = []
         
-        # Agent ID mapping: large entity IDs -> small indices (0-63)
-        self.agent_id_to_index = {}
-        self.next_index = 0
-        
         print("🚀 BinaryTransport initialized")
 
     def process_observations(self, binary_data: bytes) -> bytes:
@@ -156,14 +152,8 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
-        print(f"🏁 Ending round - clearing {len(self.agent_id_to_index)} agent mappings")
-        # Reset cumulative rewards for next round
+        print(f"🏁 Ending round")
         self.trainer.on_round_end()
-        # Clear agent ID mapping for next round
-        self.agent_id_to_index.clear()
-        self.next_index = 0
-        print(f"✅ Agent mapping reset complete - next_index: {self.next_index}, mappings: {len(self.agent_id_to_index)}")
-        # Removed round complete message for cleaner output
 
     def get_performance_stats(self) -> Dict:
         """Get performance and training statistics."""

@@ -160,7 +160,7 @@ class VectorizedTrainer:
         
         # Perform cloning and mutation
         if will_clone.any():
-            clone_indices_to_clone_from = partner_indices[will_clone]
+            # clone_indices_to_clone_from = partner_indices[will_clone]
             
             # Clone parameters for each BatchedLinear layer in the model
             for module in self.model.modules():
