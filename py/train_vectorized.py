@@ -185,6 +185,7 @@ class VectorizedTrainer:
             print(f"   🔄 Cloned: {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
             if len(top_k_rewards) > 0:
                 print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+                print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
         else:
             print(f"🧬 FMC: No agents cloned (mean score: {scores.mean().item():.2f})")
 
