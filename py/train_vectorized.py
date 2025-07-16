@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from typing import Tuple
-from batched_layers import BatchedLinear
+from py.batched_linear import BatchedLinear
 
 MAX_AGENTS = 64
 
