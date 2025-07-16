@@ -9,7 +9,8 @@ import logging
 import json
 from fastapi import FastAPI, WebSocket
 
-from binary_transport import initialize_transport, process_binary_data, signal_round_end, get_stats, process_top_agent_data
+from train_vectorized import VectorizedTrainer
+from binary_transport import BinaryTransport
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,7 +20,8 @@ logger = logging.getLogger(__name__)
 event_loop = None
 
 # Initialize the vectorized transport layer
-initialize_transport(device='cpu')
+trainer = VectorizedTrainer()
+transport = BinaryTransport(trainer=trainer)
 
 # FastAPI app - minimal setup
 app = FastAPI(title="Minekov Vectorized RL Server")
@@ -33,7 +35,6 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connected_clients.add(websocket)
     client_id = id(websocket)
-    
     logger.info(f"🔗 Client {client_id} connected. Total clients: {len(connected_clients)}")
     
     while True:
@@ -76,46 +77,13 @@ async def websocket_endpoint(websocket: WebSocket):
             binary_data = message["bytes"]
             
             # Process through vectorized pipeline and get actions
-            response_data = process_binary_data(binary_data)
+            response_data = transport.process_observations(binary_data)
             
             # Send binary action response
             await websocket.send_bytes(response_data)
             
         else:
             logger.warning(f"⚠️ Unknown message type: {message}")
-
-@app.websocket("/top-agent")
-async def top_agent_websocket(websocket: WebSocket):
-    """Dedicated WebSocket endpoint for 1v1 combat with the top performing agent."""
-    await websocket.accept()
-    client_id = id(websocket)
-    
-    logger.info(f"🥊 Top agent client {client_id} connected for 1v1 combat")
-    
-    while True:
-        # Receive any message type
-        message = await websocket.receive()
-        
-        if "bytes" in message:
-            binary_data = message["bytes"]
-            
-            # Process single agent observation through top agent model
-            response_data = process_top_agent_data(binary_data)
-            
-            # Send binary action response
-            await websocket.send_bytes(response_data)
-            
-        elif "text" in message:
-            # Handle any text messages (like initial handshake messages)
-            text_data = message["text"]
-            logger.info(f"🔗 Top agent received text message: {text_data[:50]}...")
-            # Just ignore text messages for now
-            continue
-            
-        else:
-            logger.warning(f"⚠️ Top agent received unknown message type: {message}")
-
-# All communication happens over WebSocket - no HTTP routes needed
 
 async def main():
     """Run the server with proper event loop setup."""
