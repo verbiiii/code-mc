@@ -33,7 +33,7 @@ class RLOperator(torch.nn.Module):
             torch.nn.Tanh(),
             BatchedLinear(MAX_AGENTS, 32, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            BatchedLinear(MAX_AGENTS, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
@@ -59,31 +59,34 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
+    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
         logits = self.model.forward(observations, agent_indices)
 
+        raise NotImplementedError("TODO handle group indices and team indices...")
+
         # x1, y1, z1 = self (agent's position)
-        # x2, y2, z2 = target (enemy's position)
         x1_coords = observations[:, 0]
         y1_coords = observations[:, 1]
         z1_coords = observations[:, 2]
-        x2_coords = observations[:, 3]
-        y2_coords = observations[:, 4]
-        z2_coords = observations[:, 5]
+
+        # TODO: we need to convert from always having just 1 enemy at at ime, to having multiple enemies (of unknown size)
+        # x2, y2, z2 = target (enemy's position)
+        # x2_coords = observations[:, 3]
+        # y2_coords = observations[:, 4]
+        # z2_coords = observations[:, 5]
+
         distance_to_enemy = torch.sqrt((x2_coords - x1_coords) ** 2 + (y2_coords - y1_coords) ** 2 + (z2_coords - z1_coords) ** 2)
 
         x_logits = logits[:, :8]
-        y_logits = logits[:, 8:16]
-        walk_logits = logits[:, 16]
-        shoot_logits = logits[:, 17]
-        jump_logits = logits[:, 18]
-        sneak_logits = logits[:, 19]
-        pitch_logits = logits[:, 20:28]  # 8 categories for pitch (-90 to +90 degrees)
-        yaw_logits = logits[:, 28:36]    # 8 categories for yaw (0 to 360 degrees)
+        walk_logits = logits[:, 8]
+        shoot_logits = logits[:, 9]
+        jump_logits = logits[:, 10]
+        sneak_logits = logits[:, 11]
+        pitch_logits = logits[:, 12:20]  # 8 categories for pitch (-90 to +90 degrees)
+        yaw_logits = logits[:, 20:28]    # 8 categories for yaw (0 to 360 degrees)
 
         # Deterministic actions - take argmax instead of sampling
-        x_actions = torch.argmax(x_logits, dim=1)
-        y_actions = torch.argmax(y_logits, dim=1)
+        movement_theta = torch.argmax(x_logits, dim=1)
         walk_actions = (walk_logits > 0.0).bool()  # Deterministic threshold at 0
         shoot_actions = (shoot_logits > 0.0).bool()
         jump_actions = (jump_logits > 0.0).bool()
@@ -94,7 +97,7 @@ class VectorizedTrainer:
         # No log probabilities for deterministic policies
         log_probs = None
 
-        return x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy
+        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy
 
     def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor):
         """Update episode data using actual agent indices."""

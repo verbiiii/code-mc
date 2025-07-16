@@ -12,7 +12,7 @@ import java.util.Map;
 public class VectorizedObservationEncoder {
     
     private static final int MAGIC_HEADER = 0xFEEDBEEF;
-    private static final int OBSERVATION_SIZE = 11; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
+    private static final int OBSERVATION_SIZE = 10; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
     
     /**
      * Encode observations for all agents into binary format.
@@ -54,11 +54,10 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.myX);
             buffer.putFloat((float) obs.myY);
             buffer.putFloat((float) obs.myZ);
-            
-            // Opponent position
-            buffer.putFloat((float) obs.oppX);
-            buffer.putFloat((float) obs.oppY);
-            buffer.putFloat((float) obs.oppZ);
+
+            // Our team/group information (how we will determine the agent's opponent/team observations)
+            buffer.putFloat((float) obs.groupIndex);
+            buffer.putFloat((float) obs.teamIndex);
 
             // Reward metrics
             buffer.putFloat((float) obs.damageDealt);
@@ -85,20 +84,19 @@ public class VectorizedObservationEncoder {
      */
     public static class AgentObservation {
         public final double myX, myY, myZ;
-        public final double oppX, oppY, oppZ;
         public final double damageDealt, damageTaken;
         public final int kills, deaths;
+        public final int groupIndex, teamIndex;
         
         public AgentObservation(double myX, double myY, double myZ,
-                              double oppX, double oppY, double oppZ,
                               double damageDealt, double damageTaken,
-                              int kills, int deaths) {
+                              int kills, int deaths,
+                              int groupIndex, int teamIndex) {
             this.myX = myX;
             this.myY = myY;
             this.myZ = myZ;
-            this.oppX = oppX;
-            this.oppY = oppY;
-            this.oppZ = oppZ;
+            this.groupIndex = groupIndex;
+            this.teamIndex = teamIndex;
             this.damageDealt = damageDealt;
             this.damageTaken = damageTaken;
             this.kills = kills;
