@@ -63,37 +63,37 @@ public class Minekov {
             Commands.literal("minekov")
                 .then(Commands.literal("loot")
                     .then(Commands.argument("table", StringArgumentType.word())
-                        .suggests((context, builder) -> {
+                        .suggests((ctx, builder) -> {
                             builder.suggest("weaponry_tier1");
                             return builder.buildFuture();
                         })
-                        .executes(context -> {
-                            String table = StringArgumentType.getString(context, "table");
-                            ServerPlayer player = context.getSource().getPlayerOrException();
-                            LootLoader.openLootChest(player, table, context.getSource().getServer());
+                        .executes(ctx -> {
+                            String table = StringArgumentType.getString(ctx, "table");
+                            ServerPlayer player = ctx.getSource().getPlayerOrException();
+                            LootLoader.openLootChest(player, table, ctx.getSource().getServer());
                             return 1;
                         })
                     )
                 )
                 .then(Commands.literal("scene")
-                    .executes(context -> runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32))
+                    .executes(ctx -> runSceneCommand(ctx.getSource().getPlayerOrException(), 32, 8, 32))
                     .then(Commands.argument("x_length", IntegerArgumentType.integer(1))
-                        .executes(context -> {
-                            int x = IntegerArgumentType.getInteger(context, "x_length");
-                            return runSceneCommand(context.getSource().getPlayerOrException(), x, 8, 32);
+                        .executes(ctx -> {
+                            int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                            return runSceneCommand(ctx.getSource().getPlayerOrException(), x, 8, 32);
                         })
                         .then(Commands.argument("y_length", IntegerArgumentType.integer(1))
-                            .executes(context -> {
-                                int x = IntegerArgumentType.getInteger(context, "x_length");
-                                int y = IntegerArgumentType.getInteger(context, "y_length");
-                                return runSceneCommand(context.getSource().getPlayerOrException(), x, y, 32);
+                            .executes(ctx -> {
+                                int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                                int y = IntegerArgumentType.getInteger(ctx, "y_length");
+                                return runSceneCommand(ctx.getSource().getPlayerOrException(), x, y, 32);
                             })
                             .then(Commands.argument("z_length", IntegerArgumentType.integer(1))
-                                .executes(context -> {
-                                    int x = IntegerArgumentType.getInteger(context, "x_length");
-                                    int y = IntegerArgumentType.getInteger(context, "y_length");
-                                    int z = IntegerArgumentType.getInteger(context, "z_length");
-                                    return runSceneCommand(context.getSource().getPlayerOrException(), x, y, z);
+                                .executes(ctx -> {
+                                    int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                                    int y = IntegerArgumentType.getInteger(ctx, "y_length");
+                                    int z = IntegerArgumentType.getInteger(ctx, "z_length");
+                                    return runSceneCommand(ctx.getSource().getPlayerOrException(), x, y, z);
                                 })
                             )
                         )
@@ -102,12 +102,18 @@ public class Minekov {
                 .then(Commands.literal("train")
                     .then(Commands.literal("start")
                         .then(Commands.argument("mode", StringArgumentType.word())
+                            .suggests((ctx, builder) -> {
+                                for (TrainingGameMode mode : TrainingGameMode.values()) {
+                                    builder.suggest(mode.name().toLowerCase());
+                                }
+                                return builder.buildFuture();
+                            })
                             .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> {
                                     var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
                                     var player = ctx.getSource().getPlayerOrException();
                                     var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16); // defaults
+                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16);
                                 })
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                     .executes(ctx -> {
@@ -148,13 +154,10 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("play")
-                .executes(ctx -> {
-                    return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
-                })
-            )
+                    .executes(ctx -> runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel()))
+                )
         );
     }
-
 
     private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius) {
         OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
