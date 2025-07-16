@@ -1,14 +1,14 @@
 import torch
 import numpy as np
 from typing import Tuple
-from batched_layers import BatchedLinear
+from batched_linear import BatchedLinear
 
-MAX_AGENTS = 64
+MAX_AGENTS = 32
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_AMPLITUDE = 0.001    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 2.0
+MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 1.0
 
 
 class RLOperator(torch.nn.Module):
@@ -17,23 +17,19 @@ class RLOperator(torch.nn.Module):
 
         self.device = torch.device(device)
 
-        self.input_features = 6
+        self.input_features = 3 + ((MAX_AGENTS - 1) * 4)
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
             BatchedLinear(MAX_AGENTS, self.input_features, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 32, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 64, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 64, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            BatchedLinear(MAX_AGENTS, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
@@ -59,42 +55,76 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
-        logits = self.model.forward(observations, agent_indices)
+    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
+        """
+        observations: [N, 3] – only alive agents
+        agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
+        group_indices: [N] – group id per agent (used to match group-mates)
+        """
 
-        # x1, y1, z1 = self (agent's position)
-        # x2, y2, z2 = target (enemy's position)
-        x1_coords = observations[:, 0]
-        y1_coords = observations[:, 1]
-        z1_coords = observations[:, 2]
-        x2_coords = observations[:, 3]
-        y2_coords = observations[:, 4]
-        z2_coords = observations[:, 5]
-        distance_to_enemy = torch.sqrt((x2_coords - x1_coords) ** 2 + (y2_coords - y1_coords) ** 2 + (z2_coords - z1_coords) ** 2)
+        N = agent_indices.shape[0]
+        device = self.device
+        num_features = 3 + (MAX_AGENTS - 1) * 4
+        obs_tensor = torch.zeros((MAX_AGENTS, num_features), device=device)
 
+        # Set own positions: obs_tensor[i, :3] = [x, y, z]
+        obs_tensor[agent_indices, :3] = observations
+
+        # Compute pairwise inclusion mask: [N, N] where True = same group
+        group_match = group_indices.unsqueeze(1) == group_indices.unsqueeze(0)
+
+        # Get full index grid: [N, N] for from_i and to_j
+        from_idx = agent_indices.view(-1, 1).expand(N, N)
+        to_idx   = agent_indices.view(1, -1).expand(N, N)
+
+        # Exclude self-copy
+        not_self = from_idx != to_idx
+        valid_pairs = group_match & not_self
+
+        # Compute slot offsets per target index (from perspective of `from_idx`)
+        slot_offsets = to_idx.clone()
+        slot_offsets[to_idx > from_idx] -= 1  # Shift down for indices after self
+
+        # Compute write index into obs_tensor: base offset is 3 + 4 * slot
+        write_idx = 3 + slot_offsets * 4  # shape [N, N]
+
+        # Flatten valid pairs
+        flat_from = from_idx[valid_pairs]      # [M]
+        flat_write = write_idx[valid_pairs]    # [M]
+        flat_data = observations[to_idx[valid_pairs]]  # [M, 3]
+
+        # Write other agents' x/y/z
+        obs_tensor[flat_from, flat_write + 0] = flat_data[:, 0]  # x
+        obs_tensor[flat_from, flat_write + 1] = flat_data[:, 1]  # y
+        obs_tensor[flat_from, flat_write + 2] = flat_data[:, 2]  # z
+        obs_tensor[flat_from, flat_write + 3] = 1.0              # is_alive
+
+        # Forward through model using only active agents
+        x = obs_tensor[agent_indices]
+        logits = self.model(x, agent_indices)
+
+        # Split output logits
         x_logits = logits[:, :8]
-        y_logits = logits[:, 8:16]
-        walk_logits = logits[:, 16]
-        shoot_logits = logits[:, 17]
-        jump_logits = logits[:, 18]
-        sneak_logits = logits[:, 19]
-        pitch_logits = logits[:, 20:28]  # 8 categories for pitch (-90 to +90 degrees)
-        yaw_logits = logits[:, 28:36]    # 8 categories for yaw (0 to 360 degrees)
+        walk_logits = logits[:, 8]
+        shoot_logits = logits[:, 9]
+        jump_logits = logits[:, 10]
+        sneak_logits = logits[:, 11]
+        pitch_logits = logits[:, 12:20]
+        yaw_logits = logits[:, 20:28]
 
-        # Deterministic actions - take argmax instead of sampling
-        x_actions = torch.argmax(x_logits, dim=1)
-        y_actions = torch.argmax(y_logits, dim=1)
-        walk_actions = (walk_logits > 0.0).bool()  # Deterministic threshold at 0
-        shoot_actions = (shoot_logits > 0.0).bool()
-        jump_actions = (jump_logits > 0.0).bool()
-        sneak_actions = (sneak_logits > 0.0).bool()
+        # Deterministic policy
+        movement_theta = torch.argmax(x_logits, dim=1)
+        walk_actions = (walk_logits > 0.0)
+        shoot_actions = (shoot_logits > 0.0)
+        jump_actions = (jump_logits > 0.0)
+        sneak_actions = (sneak_logits > 0.0)
         pitch_actions = torch.argmax(pitch_logits, dim=1)
         yaw_actions = torch.argmax(yaw_logits, dim=1)
 
-        # No log probabilities for deterministic policies
-        log_probs = None
+        # Dummy distance for now (fill in later)
+        distance_to_enemy = None #torch.zeros_like(walk_logits)
 
-        return x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy
+        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, None, distance_to_enemy
 
     def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor):
         """Update episode data using actual agent indices."""
@@ -119,7 +149,7 @@ class VectorizedTrainer:
         # rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
-        rewards += (1 / (distance_to_enemy[active_mask] + 1))
+        # rewards += (1 / (distance_to_enemy[active_mask] + 1))
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
@@ -151,30 +181,29 @@ class VectorizedTrainer:
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
-        # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
 
         # Select partners based on scores (higher score higher probability of selection)
-        normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+        # normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+        # same but protect against division by zero
+        normalized_scores = torch.clamp((scores - scores.min()) / torch.clamp((scores.max() - scores.min()), min=1e-8), min=1e-8)
 
         # check for nans or infs (crash if so)
         if torch.isnan(normalized_scores).any() or torch.isinf(normalized_scores).any():
             raise ValueError("Normalized scores contain NaN or Inf values. Check your reward calculations.")
         
-        distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
+        # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, arange, distance_partner_is)
-        clone_partner_indices = torch.multinomial(vr, MAX_AGENTS, replacement=True)
+        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
+        partner_vr = vr[partner_indices]
         
         # Determine cloning probability based on virtual rewards
-        # value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
         
         # Random threshold for cloning decision
-        # r = torch.rand(MAX_AGENTS, device=self.device)
-        # will_clone = value >= r
-        clone_percent = 0.75
-        # generate a will clone mask totally randomly using our clone percent
-        will_clone = torch.rand(MAX_AGENTS, device=self.device) < clone_percent
+        r = torch.rand(MAX_AGENTS, device=self.device)
+        will_clone = value >= r
         
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
@@ -183,20 +212,19 @@ class VectorizedTrainer:
 
         top_agent_indices = torch.topk(scores, top_k).indices
         will_clone[top_agent_indices] = False
-        
+
+        will_perturbate = torch.ones(MAX_AGENTS, device=self.device, dtype=torch.bool)
+        will_perturbate[top_agent_indices] = False  # Don't perturb top agents
+
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
         
-        # Perform cloning and mutation
-        if will_clone.any():
-            # clone_indices_to_clone_from = partner_indices[will_clone]
-            
-            # Clone parameters for each BatchedLinear layer in the model
-            for module in self.model.modules():
-                if isinstance(module, BatchedLinear):
-                    module.clone(will_clone, clone_partner_indices)
-                    # Mutate the cloned parameters
-                    module.mutate(will_clone, MUTATION_AMPLITUDE)
+        # Perform cloning and perturbation
+        for module in self.model.modules():
+            if isinstance(module, BatchedLinear):
+                module.clone(will_clone, partner_indices)
+                # Mutate the cloned parameters
+                module.mutate(will_perturbate, MUTATION_AMPLITUDE)
             
             # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
             self.lifetime_cumulative_rewards[will_clone] = 0.0

@@ -38,18 +38,18 @@ class BinaryTransport:
         start_time = time.perf_counter()
     
         # Parse and validate header
-        obs_tensor, agent_indices, reward_data = self._parse_observations(binary_data)
+        obs_tensor, agent_indices, group_indices, team_indices, reward_data = self._parse_observations(binary_data)
         if obs_tensor is None:
             return self._encode_empty_actions()
         
         # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy = self.trainer.forward_pass(obs_tensor, agent_indices)
+        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy = self.trainer.forward_pass(obs_tensor, agent_indices, group_indices, team_indices)
 
         # Update training data
         self.trainer.update_episode_data(agent_indices, reward_data, log_probs, distance_to_enemy)
 
         # Convert actions and encode response
-        angles = (x_actions.float() / 8.0) * 360.0
+        angles = (movement_theta.float() / 8.0) * 360.0
         pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
         yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
         actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
@@ -100,10 +100,12 @@ class BinaryTransport:
         # Extract components vectorized - NOW WITH AGENT INDICES
         # Format: [agent_indices, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
         agent_indices = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
-        positions = obs_tensor[:, 1:7]           # [N, 6] - my_pos + opp_pos  
-        reward_data = obs_tensor[:, 7:11]        # [N, 4] - damage/kill data
+        positions = obs_tensor[:, 1:4]           # [N, 3] - my_pos
+        group_indices = obs_tensor[:, 4]          # [N] - group index (group index)
+        team_indices = obs_tensor[:, 5]           # [N] - team index (team index)
+        reward_data = obs_tensor[:, 6:10]        # [N, 4] - damage/kill data
         
-        return positions, agent_indices, reward_data
+        return positions, agent_indices, group_indices, team_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor, jump: torch.Tensor, sneak: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:

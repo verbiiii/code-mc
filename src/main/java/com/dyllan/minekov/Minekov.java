@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -30,10 +31,10 @@ import java.util.Map;
 import com.dyllan.minekov.entities.OperatorSpawningHandler;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.scene.SceneEncoder;
+import com.dyllan.minekov.training.TrainingGameMode;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
-import com.eliotlash.mclib.math.Operator;
 
 @Mod(Minekov.MODID)
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
@@ -62,37 +63,37 @@ public class Minekov {
             Commands.literal("minekov")
                 .then(Commands.literal("loot")
                     .then(Commands.argument("table", StringArgumentType.word())
-                        .suggests((context, builder) -> {
+                        .suggests((ctx, builder) -> {
                             builder.suggest("weaponry_tier1");
                             return builder.buildFuture();
                         })
-                        .executes(context -> {
-                            String table = StringArgumentType.getString(context, "table");
-                            ServerPlayer player = context.getSource().getPlayerOrException();
-                            LootLoader.openLootChest(player, table, context.getSource().getServer());
+                        .executes(ctx -> {
+                            String table = StringArgumentType.getString(ctx, "table");
+                            ServerPlayer player = ctx.getSource().getPlayerOrException();
+                            LootLoader.openLootChest(player, table, ctx.getSource().getServer());
                             return 1;
                         })
                     )
                 )
                 .then(Commands.literal("scene")
-                    .executes(context -> runSceneCommand(context.getSource().getPlayerOrException(), 32, 8, 32))
+                    .executes(ctx -> runSceneCommand(ctx.getSource().getPlayerOrException(), 32, 8, 32))
                     .then(Commands.argument("x_length", IntegerArgumentType.integer(1))
-                        .executes(context -> {
-                            int x = IntegerArgumentType.getInteger(context, "x_length");
-                            return runSceneCommand(context.getSource().getPlayerOrException(), x, 8, 32);
+                        .executes(ctx -> {
+                            int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                            return runSceneCommand(ctx.getSource().getPlayerOrException(), x, 8, 32);
                         })
                         .then(Commands.argument("y_length", IntegerArgumentType.integer(1))
-                            .executes(context -> {
-                                int x = IntegerArgumentType.getInteger(context, "x_length");
-                                int y = IntegerArgumentType.getInteger(context, "y_length");
-                                return runSceneCommand(context.getSource().getPlayerOrException(), x, y, 32);
+                            .executes(ctx -> {
+                                int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                                int y = IntegerArgumentType.getInteger(ctx, "y_length");
+                                return runSceneCommand(ctx.getSource().getPlayerOrException(), x, y, 32);
                             })
                             .then(Commands.argument("z_length", IntegerArgumentType.integer(1))
-                                .executes(context -> {
-                                    int x = IntegerArgumentType.getInteger(context, "x_length");
-                                    int y = IntegerArgumentType.getInteger(context, "y_length");
-                                    int z = IntegerArgumentType.getInteger(context, "z_length");
-                                    return runSceneCommand(context.getSource().getPlayerOrException(), x, y, z);
+                                .executes(ctx -> {
+                                    int x = IntegerArgumentType.getInteger(ctx, "x_length");
+                                    int y = IntegerArgumentType.getInteger(ctx, "y_length");
+                                    int z = IntegerArgumentType.getInteger(ctx, "z_length");
+                                    return runSceneCommand(ctx.getSource().getPlayerOrException(), x, y, z);
                                 })
                             )
                         )
@@ -100,27 +101,38 @@ public class Minekov {
                 )
                 .then(Commands.literal("train")
                     .then(Commands.literal("start")
-                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
-                            .executes(ctx -> {
-                                ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                return runTrainCommand(player, player.serverLevel(), 2048, center, 16);
+                        .then(Commands.argument("mode", StringArgumentType.word())
+                            .suggests((ctx, builder) -> {
+                                for (TrainingGameMode mode : TrainingGameMode.values()) {
+                                    builder.suggest(mode.name().toLowerCase());
+                                }
+                                return builder.buildFuture();
                             })
-                            .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                            .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> {
-                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                    BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                    int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                    return runTrainCommand(player, player.serverLevel(), rounds, center, 16);
+                                    var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                    var player = ctx.getSource().getPlayerOrException();
+                                    var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16);
                                 })
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                     .executes(ctx -> {
-                                        ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                        BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                        int radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                        return runTrainCommand(player, player.serverLevel(), rounds, center, radius);
+                                        var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                        var player = ctx.getSource().getPlayerOrException();
+                                        var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                        var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius);
                                     })
+                                    .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                        .executes(ctx -> {
+                                            var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                            var player = ctx.getSource().getPlayerOrException();
+                                            var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                            var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                            var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                            return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius);
+                                        })
+                                    )
                                 )
                             )
                         )
@@ -142,30 +154,27 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("play")
-                    .executes(ctx -> {
-                        return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
-                    })
+                    .executes(ctx -> runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel()))
                 )
         );
     }
 
-
-    private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds, BlockPos centerPosition, int spawnRadius) {
+    private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius) {
         OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
-        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler);
+        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler, mode);
 
-        // display scoreboard
         TrainingScoreboard.setServer(world.getServer());
         Scoreboard scoreboard = world.getServer().getScoreboard();
         Objective obj = scoreboard.getObjective("ai_kills");
         scoreboard.setDisplayObjective(1, obj);
 
         world.getServer().getPlayerList().broadcastSystemMessage(
-            Component.literal("Training initialized. Rounds: " + rounds), false
+            Component.literal("Training initialized (" + mode + "). Rounds: " + rounds), false
         );
 
         return 1;
     }
+
 
     private static int runSceneCommand(ServerPlayer player, int xLength, int yLength, int zLength) {
         SceneEncoder encoder = new SceneEncoder(xLength, yLength, zLength);
