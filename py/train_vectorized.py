@@ -7,7 +7,7 @@ MAX_AGENTS = 64
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_AMPLITUDE = 0.5    # maximum amplitude of the mutation (std dev for normal distribution)
+MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
 FMC_BALANCE = 1.0
 
 
@@ -140,19 +140,21 @@ class VectorizedTrainer:
 
         # Select partners based on scores (higher score higher probability of selection)
         normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
-        partner_indices = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
-        print("partners", partner_indices)
+        distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
-        partner_vr = vr[partner_indices]
+        vr = self._calculate_virtual_rewards(scores, arange, distance_partner_is)
+        clone_partner_indices = torch.multinomial(vr, MAX_AGENTS, replacement=True)
         
         # Determine cloning probability based on virtual rewards
-        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        # value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
         
         # Random threshold for cloning decision
-        r = torch.rand(MAX_AGENTS, device=self.device)
-        will_clone = value >= r
+        # r = torch.rand(MAX_AGENTS, device=self.device)
+        # will_clone = value >= r
+        clone_percent = 0.25
+        # generate a will clone mask totally randomly using our clone percent
+        will_clone = torch.rand(MAX_AGENTS, device=self.device) < clone_percent
         
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
@@ -172,7 +174,7 @@ class VectorizedTrainer:
             # Clone parameters for each BatchedLinear layer in the model
             for module in self.model.modules():
                 if isinstance(module, BatchedLinear):
-                    module.clone(will_clone, partner_indices)
+                    module.clone(will_clone, clone_partner_indices)
                     # Mutate the cloned parameters
                     module.mutate(will_clone, MUTATION_AMPLITUDE)
             

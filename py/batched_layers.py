@@ -44,7 +44,6 @@ class BatchedLinear(nn.Module):
     def mutate(self, mutation_mask: torch.Tensor, noise_std: float = 0.01):
         # wherever the mask is True, add random noise from -mutation_amplitude to +mutation_amplitude
         assert mutation_mask.shape == (self.batch_size,)
-        assert mutation_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
         mutation_mask = mutation_mask.bool()
         noise_shape = (mutation_mask.sum(), *self.weight.shape[1:])
         # NOTE: purposefully a normal distribution because it's more likely to produce small perturbations
