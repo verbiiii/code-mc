@@ -6,9 +6,9 @@ from batched_layers import BatchedLinear
 MAX_AGENTS = 64
 
 # FMC Constants
-KEEP_TOP_PERCENT = 0.05
-MUTATION_AMPLITUDE = 1.0    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 0.5
+KEEP_TOP_PERCENT = 0.2
+MUTATION_AMPLITUDE = 0.5    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 1.0
 
 
 class RLOperator(torch.nn.Module):
