@@ -47,7 +47,7 @@ public class TrainingState {
         this.mode = mode;
 
         // TODO: pre-determine the number of operators better than this
-        this.operatorsArray = new AIOperator[NUM_OPERATORS / 2]; // 2 operators per group
+        this.operatorsArray = new AIOperator[NUM_OPERATORS]; // 2 operators per group
 
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round

@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -34,7 +35,6 @@ import com.dyllan.minekov.training.TrainingGameMode;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
-import com.eliotlash.mclib.math.Operator;
 
 @Mod(Minekov.MODID)
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
@@ -99,32 +99,34 @@ public class Minekov {
                         )
                     )
                 )
-                .then(Commands.literal("start")
-                    .then(Commands.argument("mode", StringArgumentType.word())
-                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
-                            .executes(ctx -> {
-                                TrainingGameMode mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
-                                ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16);
-                            })
-                            .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                .then(Commands.literal("train")
+                    .then(Commands.literal("start")
+                        .then(Commands.argument("mode", StringArgumentType.word())
+                            .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> {
-                                    TrainingGameMode mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
-                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                    BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                    int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                    return runTrainCommand(player, player.serverLevel(), mode, rounds, center, 16);
+                                    var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                    var player = ctx.getSource().getPlayerOrException();
+                                    var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16); // defaults
                                 })
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                     .executes(ctx -> {
-                                        TrainingGameMode mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
-                                        ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                        BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                        int radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                        return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius);
+                                        var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                        var player = ctx.getSource().getPlayerOrException();
+                                        var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                        var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius);
                                     })
+                                    .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                        .executes(ctx -> {
+                                            var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                            var player = ctx.getSource().getPlayerOrException();
+                                            var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                            var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                            var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                            return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius);
+                                        })
+                                    )
                                 )
                             )
                         )
@@ -146,10 +148,10 @@ public class Minekov {
                     )
                 )
                 .then(Commands.literal("play")
-                    .executes(ctx -> {
-                        return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
-                    })
-                )
+                .executes(ctx -> {
+                    return runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel());
+                })
+            )
         );
     }
 
