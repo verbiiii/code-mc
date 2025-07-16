@@ -21,7 +21,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_OPERATORS = 16;
+    private static final int NUM_OPERATORS = 32;
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();

@@ -3,12 +3,12 @@ import numpy as np
 from typing import Tuple
 from batched_linear import BatchedLinear
 
-MAX_AGENTS = 16
+MAX_AGENTS = 32
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_AMPLITUDE = 0.001    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 2.0
+MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 1.0
 
 
 class RLOperator(torch.nn.Module):
@@ -23,15 +23,11 @@ class RLOperator(torch.nn.Module):
         self.model = torch.nn.Sequential(
             BatchedLinear(MAX_AGENTS, self.input_features, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 32, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 64, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 32),
+            BatchedLinear(MAX_AGENTS, 64, 32),
             torch.nn.Tanh(),
             BatchedLinear(MAX_AGENTS, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
@@ -216,20 +212,19 @@ class VectorizedTrainer:
 
         top_agent_indices = torch.topk(scores, top_k).indices
         will_clone[top_agent_indices] = False
-        
+
+        will_perturbate = torch.ones(MAX_AGENTS, device=self.device, dtype=torch.bool)
+        will_perturbate[top_agent_indices] = False  # Don't perturb top agents
+
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
         
-        # Perform cloning and mutation
-        if will_clone.any():
-            # clone_indices_to_clone_from = partner_indices[will_clone]
-            
-            # Clone parameters for each BatchedLinear layer in the model
-            for module in self.model.modules():
-                if isinstance(module, BatchedLinear):
-                    module.clone(will_clone, partner_indices)
-                    # Mutate the cloned parameters
-                    module.mutate(will_clone, MUTATION_AMPLITUDE)
+        # Perform cloning and perturbation
+        for module in self.model.modules():
+            if isinstance(module, BatchedLinear):
+                module.clone(will_clone, partner_indices)
+                # Mutate the cloned parameters
+                module.mutate(will_perturbate, MUTATION_AMPLITUDE)
             
             # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
             self.lifetime_cumulative_rewards[will_clone] = 0.0
