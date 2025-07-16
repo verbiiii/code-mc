@@ -43,10 +43,10 @@ class BinaryTransport:
             return self._encode_empty_actions()
         
         # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor, agent_indices)
-        
+        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy = self.trainer.forward_pass(obs_tensor, agent_indices)
+
         # Update training data
-        self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
+        self.trainer.update_episode_data(agent_indices, reward_data, log_probs, distance_to_enemy)
 
         # Convert actions and encode response
         angles = (x_actions.float() / 8.0) * 360.0

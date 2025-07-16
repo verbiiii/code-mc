@@ -7,14 +7,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.PythonRLController;
 import com.dyllan.minekov.VectorizedActionDecoder;
 import com.dyllan.minekov.VectorizedObservationEncoder;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
+import com.dyllan.minekov.entities.OperatorSpawningHandler;
 import com.dyllan.minekov.entities.RLOperator;
+import com.eliotlash.mclib.math.Operator;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -36,10 +37,13 @@ public class TrainingState {
     private int globalTick = 0;
     private boolean roundActive = false;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
+    private final OperatorSpawningHandler operatorSpawningHandler;
+
+    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler) {
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
+        this.operatorSpawningHandler = operatorSpawningHandler;
 
         // TODO: pre-determine the number of operators better than this
         this.operatorsArray = new AIOperator[NUM_GROUPS * 2]; // 2 operators per group
@@ -224,7 +228,7 @@ public class TrainingState {
     }
 
     private void setupRound() {
-        // sanity check: guarentee all values within the operators array are null (raise an error if not)
+        // sanity check: guarantee all values within the operators array are null (raise an error if not)
         for (int i = 0; i < operatorsArray.length; i++) {
             if (operatorsArray[i] != null) {
                 throw new IllegalStateException("Operator array not cleared properly before new round setup!");
@@ -232,64 +236,54 @@ public class TrainingState {
         }
 
         System.out.println("🚀 Setting up round " + (currentRound + 1));
-        
+
         groups.clear();
         roundActive = true;
 
         ServerLevel world = server.overworld();
-        double team1X = 19.5, team1Z = 17.5;
-        double team2X = 19.5, team2Z = 9.5;
-        double baseY = 2.0;
-
-        // Let's create a temporary array list to hold the operators, after which we will put them in the array
         List<AIOperator> currentlyInitializedOperators = new ArrayList<>();
 
         for (int i = 0; i < NUM_GROUPS; i++) {
-            double y = baseY;
+            TrainingGroup group = new TrainingGroup(200); // 600 ticks = 30 seconds
 
-            TrainingGroup group = new TrainingGroup(200); // 600 ticks is 30 seconds
-
-            RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
+            // Spawn RL operator
+            RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
             currentlyInitializedOperators.add(rl1);
-            rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);
-            world.addFreshEntity(rl1);
             Team team1 = new Team();
             team1.addOperator(rl1);
 
+            // Spawn opponent
             AIOperator opponent;
             if (selfPlay) {
-                RLOperator rl2 = ModEntities.RL_OPERATOR.get().create(world);
-                rl2.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
-                world.addFreshEntity(rl2);
-                opponent = rl2;
+                RLOperator rl2 = operatorSpawningHandler.spawnRLOperator();
                 currentlyInitializedOperators.add(rl2);
+                opponent = rl2;
             } else {
-                DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
-                dumb.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
-                world.addFreshEntity(dumb);
-                opponent = dumb;
+                DumbOperator dumb = operatorSpawningHandler.spawnDumbOperator();
                 currentlyInitializedOperators.add(dumb);
+                opponent = dumb;
             }
             Team team2 = new Team();
             team2.addOperator(opponent);
 
+            // Add both teams to group
             group.addTeam(team1);
             group.addTeam(team2);
             groups.add(group);
         }
 
-        // now, let's raise an exception if the number of initialized operators does not match the length of our array
+        // Validate total operator count
         if (currentlyInitializedOperators.size() != operatorsArray.length) {
             throw new IllegalStateException("Number of initialized operators does not match expected size!");
         }
 
-        // otherwise, let's add the references to the operators array, implicitly assigning them indices
+        // Shuffle and store in array
         Collections.shuffle(currentlyInitializedOperators, new Random());
         for (int i = 0; i < currentlyInitializedOperators.size(); i++) {
             operatorsArray[i] = currentlyInitializedOperators.get(i);
         }
 
-        // No JSON messages - only binary protocol
+        // Announce round start
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
     }
 

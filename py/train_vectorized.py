@@ -62,6 +62,16 @@ class VectorizedTrainer:
     def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
         logits = self.model.forward(observations, agent_indices)
 
+        # x1, y1, z1 = self (agent's position)
+        # x2, y2, z2 = target (enemy's position)
+        x1_coords = observations[:, 0]
+        y1_coords = observations[:, 1]
+        z1_coords = observations[:, 2]
+        x2_coords = observations[:, 3]
+        y2_coords = observations[:, 4]
+        z2_coords = observations[:, 5]
+        distance_to_enemy = torch.sqrt((x2_coords - x1_coords) ** 2 + (y2_coords - y1_coords) ** 2 + (z2_coords - z1_coords) ** 2)
+
         x_logits = logits[:, :8]
         y_logits = logits[:, 8:16]
         walk_logits = logits[:, 16]
@@ -84,9 +94,9 @@ class VectorizedTrainer:
         # No log probabilities for deterministic policies
         log_probs = None
 
-        return x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs
+        return x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy
 
-    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs):
+    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
@@ -107,6 +117,9 @@ class VectorizedTrainer:
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
         rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
         # rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
+
+        # give a small reward for being close to the enemy (baseline 100 blocks)
+        rewards += (1 / (distance_to_enemy[active_mask] + 1))
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
@@ -141,7 +154,12 @@ class VectorizedTrainer:
         # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
 
         # Select partners based on scores (higher score higher probability of selection)
-        normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
+        normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
+
+        # check for nans or infs (crash if so)
+        if torch.isnan(normalized_scores).any() or torch.isinf(normalized_scores).any():
+            raise ValueError("Normalized scores contain NaN or Inf values. Check your reward calculations.")
+        
         distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
