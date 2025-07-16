@@ -7,8 +7,8 @@ MAX_AGENTS = 64
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 1.0
+MUTATION_AMPLITUDE = 0.001    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 2.0
 
 
 class RLOperator(torch.nn.Module):
@@ -104,7 +104,8 @@ class VectorizedTrainer:
         kills = active_reward_data[:, 2]
         deaths = active_reward_data[:, 3]
 
-        rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)
+        # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward
+        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
@@ -152,7 +153,7 @@ class VectorizedTrainer:
         # Random threshold for cloning decision
         # r = torch.rand(MAX_AGENTS, device=self.device)
         # will_clone = value >= r
-        clone_percent = 0.25
+        clone_percent = 0.75
         # generate a will clone mask totally randomly using our clone percent
         will_clone = torch.rand(MAX_AGENTS, device=self.device) < clone_percent
         
