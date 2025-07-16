@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -26,11 +27,13 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.dyllan.minekov.entities.OperatorSpawningHandler;
 import com.dyllan.minekov.entities.RLOperator;
 import com.dyllan.minekov.scene.SceneEncoder;
 import com.dyllan.minekov.training.TrainingIsolationHandler;
 import com.dyllan.minekov.training.TrainingScoreboard;
 import com.dyllan.minekov.training.TrainingState;
+import com.eliotlash.mclib.math.Operator;
 
 @Mod(Minekov.MODID)
 @EventBusSubscriber(modid = Minekov.MODID, bus = Bus.FORGE)
@@ -97,11 +100,29 @@ public class Minekov {
                 )
                 .then(Commands.literal("train")
                     .then(Commands.literal("start")
-                        .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
                             .executes(ctx -> {
-                                int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                return runTrainCommand(ctx.getSource().getPlayer(), ctx.getSource().getLevel(), rounds);
+                                ServerPlayer player = ctx.getSource().getPlayerOrException();
+                                BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                return runTrainCommand(player, player.serverLevel(), 2048, center, 16);
                             })
+                            .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                .executes(ctx -> {
+                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                                    BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                    int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                    return runTrainCommand(player, player.serverLevel(), rounds, center, 16);
+                                })
+                                .then(Commands.argument("radius", IntegerArgumentType.integer(1))
+                                    .executes(ctx -> {
+                                        ServerPlayer player = ctx.getSource().getPlayerOrException();
+                                        BlockPos center = net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                        int rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                        int radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                        return runTrainCommand(player, player.serverLevel(), rounds, center, radius);
+                                    })
+                                )
+                            )
                         )
                     )
                     .then(Commands.literal("stop")
@@ -129,8 +150,9 @@ public class Minekov {
     }
 
 
-    private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds) {
-        trainingState = new TrainingState(player, world.getServer(), rounds);
+    private static int runTrainCommand(ServerPlayer player, ServerLevel world, int rounds, BlockPos centerPosition, int spawnRadius) {
+        OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
+        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler);
 
         // display scoreboard
         TrainingScoreboard.setServer(world.getServer());

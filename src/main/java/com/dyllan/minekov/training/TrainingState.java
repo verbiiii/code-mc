@@ -15,6 +15,7 @@ import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.OperatorSpawningHandler;
 import com.dyllan.minekov.entities.RLOperator;
+import com.eliotlash.mclib.math.Operator;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -36,10 +37,13 @@ public class TrainingState {
     private int globalTick = 0;
     private boolean roundActive = false;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds) {
+    private final OperatorSpawningHandler operatorSpawningHandler;
+
+    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler) {
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
+        this.operatorSpawningHandler = operatorSpawningHandler;
 
         // TODO: pre-determine the number of operators better than this
         this.operatorsArray = new AIOperator[NUM_GROUPS * 2]; // 2 operators per group
@@ -243,7 +247,7 @@ public class TrainingState {
             TrainingGroup group = new TrainingGroup(200); // 600 ticks = 30 seconds
 
             // Spawn RL operator
-            RLOperator rl1 = OperatorSpawningHandler.spawnRLOperator(world, provisioningPlayer);
+            RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
             currentlyInitializedOperators.add(rl1);
             Team team1 = new Team();
             team1.addOperator(rl1);
@@ -251,11 +255,11 @@ public class TrainingState {
             // Spawn opponent
             AIOperator opponent;
             if (selfPlay) {
-                RLOperator rl2 = OperatorSpawningHandler.spawnRLOperator(world, provisioningPlayer);
+                RLOperator rl2 = operatorSpawningHandler.spawnRLOperator();
                 currentlyInitializedOperators.add(rl2);
                 opponent = rl2;
             } else {
-                DumbOperator dumb = OperatorSpawningHandler.spawnDumbOperator(world, provisioningPlayer);
+                DumbOperator dumb = operatorSpawningHandler.spawnDumbOperator();
                 currentlyInitializedOperators.add(dumb);
                 opponent = dumb;
             }
