@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 event_loop = None
 
 # Initialize the vectorized transport layer
-trainer = VectorizedTrainer()
-transport = BinaryTransport(trainer=trainer)
+trainer = None
+transport = None
 
 # FastAPI app - minimal setup
 app = FastAPI(title="Minekov Vectorized RL Server")
@@ -50,6 +50,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 if message_type == "sync_operators":
                     continue
+                elif message_type == "session_start":
+                    logger.info("🔵 Session started - initializing training")
+
+                    num_agents = payload["num_agents"]
+                    # spawn_radius = payload["spawn_radius"]
+                    # spawn_center_x = payload["center_x"]
+                    # spawn_center_y = payload["center_y"]
+                    # spawn_center_z = payload["center_z"]
+
+                    if trainer is not None or transport is not None:
+                        raise ValueError("TODO")
+                    
+                    print(f"Initializing trainer with {num_agents} agents.")
+
+                    trainer = VectorizedTrainer(
+                        num_agents=num_agents,
+                    )
+                    transport = BinaryTransport(trainer=trainer)
+
+                    # trainer.on_session_start(payload)
+                    continue
                 elif message_type == "round_start":
                     # Reduced logging noise
                     continue
@@ -73,6 +94,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
                 
         elif "bytes" in message:
+            if transport is None or trainer is None:
+                logger.error("❌ Transport or trainer not initialized. Cannot process binary data.")
+                await websocket.close(code=1001, reason="Transport not initialized")
+                return
+
             # Handle binary messages
             binary_data = message["bytes"]
             

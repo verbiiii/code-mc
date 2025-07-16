@@ -3,8 +3,6 @@ import numpy as np
 from typing import Tuple
 from batched_linear import BatchedLinear
 
-MAX_AGENTS = 32
-
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
 MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
@@ -12,36 +10,36 @@ FMC_BALANCE = 1.0
 
 
 class RLOperator(torch.nn.Module):
-    def __init__(self, device='cpu'):
+    def __init__(self, device='cpu', num_agents: int = 32):
         super(RLOperator, self).__init__()
 
+        self.num_agents = num_agents
         self.device = torch.device(device)
-
-        self.input_features = 3 + ((MAX_AGENTS - 1) * 4)
+        self.input_features = 3 + ((num_agents - 1) * 4)
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
-            BatchedLinear(MAX_AGENTS, self.input_features, 32),
+            BatchedLinear(num_agents, self.input_features, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 64),
+            BatchedLinear(num_agents, 32, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 64),
+            BatchedLinear(num_agents, 64, 64),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 32),
+            BatchedLinear(num_agents, 64, 32),
             torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
         # let's zero-pad all of the agent indices that are missing
-        padded_x = torch.zeros((MAX_AGENTS, self.input_features), device=self.device)        
+        padded_x = torch.zeros((self.num_agents, self.input_features), device=self.device)        
         padded_x[agent_indices] = x
 
         return self.model(padded_x)
 
 class VectorizedTrainer:
-    def __init__(self, device='cpu'):
-
+    def __init__(self, device='cpu', num_agents: int = 32):
+        self.num_agents = num_agents
         self.device = torch.device(device)
         self.model = RLOperator(device=self.device).to(self.device)
 
@@ -50,8 +48,8 @@ class VectorizedTrainer:
         self.num_updates = 0
 
         # Fitness tracking
-        self.round_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
-        self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
+        self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
+        self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
@@ -64,8 +62,8 @@ class VectorizedTrainer:
 
         N = agent_indices.shape[0]
         device = self.device
-        num_features = 3 + (MAX_AGENTS - 1) * 4
-        obs_tensor = torch.zeros((MAX_AGENTS, num_features), device=device)
+        num_features = 3 + (self.num_agents - 1) * 4
+        obs_tensor = torch.zeros((self.num_agents, num_features), device=device)
 
         # Set own positions: obs_tensor[i, :3] = [x, y, z]
         obs_tensor[agent_indices, :3] = observations
@@ -178,10 +176,10 @@ class VectorizedTrainer:
             
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
-        arange = torch.arange(MAX_AGENTS, device=self.device)
+        arange = torch.arange(self.num_agents, device=self.device)
         
         # Select partners uniformly at random
-        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
 
         # Select partners based on scores (higher score higher probability of selection)
         # normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
@@ -202,18 +200,18 @@ class VectorizedTrainer:
         value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
         
         # Random threshold for cloning decision
-        r = torch.rand(MAX_AGENTS, device=self.device)
+        r = torch.rand(self.num_agents, device=self.device)
         will_clone = value >= r
         
         # Protect top agents from being cloned (they keep their parameters)
-        top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
+        top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
         if top_k <= 0:
             raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
 
         top_agent_indices = torch.topk(scores, top_k).indices
         will_clone[top_agent_indices] = False
 
-        will_perturbate = torch.ones(MAX_AGENTS, device=self.device, dtype=torch.bool)
+        will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)
         will_perturbate[top_agent_indices] = False  # Don't perturb top agents
 
         # Get top k rewards for display
@@ -239,7 +237,7 @@ class VectorizedTrainer:
             
             print(f"🧬 FMC Evolution:")
             print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
-            print(f"   🔄 Cloned: {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
+            print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
             if len(top_k_rewards) > 0:
                 print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
                 print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
@@ -260,13 +258,13 @@ class VectorizedTrainer:
 
     def _calculate_distances(self, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate Euclidean distances between agent parameters and their partners."""
-        distances = torch.zeros(MAX_AGENTS, device=self.device)
+        distances = torch.zeros(self.num_agents, device=self.device)
         
         for module in self.model.modules():
             if isinstance(module, BatchedLinear):
                 # Calculate distances for weights
                 weight_diffs = module.weight[agent_indices] - module.weight[partner_indices]
-                weight_distances = torch.norm(weight_diffs.view(MAX_AGENTS, -1), dim=1)
+                weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
                 distances += weight_distances
                 
                 # Calculate distances for biases if they exist

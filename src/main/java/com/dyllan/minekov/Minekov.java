@@ -360,4 +360,15 @@ public class Minekov {
         roundEndData.put("update_model_parameters", updateModelParameters);
         PythonBridge.tickPython(roundEndData);
     }
+
+    public static void sendTrainSessionStart(int numAgents, int radius, BlockPos center) {
+        Map<String, Object> sessionStartData = new HashMap<>();
+        sessionStartData.put("type", "session_start");
+        sessionStartData.put("num_agents", numAgents);
+        // sessionStartData.put("radius", radius);
+        // sessionStartData.put("center_x", center.getX());
+        // sessionStartData.put("center_y", center.getY());
+        // sessionStartData.put("center_z", center.getZ());
+        PythonBridge.tickPython(sessionStartData);
+    }
 }

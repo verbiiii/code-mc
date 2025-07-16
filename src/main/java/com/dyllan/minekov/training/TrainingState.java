@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.PythonRLController;
 import com.dyllan.minekov.VectorizedActionDecoder;
@@ -47,6 +48,8 @@ public class TrainingState {
 
         // TODO: pre-determine the number of operators better than this
         this.operatorsArray = new AIOperator[NUM_OPERATORS]; // 2 operators per group
+
+        Minekov.sendTrainSessionStart(NUM_OPERATORS, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
 
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round

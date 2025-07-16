@@ -22,6 +22,14 @@ public class OperatorSpawningHandler {
         this.spawnRadius = spawnRadius;
     }
 
+    public BlockPos getCenter() {
+        return centerPos;
+    }
+
+    public int getRadius() {
+        return spawnRadius;
+    }
+
     public RLOperator spawnRLOperator() {
         System.out.println("Spawning RLOperator");
         BlockPos spawnPos = findValidSpawn();
