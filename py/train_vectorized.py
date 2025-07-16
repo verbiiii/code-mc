@@ -261,7 +261,7 @@ class VectorizedTrainer:
         distances = torch.zeros(self.num_agents, device=self.device)
             
         # Debug: Alert if we're getting too many agents (reduced verbosity)
-        if agent_indices.size() > self.num_agents:
+        if agent_indices.numel() > self.num_agents:
             raise RuntimeError(f"🚨 ALERT: Received {agent_indices.size()} agents! Expected maximum {self.num_agents}.")
 
         for module in self.model.modules():
