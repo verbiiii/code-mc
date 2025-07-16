@@ -60,44 +60,75 @@ class VectorizedTrainer:
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
     def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
-        logits = self.model.forward(observations, agent_indices)
+        """
+        observations: [N, 3] – only alive agents
+        agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
+        group_indices: [N] – group id per agent (used to match group-mates)
+        """
 
-        raise NotImplementedError("TODO handle group indices and team indices...")
+        N = agent_indices.shape[0]
+        device = self.device
+        num_features = 3 + (MAX_AGENTS - 1) * 4
+        obs_tensor = torch.zeros((MAX_AGENTS, num_features), device=device)
 
-        # x1, y1, z1 = self (agent's position)
-        x1_coords = observations[:, 0]
-        y1_coords = observations[:, 1]
-        z1_coords = observations[:, 2]
+        # Set own positions: obs_tensor[i, :3] = [x, y, z]
+        obs_tensor[agent_indices, :3] = observations
 
-        # TODO: we need to convert from always having just 1 enemy at at ime, to having multiple enemies (of unknown size)
-        # x2, y2, z2 = target (enemy's position)
-        # x2_coords = observations[:, 3]
-        # y2_coords = observations[:, 4]
-        # z2_coords = observations[:, 5]
+        # Compute pairwise inclusion mask: [N, N] where True = same group
+        group_match = group_indices.unsqueeze(1) == group_indices.unsqueeze(0)
 
-        distance_to_enemy = torch.sqrt((x2_coords - x1_coords) ** 2 + (y2_coords - y1_coords) ** 2 + (z2_coords - z1_coords) ** 2)
+        # Get full index grid: [N, N] for from_i and to_j
+        from_idx = agent_indices.view(-1, 1).expand(N, N)
+        to_idx   = agent_indices.view(1, -1).expand(N, N)
 
+        # Exclude self-copy
+        not_self = from_idx != to_idx
+        valid_pairs = group_match & not_self
+
+        # Compute slot offsets per target index (from perspective of `from_idx`)
+        slot_offsets = to_idx.clone()
+        slot_offsets[to_idx > from_idx] -= 1  # Shift down for indices after self
+
+        # Compute write index into obs_tensor: base offset is 3 + 4 * slot
+        write_idx = 3 + slot_offsets * 4  # shape [N, N]
+
+        # Flatten valid pairs
+        flat_from = from_idx[valid_pairs]      # [M]
+        flat_write = write_idx[valid_pairs]    # [M]
+        flat_data = observations[to_idx[valid_pairs]]  # [M, 3]
+
+        # Write other agents' x/y/z
+        obs_tensor[flat_from, flat_write + 0] = flat_data[:, 0]  # x
+        obs_tensor[flat_from, flat_write + 1] = flat_data[:, 1]  # y
+        obs_tensor[flat_from, flat_write + 2] = flat_data[:, 2]  # z
+        obs_tensor[flat_from, flat_write + 3] = 1.0              # is_alive
+
+        # Forward through model using only active agents
+        x = obs_tensor[agent_indices]
+        logits = self.model(x, agent_indices)
+
+        # Split output logits
         x_logits = logits[:, :8]
         walk_logits = logits[:, 8]
         shoot_logits = logits[:, 9]
         jump_logits = logits[:, 10]
         sneak_logits = logits[:, 11]
-        pitch_logits = logits[:, 12:20]  # 8 categories for pitch (-90 to +90 degrees)
-        yaw_logits = logits[:, 20:28]    # 8 categories for yaw (0 to 360 degrees)
+        pitch_logits = logits[:, 12:20]
+        yaw_logits = logits[:, 20:28]
 
-        # Deterministic actions - take argmax instead of sampling
+        # Deterministic policy
         movement_theta = torch.argmax(x_logits, dim=1)
-        walk_actions = (walk_logits > 0.0).bool()  # Deterministic threshold at 0
-        shoot_actions = (shoot_logits > 0.0).bool()
-        jump_actions = (jump_logits > 0.0).bool()
-        sneak_actions = (sneak_logits > 0.0).bool()
+        walk_actions = (walk_logits > 0.0)
+        shoot_actions = (shoot_logits > 0.0)
+        jump_actions = (jump_logits > 0.0)
+        sneak_actions = (sneak_logits > 0.0)
         pitch_actions = torch.argmax(pitch_logits, dim=1)
         yaw_actions = torch.argmax(yaw_logits, dim=1)
 
-        # No log probabilities for deterministic policies
-        log_probs = None
+        # Dummy distance for now (fill in later)
+        distance_to_enemy = torch.zeros_like(walk_logits)
 
-        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy
+        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, None, distance_to_enemy
 
     def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor):
         """Update episode data using actual agent indices."""
