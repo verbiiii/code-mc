@@ -12,8 +12,8 @@ import java.util.Map;
 public class VectorizedObservationEncoder {
     
     private static final int MAGIC_HEADER = 0xFEEDBEEF;
-    private static final int OBSERVATION_SIZE = 10; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths]
-    
+    private static final int OBSERVATION_SIZE = 11; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths, num_bullets]
+
     /**
      * Encode observations for all agents into binary format.
      * Format: [magic(4) + tick(4) + agent_count(4) + obs_size(4)] + [agent_data as float32 array]
@@ -64,6 +64,8 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.damageTaken);
             buffer.putFloat((float) obs.kills);
             buffer.putFloat((float) obs.deaths);
+
+            buffer.putFloat((float) obs.numBullets);
         }
         
         return buffer.array();
@@ -87,10 +89,11 @@ public class VectorizedObservationEncoder {
         public final double damageDealt, damageTaken;
         public final int kills, deaths;
         public final int groupIndex, teamIndex;
-        
+        public final int numBullets;
+
         public AgentObservation(double myX, double myY, double myZ,
                               double damageDealt, double damageTaken,
-                              int kills, int deaths,
+                              int kills, int deaths, int numBullets,
                               int groupIndex, int teamIndex) {
             this.myX = myX;
             this.myY = myY;
@@ -101,6 +104,7 @@ public class VectorizedObservationEncoder {
             this.damageTaken = damageTaken;
             this.kills = kills;
             this.deaths = deaths;
+            this.numBullets = numBullets;
         }
     }
 }

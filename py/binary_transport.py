@@ -99,7 +99,7 @@ class BinaryTransport:
         positions = obs_tensor[:, 1:4]           # [N, 3] - my_pos
         group_indices = obs_tensor[:, 4]          # [N] - group index (group index)
         team_indices = obs_tensor[:, 5]           # [N] - team index (team index)
-        reward_data = obs_tensor[:, 6:10]        # [N, 4] - damage/kill data
+        reward_data = obs_tensor[:, 6:]        # [N, 4] - damage/kill data
         
         return positions, agent_indices, group_indices, team_indices, reward_data
 

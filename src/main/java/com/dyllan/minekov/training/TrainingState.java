@@ -205,6 +205,7 @@ public class TrainingState {
                 damageTaken,                                 // Damage taken
                 kills,                                       // Kills
                 deaths,                                      // Deaths
+                rlOp.getBulletsLastTick(),
                 groupIndex,
                 teamIndex
             );

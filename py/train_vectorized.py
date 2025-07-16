@@ -141,10 +141,13 @@ class VectorizedTrainer:
         dmg_taken = active_reward_data[:, 1]
         kills = active_reward_data[:, 2]
         deaths = active_reward_data[:, 3]
+        num_bullets = active_reward_data[:, 4]
 
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
-        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        # rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
+        # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
+        rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
+
+        rewards -= num_bullets * 10  # penalize for using too many bullets
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
         # rewards += (1 / (distance_to_enemy[active_mask] + 1))
