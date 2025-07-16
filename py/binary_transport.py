@@ -176,6 +176,8 @@ class BinaryTransport:
         if active_count == 0:
             return self._encode_empty_actions()
         
+        agent_indices_masked = agent_indices[active_mask].cpu().numpy().astype(np.float32)
+
         # Get actions only for active agents
         angles_active = angles[active_mask]
         walk_active = walk[active_mask]
@@ -195,13 +197,13 @@ class BinaryTransport:
         yaw_np = yaw_active.cpu().numpy().astype(np.float32)
         
         # Stack into action array [N, 7] - [angle, walk, shoot, jump, sneak, pitch, yaw]
-        action_array = np.column_stack([angles_np, walk_np, shoot_np, jump_np, sneak_np, pitch_np, yaw_np])
+        action_array = np.column_stack([agent_indices_masked, angles_np, walk_np, shoot_np, jump_np, sneak_np, pitch_np, yaw_np])
         
         # Convert to little-endian bytes
         action_bytes = action_array.astype('<f4').tobytes()
         
         # Create header: magic(4) + count(4) + tick(4) + action_size(4)
-        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, 7)
+        header = struct.pack('<IIII', 0xACE5BEEF, active_count, self.tick_count, action_array.shape[1])
         
         return header + action_bytes
 

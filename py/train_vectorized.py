@@ -6,9 +6,9 @@ from batched_layers import BatchedLinear
 MAX_AGENTS = 128
 
 # FMC Constants
-KEEP_TOP_PERCENT = 0.1
-MUTATION_AMPLITUDE = 5.0    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 2.0
+KEEP_TOP_PERCENT = 0.05
+MUTATION_AMPLITUDE = 1.0    # maximum amplitude of the mutation (std dev for normal distribution)
+FMC_BALANCE = 0.5
 
 class VectorizedTrainer:
     def __init__(self, device='cpu'):
@@ -80,7 +80,7 @@ class VectorizedTrainer:
         kills = active_reward_data[:, 2]
         deaths = active_reward_data[:, 3]
 
-        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
+        rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards

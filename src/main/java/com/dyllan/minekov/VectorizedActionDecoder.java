@@ -15,7 +15,7 @@ import com.dyllan.minekov.entities.RLOperator;
 public class VectorizedActionDecoder {
     
     private static final int ACTION_MAGIC = 0xACE5BEEF;
-    private static final int ACTION_SIZE = 7; // [angle, walk_flag, shoot_flag, jump_flag, sneak_flag, pitch, yaw] - sequential ordering
+    private static final int ACTION_SIZE = 8; // [agent_index, angle, walk_flag, shoot_flag, jump_flag, sneak_flag, pitch, yaw] - sequential ordering
     
     /**
      * Decode binary action data from Python into agent actions.
@@ -60,6 +60,7 @@ public class VectorizedActionDecoder {
         
         // Decode actions vectorized - sequential ordering
         for (int i = 0; i < count; i++) {
+            int agentIndex = (int) buffer.getFloat(); // TODO: fix this... (python problem, kinda)
             float angle = buffer.getFloat();
             boolean walk = buffer.getFloat() > 0.5f;
             boolean shoot = buffer.getFloat() > 0.5f;
@@ -69,7 +70,7 @@ public class VectorizedActionDecoder {
             float yaw = buffer.getFloat();
             
             // Use sequential index instead of encoded agent index
-            actions.put(i, new AgentAction(angle, walk, shoot, jump, sneak, pitch, yaw));
+            actions.put(agentIndex, new AgentAction(angle, walk, shoot, jump, sneak, pitch, yaw));
         }
         
         // Removed debug log for performance
