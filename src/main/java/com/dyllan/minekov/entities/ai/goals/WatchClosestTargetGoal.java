@@ -9,6 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import java.util.EnumSet;
 
 import com.dyllan.minekov.entities.AIOperator;
+import com.dyllan.minekov.entities.RLOperator;
 
 public class WatchClosestTargetGoal extends Goal {
     private final Mob mob;
@@ -45,6 +46,11 @@ public class WatchClosestTargetGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!(mob instanceof AIOperator)) {
+            return false;
+        }
+        
+        // If this is an RLOperator using RL aiming, disable this goal
+        if (mob instanceof RLOperator && ((RLOperator) mob).isUsingRLAiming()) {
             return false;
         }
         
@@ -90,6 +96,11 @@ public class WatchClosestTargetGoal extends Goal {
     @Override
     public void tick() {
         if (target == null) return;
+        
+        // If this is an RLOperator using RL aiming, don't control their look
+        if (mob instanceof RLOperator && ((RLOperator) mob).isUsingRLAiming()) {
+            return;
+        }
 
         // Compute direction vector from mob eyes to target eyes
         double dx = target.getX() - mob.getX();

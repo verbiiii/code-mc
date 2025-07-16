@@ -5,8 +5,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
+import com.dyllan.minekov.PythonRLController;
+import com.dyllan.minekov.VectorizedActionDecoder;
 import com.dyllan.minekov.VectorizedObservationEncoder;
 import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
@@ -18,12 +21,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 32; // ← change this to 1, 100, etc. for # of 1v1s
-    private final boolean selfPlay = true; // ← set to false to use DumbOperator
+    private static final int NUM_GROUPS = 64; // ← change this to 1, 100, etc. for # of 1v1s
+    private final boolean selfPlay = false; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
     private final MinecraftServer server;
+
+    private final AIOperator[] operatorsArray;
 
     private final int numRounds;
     private int currentRound = 0;
@@ -35,6 +40,9 @@ public class TrainingState {
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
 
+        // TODO: pre-determine the number of operators better than this
+        this.operatorsArray = new AIOperator[NUM_GROUPS * 2]; // 2 operators per group
+
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
     }
@@ -42,67 +50,142 @@ public class TrainingState {
     public void tick() {
         if (!roundActive) return;
 
+        performOperatorActions();
+
         globalTick++;
 
-        // Check for completed groups and handle cleanup
-        List<TrainingGroup> completedGroups = new ArrayList<>();
-        for (TrainingGroup group : groups) {
-            group.tick();
-            if (group.isComplete()) {
-                completedGroups.add(group);
-            }
-        }
-        
-        // Clean up completed groups
-        for (TrainingGroup group : completedGroups) {
-            Team winningTeam = group.getWinningTeam();
-            if (winningTeam != null) {
-                System.out.println("🏆 Group completed with winner: " + winningTeam.getTeamId());
-                // Clean up without death signals (winners shouldn't get death penalty)
-                group.cleanupGroup(false);
+        this.groups.forEach(TrainingGroup::tick);
+        boolean roundDone = isRoundComplete();
+        if (roundDone) {
+            cleanupRound();
+            currentRound++;
+            if (currentRound >= numRounds) {
+                endSession();
             } else {
-                System.out.println("⏰ Group completed by timeout");
-                // Clean up with death signals (timeout = everyone loses)
-                group.cleanupGroup(true);
+                setupRound();
+            }
+
+            // no need to send observations and stuff, just skip the rest of the tick logic
+            return;
+        }
+
+        givePythonOurObservations();
+    }
+
+    public void performOperatorActions() {
+        // The WebSocketClient will put all actions it receives from python into the
+        // static ACTION_QUEUE in the PythonRLController class.
+        // This is the method that will ingest those actions, applying them to the
+        // current tick.
+        var actionQueue = PythonRLController.ACTION_QUEUE;
+
+        int size = actionQueue.size();
+        if (size == 0) {
+            // print another warning if the queue is empty
+            System.out.println("⚠️ Warning: Action queue is empty, no actions received from Python. This may indicate a problem with the WebSocket connection or Python script.");
+        } else if (size > 1) {
+            System.out.println("⚠️ Warning: Action queue size is " + size + ", latency for action predictions appears to be slower than the main server tick loop.");            
+        }
+
+        // Poll and process each queued action map (thread-safe removal)
+        Map<Integer, VectorizedActionDecoder.AgentAction> actions;
+        while ((actions = actionQueue.poll()) != null) {
+            for (Map.Entry<Integer, VectorizedActionDecoder.AgentAction> entry : actions.entrySet()) {
+                int sequentialIndex = entry.getKey();
+                VectorizedActionDecoder.AgentAction action = entry.getValue();
+                RLOperator operator = getRLOperator(sequentialIndex);
+
+                if (operator == null) {
+                    throw new IllegalStateException("No RLOperator found for index: " + sequentialIndex);
+                }
+
+                action.performAction(operator);
             }
         }
-        
-        // DON'T remove completed groups yet - wait for round end
-        // groups.removeAll(completedGroups);
+    }
 
-        Map<String, Team> operatorTeamMap = new HashMap<>();
-        Map<String, AIOperator> allOperators = new HashMap<>();
+    public int getIndexForRLOperator(RLOperator operator) {
+        // custom for loop because the index skips over non-RLOperator entities
 
+        // use getRLOperators()
+        int i = 0;
+        for (RLOperator op : getRLOperators()) {
+            if (op == operator) {
+                return i; // return the index of the RLOperator
+            }
+            i++;
+        }
+
+        throw new IllegalStateException("RLOperator not found in array: " + operator.getId());
+    }
+
+    public AIOperator getOperator(int index) {
+        if (index < 0 || index >= operatorsArray.length) {
+            throw new IndexOutOfBoundsException("Invalid operator index: " + index);
+        }
+        return operatorsArray[index];
+    }
+
+    public ArrayList<RLOperator> getRLOperators() {
+        ArrayList<RLOperator> rlOperators = new ArrayList<>();
+        for (AIOperator op : operatorsArray) {
+            if (op instanceof RLOperator) {
+                rlOperators.add((RLOperator) op);
+            }
+        }
+        return rlOperators;
+    }
+
+    public RLOperator getRLOperator(int index) {
+        // filter array first (kinda slow, but hmm)
+        ArrayList<RLOperator> rlOperators = getRLOperators();
+
+        // then check if the index is valid
+        if (index < 0 || index >= rlOperators.size()) {
+            throw new IndexOutOfBoundsException("Invalid RLOperator index: " + index);
+        }
+
+        return rlOperators.get(index);
+    }
+
+    public ArrayList<AIOperator> getOpponentsForOperator(AIOperator operator) {
+        ArrayList<AIOperator> opponents = new ArrayList<>();
         for (TrainingGroup group : groups) {
+            // only look at the group that contains the operator (SHOULD ONLY BE CONTAINED BY ONE TODO make that always true)
+            if (!group.contains(operator)) continue;
+
             for (Team team : group.getTeams()) {
+                // ignore our own team
+                if (team.getOperators().contains(operator)) continue;
+
                 for (AIOperator op : team.getOperators()) {
-                    String uuid = op.getUUID().toString();
-                    operatorTeamMap.put(uuid, team);
-                    allOperators.put(uuid, op);
+                    if (op != operator && !opponents.contains(op)) {
+                        opponents.add(op);
+                    }
                 }
             }
         }
 
-        boolean roundDone = isRoundComplete();
+        // raise illegal state exception if > 1 opponent found (temporarily)
+        if (opponents.size() > 1) {
+            throw new IllegalStateException("Multiple opponents found for operator " + operator.getId() + ": " + opponents.size());
+        }
 
+        return opponents;
+    }
+
+    public void givePythonOurObservations() {
         // 🚀 BINARY PROTOCOL - Ultra-fast vectorized observations
         Map<Integer, VectorizedObservationEncoder.AgentObservation> observations = new HashMap<>();
         
-        // Use consistent ordering: get all RL operators from registry
-        RLOperator[] rlOperators = allOperators.values().stream()
-            .filter(op -> op instanceof RLOperator)
-            .map(op -> (RLOperator) op)
-            .toArray(RLOperator[]::new);
-        
-        for (int i = 0; i < rlOperators.length; i++) {
-            RLOperator rlOp = rlOperators[i];
-            
-            // Find opponent for this RL agent
-            AIOperator opponent = allOperators.values().stream()
-                .filter(other -> !other.getUUID().equals(rlOp.getUUID()))
-                .filter(other -> !operatorTeamMap.get(other.getUUID().toString()).equals(operatorTeamMap.get(rlOp.getUUID().toString())))
-                .findFirst()
-                .orElse(rlOp); // Use self if no opponent found
+        for (int i = 0; i < operatorsArray.length; i++) {
+            // if it's an RLOperator we can use it, otherwise let's skip
+            if (!(operatorsArray[i] instanceof RLOperator)) continue;
+
+            RLOperator rlOp = (RLOperator) operatorsArray[i];
+
+            // Get the opponent from the same group (TODO: multiple opponents/team mates)
+            AIOperator opponent = getOpponentsForOperator(rlOp).get(0);
             
             // Create vectorized observation with actual agent ID
             float damageDealt = rlOp.getDamageDealtLastTick();
@@ -120,25 +203,15 @@ public class TrainingState {
             );
             
             // Use actual agent ID instead of sequential index
-            int agentId = rlOp.getId(); // Entity ID as unique identifier
-            observations.put(agentId, obs);
+            // int agentId = rlOp.getId(); // Entity ID as unique identifier (THIS LINE IS A MAJOR BUG! HAD TO FIX BELOW)
+            int opIndex = getIndexForRLOperator(rlOp);
+            observations.put(opIndex, obs);
             rlOp.clearTickDamageStats();
         }
         
         // Encode and send binary observations
         byte[] binaryData = VectorizedObservationEncoder.encodeObservations(globalTick, observations);
         PythonBridge.sendBinaryToPython(binaryData);
-
-        if (roundDone) {
-            cleanupRound();
-            currentRound++;
-
-            if (currentRound >= numRounds) {
-                endSession();
-            } else {
-                setupRound();
-            }
-        }
     }
 
     public boolean isComplete() {
@@ -146,10 +219,17 @@ public class TrainingState {
     }
 
     private boolean isRoundComplete() {
-        return groups.stream().allMatch(TrainingGroup::isComplete);
+        return groups.stream().allMatch(TrainingGroup::isRoundComplete);
     }
 
     private void setupRound() {
+        // sanity check: guarentee all values within the operators array are null (raise an error if not)
+        for (int i = 0; i < operatorsArray.length; i++) {
+            if (operatorsArray[i] != null) {
+                throw new IllegalStateException("Operator array not cleared properly before new round setup!");
+            }
+        }
+
         System.out.println("🚀 Setting up round " + (currentRound + 1));
         
         groups.clear();
@@ -160,12 +240,16 @@ public class TrainingState {
         double team2X = 19.5, team2Z = 9.5;
         double baseY = 2.0;
 
+        // Let's create a temporary array list to hold the operators, after which we will put them in the array
+        List<AIOperator> currentlyInitializedOperators = new ArrayList<>();
+
         for (int i = 0; i < NUM_GROUPS; i++) {
             double y = baseY;
 
             TrainingGroup group = new TrainingGroup(200); // 600 ticks is 30 seconds
 
             RLOperator rl1 = ModEntities.RL_OPERATOR.get().create(world);
+            currentlyInitializedOperators.add(rl1);
             rl1.moveTo(team1X, y, team1Z, 180.0f, 0.0f);
             world.addFreshEntity(rl1);
             Team team1 = new Team();
@@ -177,11 +261,13 @@ public class TrainingState {
                 rl2.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
                 world.addFreshEntity(rl2);
                 opponent = rl2;
+                currentlyInitializedOperators.add(rl2);
             } else {
                 DumbOperator dumb = ModEntities.DUMB_OPERATOR.get().create(world);
                 dumb.moveTo(team2X, y, team2Z, 0.0f, 0.0f);
                 world.addFreshEntity(dumb);
                 opponent = dumb;
+                currentlyInitializedOperators.add(dumb);
             }
             Team team2 = new Team();
             team2.addOperator(opponent);
@@ -189,6 +275,16 @@ public class TrainingState {
             group.addTeam(team1);
             group.addTeam(team2);
             groups.add(group);
+        }
+
+        // now, let's raise an exception if the number of initialized operators does not match the length of our array
+        if (currentlyInitializedOperators.size() != operatorsArray.length) {
+            throw new IllegalStateException("Number of initialized operators does not match expected size!");
+        }
+
+        // otherwise, let's add the references to the operators array, implicitly assigning them indices
+        for (int i = 0; i < currentlyInitializedOperators.size(); i++) {
+            operatorsArray[i] = currentlyInitializedOperators.get(i);
         }
 
         // No JSON messages - only binary protocol
@@ -201,18 +297,16 @@ public class TrainingState {
         roundActive = false;
         int totalEntitiesKilled = 0;
         
-        for (TrainingGroup group : groups) {
-            for (Team team : group.getTeams()) {
-                for (AIOperator op : team.getOperators()) {
-                    if (op.isAlive()) {
-                        // Use deferred removal to prevent ConcurrentModificationException
-                        com.dyllan.minekov.Minekov.queueEntityForRemoval(op);
-                        totalEntitiesKilled++;
-                    }
-                }
+        // loop through our array and kill them all, making sure to null their positions
+        for (int i = 0; i < operatorsArray.length; i++) {
+            AIOperator operator = operatorsArray[i];
+            if (operator != null) {
+                operator.kill(); // Remove from world without triggering death mechanics
+                totalEntitiesKilled++;
+                operatorsArray[i] = null;
             }
         }
-        
+
         groups.clear(); // Clear groups after cleanup
         System.out.println("✅ Round cleanup complete - killed " + totalEntitiesKilled + " entities");
 

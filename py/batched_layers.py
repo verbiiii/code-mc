@@ -29,23 +29,21 @@ class BatchedLinear(nn.Module):
         assert clone_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
 
         clone_mask = clone_mask.bool()
-        clone_from = clone_indices[clone_mask]  # Indices to clone from
-        clone_to = torch.nonzero(clone_mask, as_tuple=False).squeeze(1)  # Indices to update
+        clone_from = torch.arange(self.batch_size, device=self.weight.device)[clone_mask]
+        clone_to = clone_indices[clone_mask]
 
         # Sanity check: all clone_from must be in valid range
         if not torch.all((0 <= clone_from) & (clone_from < self.batch_size)):
             raise ValueError("Invalid indices in clone_indices")
 
-        # Clone weights
-        self.weight[clone_to] = self.weight[clone_from]
+        self.weight[clone_from] = self.weight[clone_to]
         if self.bias is not None:
-            self.bias[clone_to] = self.bias[clone_from]
+            self.bias[clone_from] = self.bias[clone_to]
 
     @torch.no_grad()
     def mutate(self, mutation_mask: torch.Tensor, noise_std: float = 0.01):
         # wherever the mask is True, add random noise from -mutation_amplitude to +mutation_amplitude
         assert mutation_mask.shape == (self.batch_size,)
-        assert mutation_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
         mutation_mask = mutation_mask.bool()
         noise_shape = (mutation_mask.sum(), *self.weight.shape[1:])
         # NOTE: purposefully a normal distribution because it's more likely to produce small perturbations

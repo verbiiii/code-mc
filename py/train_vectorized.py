@@ -7,71 +7,94 @@ MAX_AGENTS = 64
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_RATE = 1.0          # percent of weights that will be mutated
 MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 3.0
+FMC_BALANCE = 1.0
+
+
+class RLOperator(torch.nn.Module):
+    def __init__(self, device='cpu'):
+        super(RLOperator, self).__init__()
+
+        self.device = torch.device(device)
+
+        self.input_features = 6
+
+        # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
+        self.model = torch.nn.Sequential(
+            BatchedLinear(MAX_AGENTS, self.input_features, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(MAX_AGENTS, 32, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+        ).to(self.device)
+
+    def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
+        # let's zero-pad all of the agent indices that are missing
+        padded_x = torch.zeros((MAX_AGENTS, self.input_features), device=self.device)        
+        padded_x[agent_indices] = x
+
+        return self.model(padded_x)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu'):
+
         self.device = torch.device(device)
+        self.model = RLOperator(device=self.device).to(self.device)
 
-        # Model with BatchedLinear layers
-        self.model = torch.nn.Sequential(
-            BatchedLinear(MAX_AGENTS, 6, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 128),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 128, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(MAX_AGENTS, 64, 18),
-        ).to(self.device)
-
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
-
-        self.log_probs = torch.zeros((MAX_AGENTS, 1000), device=self.device)
-        self.rewards = torch.zeros((MAX_AGENTS, 1000), device=self.device)
-        self.episode_lengths = torch.zeros(MAX_AGENTS, dtype=torch.long, device=self.device)
         self.reward_history = []
+        
+        self.num_updates = 0
 
         # Fitness tracking
-        self.cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
+        self.round_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Never reset unless cloned
-        self.best_agent_idx = 0  # Index of current lifetime champion
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        logits = self.model(observations)
+    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
+        logits = self.model.forward(observations, agent_indices)
+
         x_logits = logits[:, :8]
         y_logits = logits[:, 8:16]
         walk_logits = logits[:, 16]
         shoot_logits = logits[:, 17]
+        jump_logits = logits[:, 18]
+        sneak_logits = logits[:, 19]
+        pitch_logits = logits[:, 20:28]  # 8 categories for pitch (-90 to +90 degrees)
+        yaw_logits = logits[:, 28:36]    # 8 categories for yaw (0 to 360 degrees)
 
-        x_dist = torch.distributions.Categorical(logits=x_logits)
-        y_dist = torch.distributions.Categorical(logits=y_logits)
-        walk_dist = torch.distributions.Bernoulli(logits=walk_logits)
-        shoot_dist = torch.distributions.Bernoulli(logits=shoot_logits)
+        # Deterministic actions - take argmax instead of sampling
+        x_actions = torch.argmax(x_logits, dim=1)
+        y_actions = torch.argmax(y_logits, dim=1)
+        walk_actions = (walk_logits > 0.0).bool()  # Deterministic threshold at 0
+        shoot_actions = (shoot_logits > 0.0).bool()
+        jump_actions = (jump_logits > 0.0).bool()
+        sneak_actions = (sneak_logits > 0.0).bool()
+        pitch_actions = torch.argmax(pitch_logits, dim=1)
+        yaw_actions = torch.argmax(yaw_logits, dim=1)
 
-        x_actions = x_dist.sample()
-        y_actions = y_dist.sample()
-        walk_actions = walk_dist.sample()
-        shoot_actions = shoot_dist.sample()
+        # No log probabilities for deterministic policies
+        log_probs = None
 
-        log_probs = (
-            x_dist.log_prob(x_actions) +
-            y_dist.log_prob(y_actions) +
-            walk_dist.log_prob(walk_actions) +
-            shoot_dist.log_prob(shoot_actions)
-        )
+        return x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs
 
-        return x_actions, y_actions, walk_actions.bool(), shoot_actions.bool(), log_probs
-
-    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs: torch.Tensor):
+    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
         if not active_mask.any():
             return  # No active agents
+        
+        # set our random seed to be `self.num_updates` (TODO expand on this)
+        # torch.manual_seed(self.num_updates)
             
         active_indices = agent_indices[active_mask]
         active_reward_data = reward_data[active_mask]
@@ -81,78 +104,77 @@ class VectorizedTrainer:
         kills = active_reward_data[:, 2]
         deaths = active_reward_data[:, 3]
 
-        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
+        rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)
         
         # Use the actual agent indices from the data
-        self.cumulative_rewards[active_indices] += rewards
+        self.round_cumulative_rewards[active_indices] += rewards
         self.lifetime_cumulative_rewards[active_indices] += rewards  # Also update lifetime rewards
         
         # Debug: Only print non-zero rewards
         non_zero_mask = rewards != 0
         if non_zero_mask.any():
             pass  # Removed individual agent reward prints for cleaner output
+        
+        # Note: log_probs is None for deterministic policies, so we don't store them
+
+        self.num_updates += 1
 
     def on_round_end(self):
         """Called at the end of each round."""
-        # Update lifetime champion before applying FMC (which may cause cloning)
-        self.update_lifetime_champion()
-        
+
         self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
-    
-    def update_lifetime_champion(self):
-        """Update tracking of lifetime champion based on lifetime cumulative rewards."""
-        if torch.any(self.lifetime_cumulative_rewards > 0):
-            current_lifetime_best_idx = torch.argmax(self.lifetime_cumulative_rewards).item()
-            current_lifetime_best_reward = self.lifetime_cumulative_rewards[current_lifetime_best_idx].item()
-            previous_champion_reward = self.lifetime_cumulative_rewards[self.best_agent_idx].item()
-            
-            if current_lifetime_best_idx != self.best_agent_idx:
-                self.best_agent_idx = current_lifetime_best_idx
-                print(f"🏆 NEW LIFETIME CHAMPION: Agent {current_lifetime_best_idx} with lifetime reward {current_lifetime_best_reward:.2f}")
-            else:
-                print(f"👑 Lifetime champion: Agent {self.best_agent_idx} (lifetime: {current_lifetime_best_reward:.2f}, this round: {self.cumulative_rewards[self.best_agent_idx].item():.2f})")
 
     def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
-        if torch.all(self.cumulative_rewards == 0):
-            print("🧬 FMC: No rewards to base updates on, skipping evolution")
-            return  # No rewards to base updates on
+
+        print("This Round's Cumulative Rewards:")
+        print(self.round_cumulative_rewards)
             
-        scores = self.cumulative_rewards.clone()
+        # scores = self.round_cumulative_rewards.clone()
+        scores = self.lifetime_cumulative_rewards.clone()
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
-        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+
+        # Select partners based on scores (higher score higher probability of selection)
+        normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
+        distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
-        partner_vr = vr[partner_indices]
+        vr = self._calculate_virtual_rewards(scores, arange, distance_partner_is)
+        clone_partner_indices = torch.multinomial(vr, MAX_AGENTS, replacement=True)
         
         # Determine cloning probability based on virtual rewards
-        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        # value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
         
         # Random threshold for cloning decision
-        r = torch.rand(MAX_AGENTS, device=self.device)
-        will_clone = value >= r
+        # r = torch.rand(MAX_AGENTS, device=self.device)
+        # will_clone = value >= r
+        clone_percent = 0.25
+        # generate a will clone mask totally randomly using our clone percent
+        will_clone = torch.rand(MAX_AGENTS, device=self.device) < clone_percent
         
         # Protect top agents from being cloned (they keep their parameters)
-        top_k = int(MAX_AGENTS * KEEP_TOP_PERCENT)
-        if top_k > 0:
-            top_agent_indices = torch.topk(scores, top_k).indices
-            will_clone[top_agent_indices] = False
+        top_k = max(int(MAX_AGENTS * KEEP_TOP_PERCENT), 1)
+        if top_k <= 0:
+            raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
+
+        top_agent_indices = torch.topk(scores, top_k).indices
+        will_clone[top_agent_indices] = False
         
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
         
         # Perform cloning and mutation
         if will_clone.any():
-            clone_indices_to_clone_from = partner_indices[will_clone]
+            # clone_indices_to_clone_from = partner_indices[will_clone]
             
             # Clone parameters for each BatchedLinear layer in the model
             for module in self.model.modules():
                 if isinstance(module, BatchedLinear):
-                    module.clone(will_clone, partner_indices)
+                    module.clone(will_clone, clone_partner_indices)
                     # Mutate the cloned parameters
                     module.mutate(will_clone, MUTATION_AMPLITUDE)
             
@@ -172,6 +194,7 @@ class VectorizedTrainer:
             print(f"   🔄 Cloned: {num_cloned}/{MAX_AGENTS} agents (protected top {top_k})")
             if len(top_k_rewards) > 0:
                 print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+                print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
         else:
             print(f"🧬 FMC: No agents cloned (mean score: {scores.mean().item():.2f})")
 
@@ -226,14 +249,14 @@ class VectorizedTrainer:
 
     def reset_cumulative_rewards(self):
         """Reset cumulative rewards for all agents."""
-        self.cumulative_rewards.zero_()
+        self.round_cumulative_rewards.zero_()
 
     def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
         """Get indices of top-k agents based on cumulative rewards."""
-        if self.cumulative_rewards.numel() == 0:
+        if self.round_cumulative_rewards.numel() == 0:
             return torch.tensor([], device=self.device, dtype=torch.long)
         
-        top_k_values, top_k_indices = torch.topk(self.cumulative_rewards, k, sorted=True)
+        top_k_values, top_k_indices = torch.topk(self.round_cumulative_rewards, k, sorted=True)
         return top_k_indices
 
     def get_stats(self):
