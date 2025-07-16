@@ -129,7 +129,6 @@ public class Minekov {
                             )
                         )
                     )
-                )
                     .then(Commands.literal("stop")
                         .executes(ctx -> {
                             if (trainingState != null) {
