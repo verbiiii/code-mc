@@ -11,11 +11,14 @@ class BatchedLinear(nn.Module):
         self.weight = nn.Parameter(torch.randn(batch_size, out_features, in_features))
         self.bias = nn.Parameter(torch.randn(batch_size, out_features)) if bias else None
 
-    def forward(self, x):
-        out = torch.einsum('bi,bij->bj', x, self.weight.transpose(1, 2))
+    def forward(self, x, agent_indices=None):
+        if agent_indices is None:
+            return torch.einsum('bi,bij->bj', x, self.weight) + (self.bias if self.bias is not None else 0)
+        out = torch.einsum('bi,bij->bj', x, self.weight[agent_indices])
         if self.bias is not None:
-            out = out + self.bias
+            out += self.bias[agent_indices]
         return out
+
 
     @torch.no_grad()
     def clone(self, clone_mask: torch.Tensor, clone_indices: torch.Tensor):
