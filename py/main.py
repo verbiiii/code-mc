@@ -38,6 +38,9 @@ async def websocket_endpoint(websocket: WebSocket):
     connected_clients.add(websocket)
     client_id = id(websocket)
     logger.info(f"🔗 Client {client_id} connected. Total clients: {len(connected_clients)}")
+
+    if len(connected_clients) > 1:
+        raise RuntimeError("Only one client allowed for vectorized training. Please disconnect other clients.")
     
     while True:
         # Receive any message and check its type

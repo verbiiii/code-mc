@@ -271,27 +271,6 @@ public class Minekov {
         LivingEntity victimEntity = event.getEntity();
         Entity attackerEntity = event.getSource().getEntity();
 
-        // Check for 1v1 combat outcome (player vs AI)
-        if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
-            // Player lost to AI - round ends
-            sendRoundEnd(false); // Send round end without model updates
-            player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
-            player.getServer().getPlayerList().broadcastSystemMessage(
-                Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
-            );
-            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
-            return;
-        } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
-            // Player won against AI - round ends
-            sendRoundEnd(false); // Send round end without model updates
-            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the AI agent!"));
-            player.getServer().getPlayerList().broadcastSystemMessage(
-                Component.literal("§a👑 " + player.getName().getString() + " has defeated the AI agent!"), false
-            );
-            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
-            return;
-        }
-
         // Regular training logic (both must be AI operators)
         if (!(victimEntity instanceof RLOperator) && !(attackerEntity instanceof RLOperator)) {
             return; // nothing to track

@@ -224,25 +224,23 @@ class VectorizedTrainer:
                 # Mutate the cloned parameters
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
             
-            # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
-            self.lifetime_cumulative_rewards[will_clone] = 0.0
-            cloned_count = will_clone.sum().item()
-            print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
-            
-            # Enhanced FMC metrics
-            num_cloned = will_clone.sum().item()
-            mean_score = scores.mean().item()
-            std_score = scores.std().item()
-            max_score = scores.max().item()
-            
-            print(f"🧬 FMC Evolution:")
-            print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
-            print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
-            if len(top_k_rewards) > 0:
-                print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
-                print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
-        else:
-            print(f"🧬 FMC: No agents cloned (mean score: {scores.mean().item():.2f})")
+        # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
+        self.lifetime_cumulative_rewards[will_clone] = 0.0
+        cloned_count = will_clone.sum().item()
+        print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
+        
+        # Enhanced FMC metrics
+        num_cloned = will_clone.sum().item()
+        mean_score = scores.mean().item()
+        std_score = scores.std().item()
+        max_score = scores.max().item()
+        
+        print(f"🧬 FMC Evolution:")
+        print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
+        print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
+        if len(top_k_rewards) > 0:
+            print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+            print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""
