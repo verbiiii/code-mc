@@ -131,8 +131,8 @@ class VectorizedTrainer:
         print("This Round's Cumulative Rewards:")
         print(self.round_cumulative_rewards)
             
-        # scores = self.round_cumulative_rewards.clone()
-        scores = self.lifetime_cumulative_rewards.clone()
+        scores = self.round_cumulative_rewards.clone()
+        # scores = self.lifetime_cumulative_rewards.clone()
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random

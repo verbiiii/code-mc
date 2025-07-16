@@ -1,9 +1,11 @@
 package com.dyllan.minekov.training;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
@@ -282,6 +284,7 @@ public class TrainingState {
         }
 
         // otherwise, let's add the references to the operators array, implicitly assigning them indices
+        Collections.shuffle(currentlyInitializedOperators, new Random());
         for (int i = 0; i < currentlyInitializedOperators.size(); i++) {
             operatorsArray[i] = currentlyInitializedOperators.get(i);
         }
