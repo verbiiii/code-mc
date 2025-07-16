@@ -22,7 +22,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_OPERATORS = 32;
+    private final int numOperators;
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
@@ -39,17 +39,16 @@ public class TrainingState {
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode) {
+    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators) {
+        this.numOperators = numOperators;
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
         this.operatorSpawningHandler = operatorSpawningHandler;
         this.mode = mode;
 
-        // TODO: pre-determine the number of operators better than this
-        this.operatorsArray = new AIOperator[NUM_OPERATORS]; // 2 operators per group
-
-        Minekov.sendTrainSessionStart(NUM_OPERATORS, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
+        this.operatorsArray = new AIOperator[numOperators];
+        Minekov.sendTrainSessionStart(numOperators, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
 
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
@@ -282,7 +281,7 @@ public class TrainingState {
         List<AIOperator> allOperators = new ArrayList<>();
 
         if (mode == TrainingGameMode.ONE_VS_ONE) {
-            for (int i = 0; i < NUM_OPERATORS / 2; i++) {
+            for (int i = 0; i < numOperators / 2; i++) {
                 TrainingGroup group = new TrainingGroup(200);
 
                 RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
@@ -309,7 +308,7 @@ public class TrainingState {
             }
         } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
             TrainingGroup group = new TrainingGroup(200);
-            for (int i = 0; i < NUM_OPERATORS; i++) {
+            for (int i = 0; i < numOperators; i++) {
                 RLOperator rl = operatorSpawningHandler.spawnRLOperator();
                 allOperators.add(rl);
                 Team team = new Team();

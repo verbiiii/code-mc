@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 event_loop = None
 
 # Initialize the vectorized transport layer
-trainer = None
-transport = None
+TRAINER = None
+TRANSPORT = None
 
 # FastAPI app - minimal setup
 app = FastAPI(title="Minekov Vectorized RL Server")
@@ -32,6 +32,8 @@ connected_clients = set()
 @app.websocket("/socket")
 async def websocket_endpoint(websocket: WebSocket):
     """Ultra-fast binary WebSocket handler for RL observations and actions."""
+    global TRAINER, TRANSPORT
+
     await websocket.accept()
     connected_clients.add(websocket)
     client_id = id(websocket)
@@ -59,15 +61,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     # spawn_center_y = payload["center_y"]
                     # spawn_center_z = payload["center_z"]
 
-                    if trainer is not None or transport is not None:
+                    if TRAINER is not None or TRANSPORT is not None:
                         raise ValueError("TODO")
                     
                     print(f"Initializing trainer with {num_agents} agents.")
 
-                    trainer = VectorizedTrainer(
+                    TRAINER = VectorizedTrainer(
                         num_agents=num_agents,
                     )
-                    transport = BinaryTransport(trainer=trainer)
+                    TRANSPORT = BinaryTransport(trainer=TRAINER)
 
                     # trainer.on_session_start(payload)
                     continue
@@ -94,7 +96,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
                 
         elif "bytes" in message:
-            if transport is None or trainer is None:
+            if TRANSPORT is None or TRAINER is None:
                 logger.error("❌ Transport or trainer not initialized. Cannot process binary data.")
                 await websocket.close(code=1001, reason="Transport not initialized")
                 return
@@ -103,7 +105,7 @@ async def websocket_endpoint(websocket: WebSocket):
             binary_data = message["bytes"]
             
             # Process through vectorized pipeline and get actions
-            response_data = transport.process_observations(binary_data)
+            response_data = TRANSPORT.process_observations(binary_data)
             
             # Send binary action response
             await websocket.send_bytes(response_data)

@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer, MAX_AGENTS
+from train_vectorized import VectorizedTrainer
 
 
 class BinaryTransport:
@@ -77,10 +77,6 @@ class BinaryTransport:
         if magic != 0xFEEDBEEF:
             print(f"⚠️ Invalid magic: 0x{magic:08X}")
             return None, None, None
-            
-        # Debug: Alert if we're getting too many agents (reduced verbosity)
-        if agent_count > MAX_AGENTS:
-            raise RuntimeError(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
             
         self.tick_count = tick
         

@@ -41,7 +41,7 @@ class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
         self.num_agents = num_agents
         self.device = torch.device(device)
-        self.model = RLOperator(device=self.device).to(self.device)
+        self.model = RLOperator(device=self.device, num_agents=self.num_agents).to(self.device)
 
         self.reward_history = []
         
@@ -259,7 +259,11 @@ class VectorizedTrainer:
     def _calculate_distances(self, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate Euclidean distances between agent parameters and their partners."""
         distances = torch.zeros(self.num_agents, device=self.device)
-        
+            
+        # Debug: Alert if we're getting too many agents (reduced verbosity)
+        if agent_indices.size() > self.num_agents:
+            raise RuntimeError(f"🚨 ALERT: Received {agent_indices.size()} agents! Expected maximum {self.num_agents}.")
+
         for module in self.model.modules():
             if isinstance(module, BatchedLinear):
                 # Calculate distances for weights

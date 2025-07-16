@@ -108,30 +108,35 @@ public class Minekov {
                                 }
                                 return builder.buildFuture();
                             })
-                            .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> {
-                                    var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
-                                    var player = ctx.getSource().getPlayerOrException();
-                                    var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16);
-                                })
-                                .then(Commands.argument("radius", IntegerArgumentType.integer(1))
+                            .then(Commands.argument("num_operators", IntegerArgumentType.integer(1))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                     .executes(ctx -> {
                                         var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                        var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
                                         var player = ctx.getSource().getPlayerOrException();
                                         var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                        var radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius);
+                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16, numOperators);
                                     })
-                                    .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                    .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                         .executes(ctx -> {
                                             var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                            var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
                                             var player = ctx.getSource().getPlayerOrException();
                                             var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                             var radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                            var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                            return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius);
+                                            return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius, numOperators);
                                         })
+                                        .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                            .executes(ctx -> {
+                                                var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                                var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                                var player = ctx.getSource().getPlayerOrException();
+                                                var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                                var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                                var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                                return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius, numOperators);
+                                            })
+                                        )
                                     )
                                 )
                             )
@@ -159,9 +164,9 @@ public class Minekov {
         );
     }
 
-    private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius) {
+    private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius, int numOperators) {
         OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
-        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler, mode);
+        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler, mode, numOperators);
 
         TrainingScoreboard.setServer(world.getServer());
         Scoreboard scoreboard = world.getServer().getScoreboard();
