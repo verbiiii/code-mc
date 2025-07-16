@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.dyllan.minekov.Minekov;
 import com.dyllan.minekov.ModEntities;
 import com.dyllan.minekov.PythonBridge;
 import com.dyllan.minekov.PythonRLController;
@@ -21,8 +20,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 64; // ← change this to 1, 100, etc. for # of 1v1s
-    private final boolean selfPlay = false; // ← set to false to use DumbOperator
+    private static final int NUM_GROUPS = 32; // ← change this to 1, 100, etc. for # of 1v1s
+    private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
