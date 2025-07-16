@@ -15,7 +15,6 @@ import com.dyllan.minekov.entities.AIOperator;
 import com.dyllan.minekov.entities.DumbOperator;
 import com.dyllan.minekov.entities.OperatorSpawningHandler;
 import com.dyllan.minekov.entities.RLOperator;
-import com.eliotlash.mclib.math.Operator;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -23,7 +22,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 
 public class TrainingState {
-    private static final int NUM_GROUPS = 32; // ← change this to 1, 100, etc. for # of 1v1s
+    private static final int NUM_OPERATORS = 64;
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
 
     private List<TrainingGroup> groups = new ArrayList<>();
@@ -37,16 +36,18 @@ public class TrainingState {
     private int globalTick = 0;
     private boolean roundActive = false;
 
+    private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler) {
+    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode) {
         this.numRounds = rounds;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
         this.operatorSpawningHandler = operatorSpawningHandler;
+        this.mode = mode;
 
         // TODO: pre-determine the number of operators better than this
-        this.operatorsArray = new AIOperator[NUM_GROUPS * 2]; // 2 operators per group
+        this.operatorsArray = new AIOperator[NUM_OPERATORS / 2]; // 2 operators per group
 
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
@@ -240,51 +241,64 @@ public class TrainingState {
         groups.clear();
         roundActive = true;
 
-        ServerLevel world = server.overworld();
-        List<AIOperator> currentlyInitializedOperators = new ArrayList<>();
+        List<AIOperator> initialized = setupOperators();
 
-        for (int i = 0; i < NUM_GROUPS; i++) {
-            TrainingGroup group = new TrainingGroup(200); // 600 ticks = 30 seconds
-
-            // Spawn RL operator
-            RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
-            currentlyInitializedOperators.add(rl1);
-            Team team1 = new Team();
-            team1.addOperator(rl1);
-
-            // Spawn opponent
-            AIOperator opponent;
-            if (selfPlay) {
-                RLOperator rl2 = operatorSpawningHandler.spawnRLOperator();
-                currentlyInitializedOperators.add(rl2);
-                opponent = rl2;
-            } else {
-                DumbOperator dumb = operatorSpawningHandler.spawnDumbOperator();
-                currentlyInitializedOperators.add(dumb);
-                opponent = dumb;
-            }
-            Team team2 = new Team();
-            team2.addOperator(opponent);
-
-            // Add both teams to group
-            group.addTeam(team1);
-            group.addTeam(team2);
-            groups.add(group);
-        }
-
-        // Validate total operator count
-        if (currentlyInitializedOperators.size() != operatorsArray.length) {
+        if (initialized.size() != operatorsArray.length) {
             throw new IllegalStateException("Number of initialized operators does not match expected size!");
         }
 
-        // Shuffle and store in array
-        Collections.shuffle(currentlyInitializedOperators, new Random());
-        for (int i = 0; i < currentlyInitializedOperators.size(); i++) {
-            operatorsArray[i] = currentlyInitializedOperators.get(i);
+        Collections.shuffle(initialized, new Random());
+        for (int i = 0; i < initialized.size(); i++) {
+            operatorsArray[i] = initialized.get(i);
         }
 
-        // Announce round start
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
+    }
+
+    private List<AIOperator> setupOperators() {
+        List<AIOperator> allOperators = new ArrayList<>();
+
+        if (mode == TrainingGameMode.ONE_VS_ONE) {
+            for (int i = 0; i < NUM_OPERATORS / 2; i++) {
+                TrainingGroup group = new TrainingGroup(200);
+
+                RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
+                allOperators.add(rl1);
+                Team team1 = new Team();
+                team1.addOperator(rl1);
+
+                AIOperator opponent;
+                if (selfPlay) {
+                    RLOperator rl2 = operatorSpawningHandler.spawnRLOperator();
+                    allOperators.add(rl2);
+                    opponent = rl2;
+                } else {
+                    DumbOperator dumb = operatorSpawningHandler.spawnDumbOperator();
+                    allOperators.add(dumb);
+                    opponent = dumb;
+                }
+                Team team2 = new Team();
+                team2.addOperator(opponent);
+
+                group.addTeam(team1);
+                group.addTeam(team2);
+                groups.add(group);
+            }
+        } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
+            TrainingGroup group = new TrainingGroup(200);
+            for (int i = 0; i < NUM_OPERATORS; i++) {
+                RLOperator rl = operatorSpawningHandler.spawnRLOperator();
+                allOperators.add(rl);
+                Team team = new Team();
+                team.addOperator(rl);
+                group.addTeam(team);
+            }
+            groups.add(group);
+        } else {
+            throw new IllegalStateException("Unsupported game mode: " + mode);
+        }
+
+        return allOperators;
     }
 
     private void cleanupRound() {
