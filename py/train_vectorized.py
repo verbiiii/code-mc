@@ -10,13 +10,18 @@ KEEP_TOP_PERCENT = 0.05
 MUTATION_AMPLITUDE = 1.0    # maximum amplitude of the mutation (std dev for normal distribution)
 FMC_BALANCE = 0.5
 
-class VectorizedTrainer:
+
+class RLOperator(torch.nn.Module):
     def __init__(self, device='cpu'):
+        super(RLOperator, self).__init__()
+
         self.device = torch.device(device)
+
+        self.input_features = 6
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
-            BatchedLinear(MAX_AGENTS, 6, 32),
+            BatchedLinear(MAX_AGENTS, self.input_features, 32),
             torch.nn.Tanh(),
             BatchedLinear(MAX_AGENTS, 32, 32),
             torch.nn.Tanh(),
@@ -31,6 +36,24 @@ class VectorizedTrainer:
             BatchedLinear(MAX_AGENTS, 32, 36),  # [x(8) + y(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
+    def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
+
+        # if all 64 agents are given as the batch input, just return normal model forward pass
+        if agent_indices.numel() == MAX_AGENTS:
+            return self.model(x)
+
+        # let's zero-pad all of the agent indices that are missing
+        padded_x = torch.zeros((MAX_AGENTS, self.input_features), device=self.device)        
+        padded_x[agent_indices] = x
+
+        return self.model(padded_x)
+
+class VectorizedTrainer:
+    def __init__(self, device='cpu'):
+
+        self.device = torch.device(device)
+        self.model = RLOperator(device=self.device).to(self.device)
+
         self.reward_history = []
 
         # Fitness tracking
@@ -39,8 +62,9 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
-        logits = self.model(observations)
+    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None]:
+        logits = self.model.forward(observations, agent_indices)
+
         x_logits = logits[:, :8]
         y_logits = logits[:, 8:16]
         walk_logits = logits[:, 16]

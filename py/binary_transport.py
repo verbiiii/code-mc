@@ -47,7 +47,7 @@ class BinaryTransport:
             return self._encode_empty_actions()
         
         # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor)
+        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs = self.trainer.forward_pass(obs_tensor, agent_indices)
         
         # Update training data
         self.trainer.update_episode_data(agent_indices, reward_data, log_probs)
@@ -102,69 +102,12 @@ class BinaryTransport:
         obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
         
         # Extract components vectorized - NOW WITH AGENT INDICES
-        # Format: [agent_index, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        raw_agent_ids = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
+        # Format: [agent_indices, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
+        agent_indices = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
         positions = obs_tensor[:, 1:7]           # [N, 6] - my_pos + opp_pos  
         reward_data = obs_tensor[:, 7:11]        # [N, 4] - damage/kill data
         
-        # Map large agent IDs to small indices (0-63)
-        mapped_indices = torch.zeros_like(raw_agent_ids)
-        skipped_count = 0
-        
-        # If we're getting way too many agents, force a reset
-        if agent_count > 128:
-            print(f"🔥 EMERGENCY RESET: Too many agents ({agent_count}), forcing agent mapping reset")
-            self.agent_id_to_index.clear()
-            self.next_index = 0
-        
-        # If mapping is full but no agents are active, reset the mapping
-        if len(self.agent_id_to_index) >= 64 and agent_count > 0:
-            # Check if any of the current agent IDs are in our mapping
-            current_ids_in_mapping = any(agent_id.item() in self.agent_id_to_index for agent_id in raw_agent_ids)
-            if not current_ids_in_mapping:
-                print(f"🔄 STALE MAPPING RESET: Agent mapping full ({len(self.agent_id_to_index)}) but no current agents found, resetting")
-                self.agent_id_to_index.clear()
-                self.next_index = 0
-        
-        for i, agent_id in enumerate(raw_agent_ids):
-            agent_id_int = agent_id.item()
-            if agent_id_int not in self.agent_id_to_index:
-                if self.next_index >= 64:
-                    skipped_count += 1
-                    mapped_indices[i] = -1  # Mark as inactive
-                    continue
-                self.agent_id_to_index[agent_id_int] = self.next_index
-                # Removed individual agent mapping prints for cleaner output
-                self.next_index += 1
-            
-            mapped_indices[i] = self.agent_id_to_index[agent_id_int]
-            
-        # if skipped_count > 0:
-            # print(f"⚠️ Skipped {skipped_count} agents due to 64-agent limit")
-            # If we're skipping a lot, show some stats
-            # if skipped_count > 32:
-                # active_agents = (mapped_indices != -1).sum().item()
-                # print(f"📊 Active agents: {active_agents}, Mapped agents: {len(self.agent_id_to_index)}")
-        
-        # Pad to MAX_AGENTS for BatchedLinear compatibility
-        if agent_count < MAX_AGENTS:
-            # Removed padding message for cleaner output
-            
-            # Pad positions with zeros
-            positions_padded = torch.zeros(MAX_AGENTS, 6, device=self.trainer.device)
-            positions_padded[:agent_count] = positions
-            
-            # Pad agent indices (use -1 for inactive agents)
-            agent_indices_padded = torch.full((MAX_AGENTS,), -1, dtype=torch.long, device=self.trainer.device)
-            agent_indices_padded[:agent_count] = mapped_indices
-            
-            # Pad reward data with zeros
-            reward_data_padded = torch.zeros(MAX_AGENTS, 4, device=self.trainer.device)
-            reward_data_padded[:agent_count] = reward_data
-            
-            return positions_padded, agent_indices_padded, reward_data_padded
-        
-        return positions, mapped_indices, reward_data
+        return positions, agent_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor, jump: torch.Tensor, sneak: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:
