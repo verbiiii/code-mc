@@ -37,11 +37,6 @@ class RLOperator(torch.nn.Module):
         ).to(self.device)
 
     def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
-
-        # if all 64 agents are given as the batch input, just return normal model forward pass
-        if agent_indices.numel() == MAX_AGENTS:
-            return self.model(x)
-
         # let's zero-pad all of the agent indices that are missing
         padded_x = torch.zeros((MAX_AGENTS, self.input_features), device=self.device)        
         padded_x[agent_indices] = x
@@ -55,6 +50,8 @@ class VectorizedTrainer:
         self.model = RLOperator(device=self.device).to(self.device)
 
         self.reward_history = []
+        
+        self.num_updates = 0
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(MAX_AGENTS, device=self.device)  # Current round rewards
@@ -95,6 +92,9 @@ class VectorizedTrainer:
         active_mask = agent_indices != -1
         if not active_mask.any():
             return  # No active agents
+        
+        # set our random seed to be `self.num_updates` (TODO expand on this)
+        # torch.manual_seed(self.num_updates)
             
         active_indices = agent_indices[active_mask]
         active_reward_data = reward_data[active_mask]
@@ -117,6 +117,8 @@ class VectorizedTrainer:
         
         # Note: log_probs is None for deterministic policies, so we don't store them
 
+        self.num_updates += 1
+
     def on_round_end(self):
         """Called at the end of each round."""
 
@@ -134,7 +136,12 @@ class VectorizedTrainer:
         arange = torch.arange(MAX_AGENTS, device=self.device)
         
         # Select partners uniformly at random
-        partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+        # partner_indices = torch.randint(0, MAX_AGENTS, (MAX_AGENTS,), device=self.device)
+
+        # Select partners based on scores (higher score higher probability of selection)
+        normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
+        partner_indices = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
+        print("partners", partner_indices)
         
         # Calculate virtual rewards
         vr = self._calculate_virtual_rewards(scores, arange, partner_indices)

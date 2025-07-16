@@ -31,8 +31,6 @@ class BatchedLinear(nn.Module):
         clone_mask = clone_mask.bool()
         clone_from = torch.arange(self.batch_size, device=self.weight.device)[clone_mask]
         clone_to = clone_indices[clone_mask]
-        # print("clone from", clone_from)
-        # print("to", clone_to)
 
         # Sanity check: all clone_from must be in valid range
         if not torch.all((0 <= clone_from) & (clone_from < self.batch_size)):
