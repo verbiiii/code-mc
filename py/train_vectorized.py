@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 from typing import Tuple
-from py.batched_linear import BatchedLinear
+from batched_linear import BatchedLinear
 
-MAX_AGENTS = 64
+MAX_AGENTS = 16
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
@@ -17,7 +17,7 @@ class RLOperator(torch.nn.Module):
 
         self.device = torch.device(device)
 
-        self.input_features = 6
+        self.input_features = 3 + ((MAX_AGENTS - 1) * 4)
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
