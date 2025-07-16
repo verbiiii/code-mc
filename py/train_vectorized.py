@@ -104,8 +104,9 @@ class VectorizedTrainer:
         kills = active_reward_data[:, 2]
         deaths = active_reward_data[:, 3]
 
-        # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward
-        rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)
+        # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
+        # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
+        rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += rewards
