@@ -6,7 +6,7 @@ from batched_linear import BatchedLinear
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
 MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
-FMC_BALANCE = 1.0
+FMC_BALANCE = 2.0
 
 
 class RLOperator(torch.nn.Module):
@@ -147,7 +147,7 @@ class VectorizedTrainer:
         # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
         rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
 
-        rewards -= num_bullets * 10  # penalize for using too many bullets
+        rewards -= num_bullets  # penalize for using too many bullets
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
         # rewards += (1 / (distance_to_enemy[active_mask] + 1))
@@ -179,24 +179,14 @@ class VectorizedTrainer:
             
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
-        arange = torch.arange(self.num_agents, device=self.device)
         
         # Select partners uniformly at random
         partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
-
-        # Select partners based on scores (higher score higher probability of selection)
-        # normalized_scores = torch.clamp((scores - scores.min()) / (scores.max() - scores.min()), min=0.01)
-        # same but protect against division by zero
-        normalized_scores = torch.clamp((scores - scores.min()) / torch.clamp((scores.max() - scores.min()), min=1e-8), min=1e-8)
-
-        # check for nans or infs (crash if so)
-        if torch.isnan(normalized_scores).any() or torch.isinf(normalized_scores).any():
-            raise ValueError("Normalized scores contain NaN or Inf values. Check your reward calculations.")
         
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
         # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, arange, partner_indices)
+        vr = self._calculate_virtual_rewards(scores, partner_indices)
         partner_vr = vr[partner_indices]
         
         # Determine cloning probability based on virtual rewards
@@ -214,8 +204,9 @@ class VectorizedTrainer:
         top_agent_indices = torch.topk(scores, top_k).indices
         will_clone[top_agent_indices] = False
 
-        will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)
-        will_perturbate[top_agent_indices] = False  # Don't perturb top agents
+        # will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)
+        # will_perturbate[top_agent_indices] = False  # Don't perturb top agents
+        will_perturbate = will_clone.clone()  # Perturb all cloned agents
 
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
@@ -245,10 +236,10 @@ class VectorizedTrainer:
             print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
             print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
 
-    def _calculate_virtual_rewards(self, scores: torch.Tensor, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+    def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""
         # Calculate distances between agents and their partners
-        dists = self._calculate_distances(agent_indices, partner_indices)
+        dists = self._calculate_distances(partner_indices)
         
         # Relativize distances and scores
         rel_dists = self._relativize(dists)
@@ -257,24 +248,20 @@ class VectorizedTrainer:
         # Virtual rewards are the product of relativized scores and distances
         return rel_scores * rel_dists
 
-    def _calculate_distances(self, agent_indices: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
+    def _calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate Euclidean distances between agent parameters and their partners."""
         distances = torch.zeros(self.num_agents, device=self.device)
-            
-        # Debug: Alert if we're getting too many agents (reduced verbosity)
-        if agent_indices.numel() > self.num_agents:
-            raise RuntimeError(f"🚨 ALERT: Received {agent_indices.size()} agents! Expected maximum {self.num_agents}.")
 
         for module in self.model.modules():
             if isinstance(module, BatchedLinear):
                 # Calculate distances for weights
-                weight_diffs = module.weight[agent_indices] - module.weight[partner_indices]
+                weight_diffs = module.weight - module.weight[partner_indices]
                 weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
                 distances += weight_distances
                 
                 # Calculate distances for biases if they exist
                 if module.bias is not None:
-                    bias_diffs = module.bias[agent_indices] - module.bias[partner_indices]
+                    bias_diffs = module.bias - module.bias[partner_indices]
                     bias_distances = torch.norm(bias_diffs, dim=1)
                     distances += bias_distances
         
