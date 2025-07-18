@@ -85,15 +85,15 @@ class VectorizedTrainer:
 
         # dampened rewards
         self.current_rewards = (dmg_dealt * 0.1) + (kills * 10)
-        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 5)
-        self.current_rewards -= num_bullets * 0.1
+        self.current_rewards -= (dmg_taken * 0.05) + (deaths * 5)
+        self.current_rewards -= num_bullets * 0.01
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
         distances = torch.norm(positions[active_mask] - target_position, dim=1)
 
         # give a reward each tick for their proximity to the target position
-        self.current_rewards += (1 / (distances + 1))  # dampened reward for proximity
+        self.current_rewards *= (1 / (distances + 1))  # mutiply rewards by distance to target
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
