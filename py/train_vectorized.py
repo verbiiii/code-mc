@@ -29,16 +29,16 @@ class VectorizedTrainer:
         group_indices: [N] – group id per agent (used to match group-mates)
         """
 
-        logits = self.operators.forward(observations)
+        y = self.operators.forward(observations)
 
         # Split output logits
-        x_logits = logits[:, :8]
-        walk_logits = logits[:, 8]
-        shoot_logits = logits[:, 9]
-        jump_logits = logits[:, 10]
-        sneak_logits = logits[:, 11]
-        pitch_logits = logits[:, 12:20]
-        yaw_logits = logits[:, 20:28]
+        x_logits = y[:, :8]
+        walk_logits = y[:, 8]
+        shoot_logits = y[:, 9]
+        jump_logits = y[:, 10]
+        sneak_logits = y[:, 11]
+        pitch_logits = y[:, 12:20]
+        yaw_logits = y[:, 20:28]
 
         # Deterministic policy
         movement_theta = torch.argmax(x_logits, dim=1)

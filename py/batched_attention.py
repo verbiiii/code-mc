@@ -23,24 +23,17 @@ class BatchedCrossAttention(BatchedNNModule):
         # Compute per-agent query from each agent's self observation
         diag_indices = torch.arange(B, device=x.device)
         self_obs = x[diag_indices, diag_indices]  # [B, in_features]
-        print(self_obs.shape)
+
         q = self.query_proj(self_obs).unsqueeze(1)  # [B, 1, H]
-        print(q.shape)
-
-        # Project keys/values (still per-agent weights, per-row input)
-        print(x.shape, "key input")
         k = self.key_proj(x)     # [B, N, H]
-        print(x.shape, "v input")
         v = self.value_proj(x)   # [B, N, O]
-
-        print(q.shape, k.shape, v.shape)  # Debugging shapes
 
         # Scaled dot product attention
         attn_scores = torch.matmul(q, k.transpose(1, 2)) / self.scale  # [B, 1, N]
         attn_weights = F.softmax(attn_scores, dim=-1)  # [B, 1, N]
 
         out = torch.matmul(attn_weights, v)  # [B, 1, O]
-        return out  # shape: [num_agents, 1, out_features]
+        return out.squeeze(1)  # (so we squeeze it)
 
     @torch.no_grad()
     def clone(self, clone_mask: torch.Tensor, clone_indices: torch.Tensor):

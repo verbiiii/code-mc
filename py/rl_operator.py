@@ -1,6 +1,6 @@
 import torch
-# from batched_linear import BatchedLinear, BatchedNNModule
-from batched_attention import BatchedCrossAttention, BatchedNNModule
+from batched_linear import BatchedLinear, BatchedNNModule
+from batched_attention import BatchedCrossAttention
 from observations import VectorizedObservations
 
 
@@ -23,7 +23,7 @@ class RLOperators(torch.nn.Module):
             # BatchedLinear(num_agents, self.input_features, 32),
             BatchedCrossAttention(num_agents, self.input_features, 32, hidden_dim=self.hidden_dim),
             # torch.nn.Tanh(),
-            # # BatchedLinear(num_agents, 32, 64),
+            # BatchedLinear(num_agents, 32, 64),
             # BatchedCrossAttention(num_agents, 32, 32, hidden_dim=self.hidden_dim),
             # torch.nn.Tanh(),
             # # BatchedLinear(num_agents, 64, 64),
@@ -31,8 +31,8 @@ class RLOperators(torch.nn.Module):
             # torch.nn.Tanh(),
             # # BatchedLinear(num_agents, 64, 32),
             # BatchedCrossAttention(num_agents, 32, 32, hidden_dim=self.hidden_dim),
-            # torch.nn.Tanh(),
-            # BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            torch.nn.Tanh(),
+            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, observations: VectorizedObservations):
@@ -48,15 +48,8 @@ class RLOperators(torch.nn.Module):
         # Set one-hot indicator: [num_agents, num_agents], diagonal = 1.0
         batch_observations[observations.agent_indices, observations.agent_indices, 0] = 1.0
 
-        # print(batch_observations)
-        # print(batch_observations[:, :, 0])
-        # print(batch_observations.shape)
-
-        print(batch_observations.shape)
         y = self.model.forward(batch_observations)
-        print(y.shape)
-
-        raise NotImplementedError
+        return y
 
     def blend_parameters(self, partner_indices: torch.Tensor, will_clone: torch.Tensor, will_perturbate: torch.Tensor = None):
         if will_perturbate is None:
