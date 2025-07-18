@@ -15,6 +15,7 @@ class VectorizedObservations:
         self.num_bullets = torch.zeros(num_agents, dtype=torch.float32)
         self.health = torch.zeros(num_agents, dtype=torch.float32)
         self.is_alive = torch.zeros(num_agents, dtype=torch.bool)
+        self.rewards = torch.zeros(num_agents, dtype=torch.float32)
         self._fill(binary_data)
 
     def _fill(self, binary_data: bytes):
@@ -49,8 +50,9 @@ class VectorizedObservations:
 
     def tensorized(self) -> torch.Tensor:
         return torch.cat((
-            # all zeros entry to fill later
+            # all zeros entry to fill later (one-hot encoding)
             torch.zeros((self.positions.shape[0], 1), dtype=torch.float32),
+            self.rewards.unsqueeze(1).float(),
             self.positions,
             self.group_indices.unsqueeze(1).float(),
             self.team_indices.unsqueeze(1).float(),

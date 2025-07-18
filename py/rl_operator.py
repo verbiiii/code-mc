@@ -15,7 +15,7 @@ class RLOperators(torch.nn.Module):
         self.num_agents = num_agents
         self.device = torch.device(device)
 
-        self.input_features = 13
+        self.input_features = 14
         self.hidden_dim = 16
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak

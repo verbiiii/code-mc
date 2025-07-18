@@ -100,6 +100,9 @@ class VectorizedTrainer:
         self.lifetime_cumulative_rewards[active_indices] += self.current_rewards  # Also update lifetime rewards
         self.num_updates += 1
 
+        # update rewards
+        obs.rewards[active_mask] = self.current_rewards
+
     def on_round_end(self):
         """Called at the end of each round."""
 
