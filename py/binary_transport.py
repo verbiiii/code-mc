@@ -10,7 +10,8 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
-from train_vectorized import VectorizedTrainer, MAX_AGENTS
+from observations import VectorizedObservations
+from train_vectorized import VectorizedTrainer
 
 
 class BinaryTransport:
@@ -36,24 +37,18 @@ class BinaryTransport:
         Returns binary action data in same format.
         """
         start_time = time.perf_counter()
-    
-        # Parse and validate header
-        obs_tensor, agent_indices, group_indices, team_indices, reward_data = self._parse_observations(binary_data)
-        if obs_tensor is None:
-            return self._encode_empty_actions()
         
         # Forward pass through model
-        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy = self.trainer.forward_pass(obs_tensor, agent_indices, group_indices, team_indices)
-
-        # Update training data
-        self.trainer.update_episode_data(agent_indices, reward_data, log_probs, distance_to_enemy)
+        obs = VectorizedObservations(binary_data, self.trainer.num_agents)
+        self.trainer.update_episode_data(obs)
+        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.forward(obs)
 
         # Convert actions and encode response
         angles = (movement_theta.float() / 8.0) * 360.0
         pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
         yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
-        actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
-        
+        actions_binary = self._encode_actions(obs.agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
+
         # Performance tracking
         processing_time = (time.perf_counter() - start_time) * 1000
         self.processing_times.append(processing_time)
@@ -64,48 +59,6 @@ class BinaryTransport:
             print(f"⚠️ Slow processing: {processing_time:.2f}ms")
             
         return actions_binary
-
-    def _parse_observations(self, binary_data: bytes) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Parse binary observation data into tensors."""
-        if len(binary_data) < 16:
-            print(f"⚠️ Invalid data size: {len(binary_data)} < 16")
-            return None, None, None
-            
-        # Parse header
-        magic, tick, agent_count, obs_size = struct.unpack('<IIII', binary_data[:16])
-        
-        if magic != 0xFEEDBEEF:
-            print(f"⚠️ Invalid magic: 0x{magic:08X}")
-            return None, None, None
-            
-        # Debug: Alert if we're getting too many agents (reduced verbosity)
-        if agent_count > MAX_AGENTS:
-            raise RuntimeError(f"🚨 ALERT: Received {agent_count} agents! Java cleanup issue detected.")
-            
-        self.tick_count = tick
-        
-        # Validate data size
-        expected_data_size = agent_count * obs_size * 4  # float32 = 4 bytes
-        if len(binary_data) != 16 + expected_data_size:
-            print(f"⚠️ Size mismatch: got {len(binary_data)}, expected {16 + expected_data_size}")
-            return None, None, None
-        
-        # Direct numpy interpretation - ZERO PYTHON LOOPS
-        raw_data = binary_data[16:]
-        obs_array = np.frombuffer(raw_data, dtype='<f4').reshape(agent_count, obs_size)
-        
-        # Convert to torch tensor
-        obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
-        
-        # Extract components vectorized - NOW WITH AGENT INDICES
-        # Format: [agent_indices, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        agent_indices = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
-        positions = obs_tensor[:, 1:4]           # [N, 3] - my_pos
-        group_indices = obs_tensor[:, 4]          # [N] - group index (group index)
-        team_indices = obs_tensor[:, 5]           # [N] - team index (team index)
-        reward_data = obs_tensor[:, 6:10]        # [N, 4] - damage/kill data
-        
-        return positions, agent_indices, group_indices, team_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor, jump: torch.Tensor, sneak: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:
@@ -166,157 +119,3 @@ class BinaryTransport:
             stats["max_processing_ms"] = np.max(self.processing_times)
             
         return stats
-
-
-# Global instances
-transport = None
-trainer = None
-
-def initialize_transport(device='cpu'):
-    """Initialize the transport layer and trainer."""
-    global transport, trainer
-    
-    trainer = VectorizedTrainer(device=device)
-    transport = BinaryTransport(trainer)
-    
-    print(f"✅ Binary transport ready on {device}")
-
-def process_binary_data(binary_data: bytes) -> bytes:
-    """Main entry point for binary data processing."""
-    if transport is None:
-        print("⚠️ Transport not initialized!")
-        return struct.pack('>IIII', 0xACE5BEEF, 0, 0, 4)
-        
-    return transport.process_observations(binary_data)
-
-def signal_round_end():
-    """Signal end of round."""
-    if transport is not None:
-        transport.end_round()
-
-def get_stats() -> Dict:
-    """Get performance statistics."""
-    if transport is not None:
-        return transport.get_performance_stats()
-    return {}
-
-def get_top_agent_parameters() -> Optional[Dict]:
-    """Get the parameters of the best performing agent (deprecated - use WebSocket endpoint)."""
-    # This function is deprecated in favor of the /top-agent WebSocket endpoint
-    return None
-
-def process_top_agent_data(binary_data: bytes) -> bytes:
-    """Process single agent observation through the top performing agent."""
-    print(f"🔍 Top agent received {len(binary_data)} bytes")
-    
-    if transport is None:
-        print("⚠️ Transport not initialized")
-        return _encode_empty_single_action()
-    
-    # Get the top agent index (highest cumulative reward)
-    if transport.trainer.round_cumulative_rewards.numel() == 0:
-        print("⚠️ No reward data available")
-        return _encode_empty_single_action()
-    
-    # Get the all-time best agent index (based on lifetime rewards)
-    if hasattr(transport.trainer, 'best_agent_idx') and hasattr(transport.trainer, 'lifetime_cumulative_rewards'):
-        # Use the tracked lifetime champion
-        top_agent_index = transport.trainer.best_agent_idx
-        lifetime_reward = transport.trainer.lifetime_cumulative_rewards[top_agent_index].item()
-        current_reward = transport.trainer.round_cumulative_rewards[top_agent_index].item()
-        print(f"🏆 Using LIFETIME CHAMPION agent {top_agent_index} (lifetime: {lifetime_reward:.2f}, current round: {current_reward:.2f})")
-    else:
-        # Fallback to current round best (old behavior)
-        top_agent_index = torch.argmax(transport.trainer.round_cumulative_rewards).item()
-        top_reward = transport.trainer.round_cumulative_rewards[top_agent_index].item()
-        print(f"🏆 Using current round best agent {top_agent_index} (reward: {top_reward:.2f})")
-    
-    # Parse single agent observation
-    obs_tensor = _parse_single_observation(binary_data)
-    if obs_tensor is None:
-        print("⚠️ Failed to parse observation")
-        return _encode_empty_single_action()
-    
-    print(f"📊 Parsed observation: {obs_tensor}")
-    
-    # Run forward pass for just the top agent
-    with torch.no_grad():
-        # Expand observation to match batch size and fill with zeros except for top agent
-        batched_obs = torch.zeros(MAX_AGENTS, obs_tensor.shape[-1], device=transport.trainer.device)
-        batched_obs[top_agent_index] = obs_tensor
-        
-        # Forward pass through model
-        x_actions, y_actions, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, _ = transport.trainer.forward_pass(batched_obs)
-        
-        # Extract actions for the top agent only
-        top_x = x_actions[top_agent_index].item()
-        top_y = y_actions[top_agent_index].item()
-        top_walk = walk_actions[top_agent_index].item()
-        top_shoot = shoot_actions[top_agent_index].item()
-        top_jump = jump_actions[top_agent_index].item()
-        top_sneak = sneak_actions[top_agent_index].item()
-        top_pitch = pitch_actions[top_agent_index].item()
-        top_yaw = yaw_actions[top_agent_index].item()
-    
-    # Convert discrete actions to angles
-    angle_deg = (top_x / 8.0) * 360.0
-    pitch_deg = (top_pitch / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
-    yaw_deg = (top_yaw / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
-    
-    print(f"🎮 Generated actions - Move: {angle_deg:.1f}°, Aim: ({pitch_deg:.1f}°, {yaw_deg:.1f}°), Walk: {top_walk}, Shoot: {top_shoot}, Jump: {top_jump}, Sneak: {top_sneak}")
-    
-    walk_desc = "WALKING" if top_walk > 0.5 else "standing"
-    shoot_desc = "SHOOTING" if top_shoot > 0.5 else "not shooting"
-    jump_desc = "JUMPING" if top_jump > 0.5 else "not jumping"
-    sneak_desc = "SNEAKING" if top_sneak > 0.5 else "not sneaking"
-    print(f"🏆 TOP AGENT ACTIONS: move={angle_deg:.1f}°, aim=({pitch_deg:.1f}°,{yaw_deg:.1f}°), {walk_desc}, {shoot_desc}, {jump_desc}, {sneak_desc}")
-    
-    # Encode single agent action with pitch, yaw, jump, and sneak
-    return _encode_single_action(top_x, top_y, top_walk, top_shoot, top_jump, top_sneak, top_pitch, top_yaw)
-
-def _parse_single_observation(binary_data: bytes) -> Optional[torch.Tensor]:
-    """Parse binary data for a single agent observation."""
-    try:
-        # Expected format: magic(4) + obs_size(4) + observation_data(obs_size * 4)
-        if len(binary_data) < 8:
-            return None
-        
-        magic, obs_size = struct.unpack('<II', binary_data[:8])
-        if magic != 0xDEADBEEF:
-            return None
-        
-        expected_size = 8 + obs_size * 4
-        if len(binary_data) != expected_size:
-            return None
-        
-        # Parse observation (just positions: my_pos(3), opp_pos(3))
-        obs_data = struct.unpack(f'<{obs_size}f', binary_data[8:])
-        obs_tensor = torch.tensor(obs_data, device=transport.trainer.device)
-        
-        return obs_tensor
-        
-    except Exception as e:
-        print(f"Error parsing single observation: {e}")
-        return None
-
-def _encode_single_action(x_action: int, y_action: int, walk_action: int, shoot_action: int, jump_action: int, sneak_action: int, pitch_action: int, yaw_action: int) -> bytes:
-    """Encode actions for a single agent."""
-    try:
-        # Format: magic(4) + action_count(4) + actions(8*4)
-        magic = 0xBEEFDEAD
-        action_count = 1
-        
-        header = struct.pack('<II', magic, action_count)
-        action_data = struct.pack('<IIIIIIII', x_action, y_action, walk_action, shoot_action, jump_action, sneak_action, pitch_action, yaw_action)
-        
-        return header + action_data
-        
-    except Exception as e:
-        print(f"Error encoding single action: {e}")
-        return _encode_empty_single_action()
-
-def _encode_empty_single_action() -> bytes:
-    """Encode empty action for error cases."""
-    magic = 0xBEEFDEAD
-    action_count = 0
-    return struct.pack('<II', magic, action_count)

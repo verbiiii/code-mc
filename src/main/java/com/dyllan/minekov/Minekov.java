@@ -108,30 +108,35 @@ public class Minekov {
                                 }
                                 return builder.buildFuture();
                             })
-                            .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> {
-                                    var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
-                                    var player = ctx.getSource().getPlayerOrException();
-                                    var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                    return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16);
-                                })
-                                .then(Commands.argument("radius", IntegerArgumentType.integer(1))
+                            .then(Commands.argument("num_operators", IntegerArgumentType.integer(1))
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                     .executes(ctx -> {
                                         var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                        var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
                                         var player = ctx.getSource().getPlayerOrException();
                                         var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
-                                        var radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius);
+                                        return runTrainCommand(player, player.serverLevel(), mode, 2048, center, 16, numOperators);
                                     })
-                                    .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                    .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                         .executes(ctx -> {
                                             var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                            var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
                                             var player = ctx.getSource().getPlayerOrException();
                                             var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                             var radius = IntegerArgumentType.getInteger(ctx, "radius");
-                                            var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
-                                            return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius);
+                                            return runTrainCommand(player, player.serverLevel(), mode, 2048, center, radius, numOperators);
                                         })
+                                        .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
+                                            .executes(ctx -> {
+                                                var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
+                                                var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                                var player = ctx.getSource().getPlayerOrException();
+                                                var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
+                                                var radius = IntegerArgumentType.getInteger(ctx, "radius");
+                                                var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
+                                                return runTrainCommand(player, player.serverLevel(), mode, rounds, center, radius, numOperators);
+                                            })
+                                        )
                                     )
                                 )
                             )
@@ -159,9 +164,9 @@ public class Minekov {
         );
     }
 
-    private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius) {
+    private static int runTrainCommand(ServerPlayer player, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius, int numOperators) {
         OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
-        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler, mode);
+        trainingState = new TrainingState(player, world.getServer(), rounds, operatorSpawningHandler, mode, numOperators);
 
         TrainingScoreboard.setServer(world.getServer());
         Scoreboard scoreboard = world.getServer().getScoreboard();
@@ -266,27 +271,6 @@ public class Minekov {
         LivingEntity victimEntity = event.getEntity();
         Entity attackerEntity = event.getSource().getEntity();
 
-        // Check for 1v1 combat outcome (player vs AI)
-        if (victimEntity instanceof ServerPlayer player && attackerEntity instanceof RLOperator) {
-            // Player lost to AI - round ends
-            sendRoundEnd(false); // Send round end without model updates
-            player.sendSystemMessage(Component.literal("§c💀 You have been defeated by the AI! Better luck next time."));
-            player.getServer().getPlayerList().broadcastSystemMessage(
-                Component.literal("§c🤖 The AI has defeated " + player.getName().getString() + " in 1v1 combat!"), false
-            );
-            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
-            return;
-        } else if (victimEntity instanceof RLOperator && attackerEntity instanceof ServerPlayer player) {
-            // Player won against AI - round ends
-            sendRoundEnd(false); // Send round end without model updates
-            player.sendSystemMessage(Component.literal("§a🏆 Victory! You have defeated the AI agent!"));
-            player.getServer().getPlayerList().broadcastSystemMessage(
-                Component.literal("§a👑 " + player.getName().getString() + " has defeated the AI agent!"), false
-            );
-            player.sendSystemMessage(Component.literal("§7🔄 Use /minekov play to start a new round."));
-            return;
-        }
-
         // Regular training logic (both must be AI operators)
         if (!(victimEntity instanceof RLOperator) && !(attackerEntity instanceof RLOperator)) {
             return; // nothing to track
@@ -359,5 +343,16 @@ public class Minekov {
         roundEndData.put("type", "round_end");
         roundEndData.put("update_model_parameters", updateModelParameters);
         PythonBridge.tickPython(roundEndData);
+    }
+
+    public static void sendTrainSessionStart(int numAgents, int radius, BlockPos center) {
+        Map<String, Object> sessionStartData = new HashMap<>();
+        sessionStartData.put("type", "session_start");
+        sessionStartData.put("num_agents", numAgents);
+        // sessionStartData.put("radius", radius);
+        // sessionStartData.put("center_x", center.getX());
+        // sessionStartData.put("center_y", center.getY());
+        // sessionStartData.put("center_z", center.getZ());
+        PythonBridge.tickPython(sessionStartData);
     }
 }

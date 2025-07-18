@@ -1,6 +1,9 @@
 package com.dyllan.minekov.entities;
 
+import java.util.function.Supplier;
+
 import com.dyllan.minekov.entities.ai.goals.WatchClosestTargetGoal;
+import com.tacz.guns.api.entity.ShootResult;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -21,6 +24,7 @@ public class RLOperator extends AIOperator {
     
     private int deathsLastTick = 0;
     private int killsLastTick = 0;
+    private int bulletsLastTick = 0;
 
     // Player attack mode for 1v1 combat
     private boolean playerAttackMode = false;
@@ -144,6 +148,7 @@ public class RLOperator extends AIOperator {
         this.damageDealtLastTick = 0f;
         this.deathsLastTick = 0;
         this.killsLastTick = 0;
+        this.bulletsLastTick = 0;
     }
 
     public int getDeaths() {
@@ -160,6 +165,10 @@ public class RLOperator extends AIOperator {
 
     public int getKillsLastTick() {
         return killsLastTick;
+    }
+
+    public int getBulletsLastTick() {
+        return bulletsLastTick;
     }
 
     /**
@@ -229,6 +238,11 @@ public class RLOperator extends AIOperator {
     public void shootForward() {
         this.aim(true);
         this.shoot(null, null);
+    }
+
+    public ShootResult shoot(Supplier<Float> pitch, Supplier<Float> yaw) {
+        this.bulletsLastTick++;
+        return super.shoot(pitch, yaw);
     }
 
     // === Movement control ===
