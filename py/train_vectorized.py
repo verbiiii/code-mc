@@ -89,9 +89,10 @@ class VectorizedTrainer:
         multiplier = 1 / (distances + 1)
 
         # dampened rewards
-        self.current_rewards = ((dmg_dealt * 0.1) + (kills * 10)) * multiplier
+        self.current_rewards = ((dmg_dealt * 0.1) + (kills * 10))
         self.current_rewards -= (dmg_taken * 0.05) + (deaths * 5)
         self.current_rewards -= num_bullets * 0.1
+        self.current_rewards *= multiplier
 
         # give a reward each tick for their proximity to the target position
         # self.current_rewards *= (1 / (distances + 1))  # mutiply rewards by distance to target
