@@ -10,51 +10,8 @@ import numpy as np
 import torch
 from typing import Optional, Tuple, Dict
 
+from observations import VectorizedObservations
 from train_vectorized import VectorizedTrainer
-
-
-class VectorizedObservations:
-    def __init__(self, binary_data: bytes, num_agents: int):
-        self.positions = torch.zeros((num_agents, 3), dtype=torch.float32)
-        self.group_indices = torch.zeros(num_agents, dtype=torch.int64)
-        self.team_indices = torch.zeros(num_agents, dtype=torch.int64)
-        self.damage_dealt = torch.zeros(num_agents, dtype=torch.float32)
-        self.damage_taken = torch.zeros(num_agents, dtype=torch.float32)
-        self.kills = torch.zeros(num_agents, dtype=torch.float32)
-        self.deaths = torch.zeros(num_agents, dtype=torch.float32)
-        self.num_bullets = torch.zeros(num_agents, dtype=torch.float32)
-        self.is_alive = torch.zeros(num_agents, dtype=torch.bool)
-        self._fill(binary_data)
-
-    def _fill(self, binary_data: bytes):
-        if len(binary_data) < 16:
-            raise ValueError("Binary data too short for header")
-        
-        # Parse header
-        magic, tick, agent_count, obs_size = struct.unpack('<IIII', binary_data[:16])
-        if magic != 0xFEEDBEEF:
-            raise ValueError(f"Invalid magic number: {magic:#010x}")
-        
-        if agent_count != self.positions.shape[0]:
-            raise ValueError(f"Agent count mismatch: expected {self.positions.shape[0]}, got {agent_count}")
-        
-        if len(binary_data) != 16 + agent_count * obs_size * 4:
-            raise ValueError("Binary data size does not match expected size")
-        
-        # Parse observation data
-        raw_data = np.frombuffer(binary_data[16:], dtype='<f4').reshape(agent_count, obs_size)
-        self.agent_indices = torch.from_numpy(raw_data[:, 0].astype(np.int64))
-        ai = self.agent_indices
-        self.positions[ai] = torch.from_numpy(raw_data[:, 1:4]).float()[ai]
-        self.group_indices[ai] = torch.from_numpy(raw_data[:, 4].astype(np.int64))[ai]
-        self.team_indices[ai] = torch.from_numpy(raw_data[:, 5].astype(np.int64))[ai]
-        self.damage_dealt[ai] = torch.from_numpy(raw_data[:, 6])[ai]
-        self.damage_taken[ai] = torch.from_numpy(raw_data[:, 7])[ai]
-        self.kills[ai] = torch.from_numpy(raw_data[:, 8])[ai]
-        self.deaths[ai] = torch.from_numpy(raw_data[:, 9])[ai]
-        self.num_bullets[ai] = torch.from_numpy(raw_data[:, 10])[ai]
-        self.health[ai] = torch.from_numpy(raw_data[:, 11])[ai] if obs_size > 11 else torch.zeros(agent_count, dtype=torch.float32)
-        self.is_alive[ai] = self.health[ai] > 0.0
 
 
 class BinaryTransport:
@@ -80,24 +37,17 @@ class BinaryTransport:
         Returns binary action data in same format.
         """
         start_time = time.perf_counter()
-    
-        # Parse and validate header
-        obs_tensor, agent_indices, group_indices, team_indices, reward_data = self._parse_observations(binary_data)
-        if obs_tensor is None:
-            return self._encode_empty_actions()
-        
-        # Update training data
-        self.trainer.update_episode_data(agent_indices, reward_data, obs_tensor)
         
         # Forward pass through model
-        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.forward_pass(obs_tensor, agent_indices, group_indices, team_indices)
+        obs = VectorizedObservations(binary_data, self.trainer.num_agents)
+        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.forward(obs)
 
         # Convert actions and encode response
         angles = (movement_theta.float() / 8.0) * 360.0
         pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
         yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
-        actions_binary = self._encode_actions(agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
-        
+        actions_binary = self._encode_actions(obs.agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)
+
         # Performance tracking
         processing_time = (time.perf_counter() - start_time) * 1000
         self.processing_times.append(processing_time)
@@ -108,44 +58,6 @@ class BinaryTransport:
             print(f"⚠️ Slow processing: {processing_time:.2f}ms")
             
         return actions_binary
-
-    def _parse_observations(self, binary_data: bytes) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Parse binary observation data into tensors."""
-        if len(binary_data) < 16:
-            print(f"⚠️ Invalid data size: {len(binary_data)} < 16")
-            return None, None, None
-            
-        # Parse header
-        magic, tick, agent_count, obs_size = struct.unpack('<IIII', binary_data[:16])
-        
-        if magic != 0xFEEDBEEF:
-            print(f"⚠️ Invalid magic: 0x{magic:08X}")
-            return None, None, None
-            
-        self.tick_count = tick
-        
-        # Validate data size
-        expected_data_size = agent_count * obs_size * 4  # float32 = 4 bytes
-        if len(binary_data) != 16 + expected_data_size:
-            print(f"⚠️ Size mismatch: got {len(binary_data)}, expected {16 + expected_data_size}")
-            return None, None, None
-        
-        # Direct numpy interpretation - ZERO PYTHON LOOPS
-        raw_data = binary_data[16:]
-        obs_array = np.frombuffer(raw_data, dtype='<f4').reshape(agent_count, obs_size)
-        
-        # Convert to torch tensor
-        obs_tensor = torch.from_numpy(obs_array.copy()).to(self.trainer.device)  # [N, obs_size]
-        
-        # Extract components vectorized - NOW WITH AGENT INDICES
-        # Format: [agent_indices, my_x, my_y, my_z, opp_x, opp_y, opp_z, dmg_dealt, dmg_taken, kills, deaths]
-        agent_indices = obs_tensor[:, 0].long()  # Raw agent IDs from data (can be large)
-        positions = obs_tensor[:, 1:4]           # [N, 3] - my_pos
-        group_indices = obs_tensor[:, 4]          # [N] - group index (group index)
-        team_indices = obs_tensor[:, 5]           # [N] - team index (team index)
-        reward_data = obs_tensor[:, 6:]        # [N, 4] - damage/kill data
-        
-        return positions, agent_indices, group_indices, team_indices, reward_data
 
     def _encode_actions(self, agent_indices: torch.Tensor, angles: torch.Tensor, 
                        walk: torch.Tensor, shoot: torch.Tensor, jump: torch.Tensor, sneak: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> bytes:

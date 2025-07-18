@@ -207,7 +207,8 @@ public class TrainingState {
                 deaths,                                      // Deaths
                 rlOp.getBulletsLastTick(),
                 groupIndex,
-                teamIndex
+                teamIndex,
+                rlOp.getHealth()
             );
             
             // Use actual agent ID instead of sequential index

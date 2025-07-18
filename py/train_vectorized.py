@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from typing import Tuple
 from batched_linear import BatchedLinear
+from observations import VectorizedObservations
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
@@ -53,14 +54,14 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, positions: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
+    def forward(self, observations: VectorizedObservations):
         """
         observations: [N, 3] – only alive agents
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
         group_indices: [N] – group id per agent (used to match group-mates)
         """
 
-        N = agent_indices.shape[0]
+        N = self.num_agents
         device = self.device
         num_features = 3 + (self.num_agents - 1) * 4
         obs_tensor = torch.zeros((self.num_agents, num_features), device=device)
@@ -148,7 +149,8 @@ class VectorizedTrainer:
         # self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
 
         # dampened rewards
-        self.current_rewards = (dmg_dealt * 0.01) - (dmg_taken * 0.01) + kills - deaths
+        # self.current_rewards = (dmg_dealt * 0.01) - (dmg_taken * 0.01) + kills - deaths
+        self.current_rewards = (dmg_dealt * 0.01) + kills
         self.current_rewards -= num_bullets  # penalize for using too many bullets
 
         # calculate each agent's distance to `x=-38, y=0, z=2`

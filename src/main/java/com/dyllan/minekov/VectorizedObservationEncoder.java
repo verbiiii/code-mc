@@ -12,7 +12,7 @@ import java.util.Map;
 public class VectorizedObservationEncoder {
     
     private static final int MAGIC_HEADER = 0xFEEDBEEF;
-    private static final int OBSERVATION_SIZE = 11; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths, num_bullets]
+    private static final int OBSERVATION_SIZE = 12; // [agent_index, my_pos(3), opp_pos(3), dmg_dealt, dmg_taken, kills, deaths, num_bullets]
 
     /**
      * Encode observations for all agents into binary format.
@@ -66,6 +66,7 @@ public class VectorizedObservationEncoder {
             buffer.putFloat((float) obs.deaths);
 
             buffer.putFloat((float) obs.numBullets);
+            buffer.putFloat((float) obs.health); // Health is also part of the observation
         }
         
         return buffer.array();
@@ -90,11 +91,13 @@ public class VectorizedObservationEncoder {
         public final int kills, deaths;
         public final int groupIndex, teamIndex;
         public final int numBullets;
+        public final float health;
 
         public AgentObservation(double myX, double myY, double myZ,
                               double damageDealt, double damageTaken,
                               int kills, int deaths, int numBullets,
-                              int groupIndex, int teamIndex) {
+                              int groupIndex, int teamIndex,
+                              float health) {
             this.myX = myX;
             this.myY = myY;
             this.myZ = myZ;
@@ -105,6 +108,7 @@ public class VectorizedObservationEncoder {
             this.kills = kills;
             this.deaths = deaths;
             this.numBullets = numBullets;
+            this.health = health;
         }
     }
 }
