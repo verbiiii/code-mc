@@ -124,7 +124,7 @@ class VectorizedTrainer:
 
         return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, None, distance_to_enemy
 
-    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor):
+    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor, positions: torch.Tensor):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
@@ -145,9 +145,15 @@ class VectorizedTrainer:
 
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
         # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        rewards = dmg_dealt - (dmg_taken * 10) + (100 * kills) - (1000 * deaths)  # asymmetrical reward (expensive pain)
+        rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
 
         rewards -= num_bullets  # penalize for using too many bullets
+
+        # calculate each agent's distance to `x=-38, y=0, z=2`
+        target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
+        distances = torch.norm(positions[active_mask] - target_position, dim=1)
+        # give a +5 reward for being within 5 blocks of the target position
+        rewards += torch.where(distances < 5.0, 100.0, 0.0)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
         # rewards += (1 / (distance_to_enemy[active_mask] + 1))
@@ -218,7 +224,7 @@ class VectorizedTrainer:
             if isinstance(module, BatchedLinear):
                 # module.clone(will_clone, partner_indices)
                 module.blend(will_clone, partner_indices)
-                
+
                 # Mutate the cloned parameters
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
             
