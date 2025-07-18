@@ -4,6 +4,26 @@ import torch.nn.functional as F
 import time
 
 
+def _extract_from_and_to(clone_mask, clone_indices, batch_size):
+    """
+    Extracts the indices to clone from and to based on the clone mask and indices.
+    """
+    assert clone_mask.shape == (batch_size,)
+    assert clone_indices.shape == (batch_size,)
+    assert clone_indices.dtype in [torch.int32, torch.int64]
+    assert clone_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
+
+    clone_mask = clone_mask.bool()
+    clone_from = torch.arange(batch_size, device=clone_indices.device)[clone_mask]
+    clone_to = clone_indices[clone_mask]
+
+    # Sanity check: all clone_from must be in valid range
+    if not torch.all((0 <= clone_from) & (clone_from < clone_mask.shape[0])):
+        raise ValueError("Invalid indices in clone_indices")
+
+    return clone_from, clone_to
+
+
 class BatchedLinear(nn.Module):
     def __init__(self, batch_size, in_features, out_features, bias=True):
         super().__init__()
@@ -23,22 +43,24 @@ class BatchedLinear(nn.Module):
         clone_mask: Bool or int tensor of shape (N,)
         clone_indices: Int tensor of shape (N,)
         """
-        assert clone_mask.shape == (self.batch_size,)
-        assert clone_indices.shape == (self.batch_size,)
-        assert clone_indices.dtype == torch.int32 or clone_indices.dtype == torch.int64
-        assert clone_mask.dtype in [torch.bool, torch.uint8, torch.int32, torch.int64]
-
-        clone_mask = clone_mask.bool()
-        clone_from = torch.arange(self.batch_size, device=self.weight.device)[clone_mask]
-        clone_to = clone_indices[clone_mask]
-
-        # Sanity check: all clone_from must be in valid range
-        if not torch.all((0 <= clone_from) & (clone_from < self.batch_size)):
-            raise ValueError("Invalid indices in clone_indices")
-
+        
+        clone_from, clone_to = _extract_from_and_to(clone_mask, clone_indices, self.batch_size)
         self.weight[clone_from] = self.weight[clone_to]
         if self.bias is not None:
             self.bias[clone_from] = self.bias[clone_to]
+
+    @torch.no_grad()
+    def blend(self, mask: torch.Tensor, indices: torch.Tensor):
+        """Combine the parameters of the two sets of weights and biases using the provided mask and indices.
+        """
+
+        blend_from, blend_to = _extract_from_and_to(mask, indices, self.batch_size)
+
+        # calculate the average of the weights and biases between the two sets
+        # TODO: maybe use a weighted average based on the performance of the two sets
+        self.weight[blend_from] = (self.weight[blend_from] + self.weight[blend_to]) / 2
+        if self.bias is not None:
+            self.bias[blend_from] = (self.bias[blend_from] + self.bias[blend_to]) / 2
 
     @torch.no_grad()
     def mutate(self, mutation_mask: torch.Tensor, noise_std: float = 0.01):

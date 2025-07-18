@@ -210,11 +210,15 @@ class VectorizedTrainer:
 
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
-        
+
+        top_k_lifetime_rewards = self.lifetime_cumulative_rewards[top_agent_indices] if top_k > 0 else torch.tensor([])
+
         # Perform cloning and perturbation
         for module in self.model.modules():
             if isinstance(module, BatchedLinear):
-                module.clone(will_clone, partner_indices)
+                # module.clone(will_clone, partner_indices)
+                module.blend(will_clone, partner_indices)
+                
                 # Mutate the cloned parameters
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
             
@@ -234,6 +238,7 @@ class VectorizedTrainer:
         print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
         if len(top_k_rewards) > 0:
             print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+            print(f"   🏅 Top {top_k} lifetimes (alive): {top_k_lifetime_rewards.tolist()}")
             print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
