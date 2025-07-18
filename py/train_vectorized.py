@@ -3,40 +3,12 @@ import numpy as np
 from typing import Tuple
 from batched_linear import BatchedLinear
 from observations import VectorizedObservations
+from operator import RLOperator
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
 MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
 FMC_BALANCE = 2.0
-
-
-class RLOperator(torch.nn.Module):
-    def __init__(self, device='cpu', num_agents: int = 32):
-        super(RLOperator, self).__init__()
-
-        self.num_agents = num_agents
-        self.device = torch.device(device)
-        self.input_features = 3 + ((num_agents - 1) * 4)
-
-        # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
-        self.model = torch.nn.Sequential(
-            BatchedLinear(num_agents, self.input_features, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 32, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 64, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 64, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
-        ).to(self.device)
-
-    def forward(self, x: torch.Tensor, agent_indices: torch.Tensor):
-        # let's zero-pad all of the agent indices that are missing
-        padded_x = torch.zeros((self.num_agents, self.input_features), device=self.device)        
-        padded_x[agent_indices] = x
-
-        return self.model(padded_x)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
