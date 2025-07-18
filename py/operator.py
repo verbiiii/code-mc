@@ -3,9 +3,13 @@ from batched_linear import BatchedLinear
 from observations import VectorizedObservations
 
 
-class RLOperator(torch.nn.Module):
+# maximum amplitude of the mutation (std dev for normal distribution)
+MUTATION_AMPLITUDE = 0.01
+
+
+class RLOperators(torch.nn.Module):
     def __init__(self, device='cpu', num_agents: int = 32):
-        super(RLOperator, self).__init__()
+        super(RLOperators, self).__init__()
 
         self.num_agents = num_agents
         self.device = torch.device(device)
@@ -30,3 +34,38 @@ class RLOperator(torch.nn.Module):
         # padded_x[agent_indices] = x
         # return self.model(padded_x)
         raise NotImplementedError
+    
+    def blend_parameters(self, partner_indices: torch.Tensor, will_clone: torch.Tensor, will_perturbate: torch.Tensor = None):
+        if will_perturbate is None:
+            will_perturbate = will_clone.clone()
+
+        # Perform cloning and perturbation
+        for module in self.modules():
+            if isinstance(module, BatchedLinear):
+                # module.clone(will_clone, partner_indices)
+                module.blend(will_clone, partner_indices)
+
+                # Mutate the cloned parameters
+                module.mutate(will_perturbate, MUTATION_AMPLITUDE)
+
+    def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate Euclidean distances between agent parameters and their partners."""
+        distances = torch.zeros(self.num_agents, device=self.device)
+
+        if partner_indices.shape[0] != self.num_agents:
+            raise ValueError(f"partner_indices must have shape ({self.num_agents},), got {partner_indices.shape}")
+
+        for module in self.modules():
+            if isinstance(module, BatchedLinear):
+                # Calculate distances for weights
+                weight_diffs = module.weight - module.weight[partner_indices]
+                weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
+                distances += weight_distances
+                
+                # Calculate distances for biases if they exist
+                if module.bias is not None:
+                    bias_diffs = module.bias - module.bias[partner_indices]
+                    bias_distances = torch.norm(bias_diffs, dim=1)
+                    distances += bias_distances
+        
+        return distances

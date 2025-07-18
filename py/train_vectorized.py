@@ -1,30 +1,28 @@
+
 import torch
 import numpy as np
 from typing import Tuple
 from batched_linear import BatchedLinear
 from observations import VectorizedObservations
-from operator import RLOperator
+from operator import RLOperators
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-MUTATION_AMPLITUDE = 0.01    # maximum amplitude of the mutation (std dev for normal distribution)
 FMC_BALANCE = 2.0
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
         self.num_agents = num_agents
         self.device = torch.device(device)
-        self.model = RLOperator(device=self.device, num_agents=self.num_agents).to(self.device)
-
+        self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
         self.reward_history = []
-        
         self.num_updates = 0
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
 
-        print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
+        print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
 
     def forward(self, observations: VectorizedObservations):
         """
@@ -33,49 +31,7 @@ class VectorizedTrainer:
         group_indices: [N] – group id per agent (used to match group-mates)
         """
 
-        N = self.num_agents
-        device = self.device
-        num_features = 3 + (self.num_agents - 1) * 4
-        obs_tensor = torch.zeros((self.num_agents, num_features), device=device)
-
-        # Set own positions: obs_tensor[i, :3] = [x, y, z]
-        obs_tensor[agent_indices, :3] = positions
-
-        # after our positions, let's include our rewards
-        # obs_tensor[agent_indices, 3] = self.current_rewards[agent_indices]
-
-        # Compute pairwise inclusion mask: [N, N] where True = same group
-        group_match = group_indices.unsqueeze(1) == group_indices.unsqueeze(0)
-
-        # Get full index grid: [N, N] for from_i and to_j
-        from_idx = agent_indices.view(-1, 1).expand(N, N)
-        to_idx   = agent_indices.view(1, -1).expand(N, N)
-
-        # Exclude self-copy
-        not_self = from_idx != to_idx
-        valid_pairs = group_match & not_self
-
-        # Compute slot offsets per target index (from perspective of `from_idx`)
-        slot_offsets = to_idx.clone()
-        slot_offsets[to_idx > from_idx] -= 1  # Shift down for indices after self
-
-        # Compute write index into obs_tensor: base offset is 3 + 4 * slot
-        write_idx = 3 + slot_offsets * 4  # shape [N, N]
-
-        # Flatten valid pairs
-        flat_from = from_idx[valid_pairs]      # [M]
-        flat_write = write_idx[valid_pairs]    # [M]
-        flat_data = positions[to_idx[valid_pairs]]  # [M, 3]
-
-        # Write other agents' x/y/z
-        obs_tensor[flat_from, flat_write + 0] = flat_data[:, 0]  # x
-        obs_tensor[flat_from, flat_write + 1] = flat_data[:, 1]  # y
-        obs_tensor[flat_from, flat_write + 2] = flat_data[:, 2]  # z
-        obs_tensor[flat_from, flat_write + 3] = self.current_rewards[to_idx[valid_pairs]]
-
-        # Forward through model using only active agents
-        x = obs_tensor[agent_indices]
-        logits = self.model(x, agent_indices)
+        logits = self.operators.forward(observations)
 
         # Split output logits
         x_logits = logits[:, :8]
@@ -195,14 +151,7 @@ class VectorizedTrainer:
 
         top_k_lifetime_rewards = self.lifetime_cumulative_rewards[top_agent_indices] if top_k > 0 else torch.tensor([])
 
-        # Perform cloning and perturbation
-        for module in self.model.modules():
-            if isinstance(module, BatchedLinear):
-                # module.clone(will_clone, partner_indices)
-                module.blend(will_clone, partner_indices)
-
-                # Mutate the cloned parameters
-                module.mutate(will_perturbate, MUTATION_AMPLITUDE)
+        self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
             
         # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
         self.lifetime_cumulative_rewards[will_clone] = 0.0
@@ -226,7 +175,7 @@ class VectorizedTrainer:
     def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""
         # Calculate distances between agents and their partners
-        dists = self._calculate_distances(partner_indices)
+        dists = self.operators.calculate_distances(partner_indices)
         
         # Relativize distances and scores
         rel_dists = self._relativize(dists)
@@ -234,25 +183,6 @@ class VectorizedTrainer:
         
         # Virtual rewards are the product of relativized scores and distances
         return rel_scores * rel_dists
-
-    def _calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
-        """Calculate Euclidean distances between agent parameters and their partners."""
-        distances = torch.zeros(self.num_agents, device=self.device)
-
-        for module in self.model.modules():
-            if isinstance(module, BatchedLinear):
-                # Calculate distances for weights
-                weight_diffs = module.weight - module.weight[partner_indices]
-                weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
-                distances += weight_distances
-                
-                # Calculate distances for biases if they exist
-                if module.bias is not None:
-                    bias_diffs = module.bias - module.bias[partner_indices]
-                    bias_distances = torch.norm(bias_diffs, dim=1)
-                    distances += bias_distances
-        
-        return distances
 
     def _relativize(self, vector: torch.Tensor) -> torch.Tensor:
         """Relativize a vector using log/exp transformation as in the JAX implementation."""
