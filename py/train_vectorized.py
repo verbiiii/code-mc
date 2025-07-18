@@ -84,30 +84,20 @@ class VectorizedTrainer:
         # self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
 
         # dampened rewards
-        # self.current_rewards = (dmg_dealt * 0.01) - (dmg_taken * 0.01) + kills - deaths
-        self.current_rewards = (dmg_dealt * 0.01) + kills
-        self.current_rewards -= num_bullets  # penalize for using too many bullets
+        self.current_rewards = (dmg_dealt * 0.1) + (kills * 10)
+        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 5)
+        self.current_rewards -= num_bullets * 0.1
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
         distances = torch.norm(positions[active_mask] - target_position, dim=1)
-        # give a +5 reward for being within 5 blocks of the target position
-        self.current_rewards += torch.where(distances < 5.0, 0.1, 0.0)
 
-        # give a small reward for being close to the enemy (baseline 100 blocks)
-        # rewards += (1 / (distance_to_enemy[active_mask] + 1))
+        # give a reward each tick for their proximity to the target position
+        self.current_rewards += (1 / (distances + 1))  # dampened reward for proximity
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
         self.lifetime_cumulative_rewards[active_indices] += self.current_rewards  # Also update lifetime rewards
-        
-        # Debug: Only print non-zero rewards
-        non_zero_mask = self.current_rewards != 0
-        if non_zero_mask.any():
-            pass  # Removed individual agent reward prints for cleaner output
-        
-        # Note: log_probs is None for deterministic policies, so we don't store them
-
         self.num_updates += 1
 
     def on_round_end(self):
