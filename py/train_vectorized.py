@@ -53,7 +53,7 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.model.parameters()):,} params on {device}")
 
-    def forward_pass(self, observations: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
+    def forward_pass(self, positions: torch.Tensor, agent_indices: torch.Tensor, group_indices: torch.Tensor, team_indices: torch.Tensor):
         """
         observations: [N, 3] – only alive agents
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
@@ -66,7 +66,10 @@ class VectorizedTrainer:
         obs_tensor = torch.zeros((self.num_agents, num_features), device=device)
 
         # Set own positions: obs_tensor[i, :3] = [x, y, z]
-        obs_tensor[agent_indices, :3] = observations
+        obs_tensor[agent_indices, :3] = positions
+
+        # after our positions, let's include our rewards
+        # obs_tensor[agent_indices, 3] = self.current_rewards[agent_indices]
 
         # Compute pairwise inclusion mask: [N, N] where True = same group
         group_match = group_indices.unsqueeze(1) == group_indices.unsqueeze(0)
@@ -89,13 +92,13 @@ class VectorizedTrainer:
         # Flatten valid pairs
         flat_from = from_idx[valid_pairs]      # [M]
         flat_write = write_idx[valid_pairs]    # [M]
-        flat_data = observations[to_idx[valid_pairs]]  # [M, 3]
+        flat_data = positions[to_idx[valid_pairs]]  # [M, 3]
 
         # Write other agents' x/y/z
         obs_tensor[flat_from, flat_write + 0] = flat_data[:, 0]  # x
         obs_tensor[flat_from, flat_write + 1] = flat_data[:, 1]  # y
         obs_tensor[flat_from, flat_write + 2] = flat_data[:, 2]  # z
-        obs_tensor[flat_from, flat_write + 3] = 1.0              # is_alive
+        obs_tensor[flat_from, flat_write + 3] = self.current_rewards[to_idx[valid_pairs]]
 
         # Forward through model using only active agents
         x = obs_tensor[agent_indices]
@@ -119,12 +122,9 @@ class VectorizedTrainer:
         pitch_actions = torch.argmax(pitch_logits, dim=1)
         yaw_actions = torch.argmax(yaw_logits, dim=1)
 
-        # Dummy distance for now (fill in later)
-        distance_to_enemy = None #torch.zeros_like(walk_logits)
+        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
 
-        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, None, distance_to_enemy
-
-    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, log_probs, distance_to_enemy: torch.Tensor, positions: torch.Tensor):
+    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, positions: torch.Tensor):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
@@ -145,25 +145,25 @@ class VectorizedTrainer:
 
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
         # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
+        self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
 
-        rewards -= num_bullets  # penalize for using too many bullets
+        self.current_rewards -= num_bullets  # penalize for using too many bullets
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
         distances = torch.norm(positions[active_mask] - target_position, dim=1)
         # give a +5 reward for being within 5 blocks of the target position
-        rewards += torch.where(distances < 5.0, 100.0, 0.0)
+        self.current_rewards += torch.where(distances < 5.0, 100.0, 0.0)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
         # rewards += (1 / (distance_to_enemy[active_mask] + 1))
         
         # Use the actual agent indices from the data
-        self.round_cumulative_rewards[active_indices] += rewards
-        self.lifetime_cumulative_rewards[active_indices] += rewards  # Also update lifetime rewards
+        self.round_cumulative_rewards[active_indices] += self.current_rewards
+        self.lifetime_cumulative_rewards[active_indices] += self.current_rewards  # Also update lifetime rewards
         
         # Debug: Only print non-zero rewards
-        non_zero_mask = rewards != 0
+        non_zero_mask = self.current_rewards != 0
         if non_zero_mask.any():
             pass  # Removed individual agent reward prints for cleaner output
         

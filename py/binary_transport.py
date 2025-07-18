@@ -42,11 +42,11 @@ class BinaryTransport:
         if obs_tensor is None:
             return self._encode_empty_actions()
         
-        # Forward pass through model
-        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions, log_probs, distance_to_enemy = self.trainer.forward_pass(obs_tensor, agent_indices, group_indices, team_indices)
-
         # Update training data
-        self.trainer.update_episode_data(agent_indices, reward_data, log_probs, distance_to_enemy, obs_tensor)
+        self.trainer.update_episode_data(agent_indices, reward_data, obs_tensor)
+        
+        # Forward pass through model
+        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.forward_pass(obs_tensor, agent_indices, group_indices, team_indices)
 
         # Convert actions and encode response
         angles = (movement_theta.float() / 8.0) * 360.0
