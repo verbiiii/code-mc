@@ -51,24 +51,33 @@ class VectorizedTrainer:
 
         return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
 
-    def update_episode_data(self, agent_indices: torch.Tensor, reward_data: torch.Tensor, positions: torch.Tensor):
+    def update_episode_data(self, obs: VectorizedObservations):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
-        active_mask = agent_indices != -1
+        active_mask = obs.agent_indices != -1
         if not active_mask.any():
             return  # No active agents
         
         # set our random seed to be `self.num_updates` (TODO expand on this)
         # torch.manual_seed(self.num_updates)
             
-        active_indices = agent_indices[active_mask]
-        active_reward_data = reward_data[active_mask]
+        active_indices = obs.agent_indices[active_mask]
+        # active_reward_data = reward_data[active_mask]
         
-        dmg_dealt = active_reward_data[:, 0]
-        dmg_taken = active_reward_data[:, 1]
-        kills = active_reward_data[:, 2]
-        deaths = active_reward_data[:, 3]
-        num_bullets = active_reward_data[:, 4]
+        # dmg_dealt = active_reward_data[:, 0]
+        # dmg_taken = active_reward_data[:, 1]
+        # kills = active_reward_data[:, 2]
+        # deaths = active_reward_data[:, 3]
+        # num_bullets = active_reward_data[:, 4]
+
+        # let's use these variables instead
+        # obs.damage_dealt, obs.damage_taken, obs.kills, obs.deaths, obs.num_bullets
+        dmg_dealt = obs.damage_dealt[active_mask]
+        dmg_taken = obs.damage_taken[active_mask]
+        kills = obs.kills[active_mask]
+        deaths = obs.deaths[active_mask]
+        num_bullets = obs.num_bullets[active_mask]
+        positions = obs.positions[active_mask]  # [N, 3] positions of active agents
 
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
         # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward

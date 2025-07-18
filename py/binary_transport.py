@@ -40,6 +40,7 @@ class BinaryTransport:
         
         # Forward pass through model
         obs = VectorizedObservations(binary_data, self.trainer.num_agents)
+        self.trainer.update_episode_data(obs)
         movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.forward(obs)
 
         # Convert actions and encode response
