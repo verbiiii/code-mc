@@ -1,8 +1,6 @@
 
 import torch
 import numpy as np
-from typing import Tuple
-from batched_linear import BatchedLinear
 from observations import VectorizedObservations
 from operator import RLOperators
 
