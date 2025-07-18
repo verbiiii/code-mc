@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
+from abc import ABC
 
 
 def _extract_from_and_to(clone_mask, clone_indices, batch_size):
@@ -24,17 +25,48 @@ def _extract_from_and_to(clone_mask, clone_indices, batch_size):
     return clone_from, clone_to
 
 
-class BatchedLinear(nn.Module):
-    def __init__(self, batch_size, in_features, out_features, bias=True):
-        super().__init__()
+class BatchedNNModule(nn.Module, ABC):
+    def __init__(self, batch_size):
+        super(BatchedNNModule, self).__init__()
         self.batch_size = batch_size
+
+    @torch.no_grad()
+    def clone(self, clone_mask: torch.Tensor, clone_indices: torch.Tensor):
+        """Clone parameters based on the provided mask and indices."""
+        raise NotImplementedError("Subclasses should implement this method")
+
+    @torch.no_grad()
+    def blend(self, mask: torch.Tensor, indices: torch.Tensor):
+        """Blend parameters based on the provided mask and indices."""
+        raise NotImplementedError("Subclasses should implement this method")
+
+    @torch.no_grad()
+    def mutate(self, mutation_mask: torch.Tensor, noise_std: float = 0.01):
+        """Mutate parameters based on the provided mask."""
+        raise NotImplementedError("Subclasses should implement this method")
+    
+    @torch.no_grad()
+    def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
+        """Calculate Euclidean distances between agent parameters and their partners."""
+        raise NotImplementedError("Subclasses should implement this method")
+
+
+class BatchedLinear(BatchedNNModule):
+    def __init__(self, batch_size, in_features, out_features, bias=True):
+        super().__init__(batch_size)
         self.weight = nn.Parameter(torch.randn(batch_size, out_features, in_features))
         self.bias = nn.Parameter(torch.randn(batch_size, out_features)) if bias else None
 
     def forward(self, x):
-        out = torch.einsum('bi,bij->bj', x, self.weight.transpose(1, 2))
+        if x.dim() == 2:  # [B, D]
+            out = torch.einsum('bi,bij->bj', x, self.weight.transpose(1, 2))
+        elif x.dim() == 3:  # [B, N, D]
+            out = torch.einsum('bnd,boj->bno', x, self.weight.transpose(1, 2))
+        else:
+            raise ValueError(f"Unsupported input shape {x.shape}")
+        
         if self.bias is not None:
-            out = out + self.bias
+            out = out + self.bias.unsqueeze(1) if x.dim() == 3 else self.bias
         return out
 
     @torch.no_grad()
@@ -72,6 +104,22 @@ class BatchedLinear(nn.Module):
         # but still allows for more rare larger mutations.
         noise = (torch.randn(noise_shape, device=self.weight.device) * 2 - 1) * noise_std
         self.weight[mutation_mask] += noise
+
+    @torch.no_grad()
+    def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
+        distances = torch.zeros(self.batch_size, device=self.weight.device)
+
+        # Calculate distances for weights
+        weight_diffs = self.weight - self.weight[partner_indices]
+        weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
+        distances += weight_distances
+        
+        # Calculate distances for biases if they exist
+        if self.bias is not None:
+            bias_diffs = self.bias - self.bias[partner_indices]
+            distances += torch.norm(bias_diffs, dim=1)
+
+        return distances
 
 if __name__ == "__main__":
     # Benchmarking

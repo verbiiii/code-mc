@@ -1,5 +1,5 @@
 import torch
-from batched_linear import BatchedLinear
+from batched_linear import BatchedLinear, BatchedNNModule
 from observations import VectorizedObservations
 
 
@@ -13,22 +13,20 @@ class RLOperators(torch.nn.Module):
 
         self.num_agents = num_agents
         self.device = torch.device(device)
-        self.input_features = 3 + ((num_agents - 1) * 4)
+        self.input_features = 13
 
-        # # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
-        # self.model = torch.nn.Sequential(
-        #     BatchedLinear(num_agents, self.input_features, 32),
-        #     torch.nn.Tanh(),
-        #     BatchedLinear(num_agents, 32, 64),
-        #     torch.nn.Tanh(),
-        #     BatchedLinear(num_agents, 64, 64),
-        #     torch.nn.Tanh(),
-        #     BatchedLinear(num_agents, 64, 32),
-        #     torch.nn.Tanh(),
-        #     BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
-        # ).to(self.device)
-
-        self.positions_model = BatchedLinear(num_agents, 3, 32).to(self.device)
+        # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
+        self.model = torch.nn.Sequential(
+            BatchedLinear(num_agents, self.input_features, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(num_agents, 32, 64),
+            torch.nn.Tanh(),
+            BatchedLinear(num_agents, 64, 64),
+            torch.nn.Tanh(),
+            BatchedLinear(num_agents, 64, 32),
+            torch.nn.Tanh(),
+            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+        ).to(self.device)
 
     def forward(self, observations: VectorizedObservations):
         x = observations.tensorized()  # [num_agents, 12]
@@ -56,12 +54,12 @@ class RLOperators(torch.nn.Module):
 
         # Perform cloning and perturbation
         for module in self.modules():
-            if isinstance(module, BatchedLinear):
+            if isinstance(module, BatchedNNModule):
                 # module.clone(will_clone, partner_indices)
                 module.blend(will_clone, partner_indices)
-
-                # Mutate the cloned parameters
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
+            else:
+                raise NotImplementedError(f"Module {module.__class__.__name__} does not extend BatchedNNModule.")
 
     def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate Euclidean distances between agent parameters and their partners."""
@@ -71,16 +69,10 @@ class RLOperators(torch.nn.Module):
             raise ValueError(f"partner_indices must have shape ({self.num_agents},), got {partner_indices.shape}")
 
         for module in self.modules():
-            if isinstance(module, BatchedLinear):
-                # Calculate distances for weights
-                weight_diffs = module.weight - module.weight[partner_indices]
-                weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
-                distances += weight_distances
-                
-                # Calculate distances for biases if they exist
-                if module.bias is not None:
-                    bias_diffs = module.bias - module.bias[partner_indices]
-                    bias_distances = torch.norm(bias_diffs, dim=1)
-                    distances += bias_distances
-        
+            # if it's a base class of `BatchedNNModule`, call distances
+            if isinstance(module, BatchedNNModule):
+                distances += module.calculate_distances(partner_indices)
+            else:
+                raise NotImplementedError(f"Module {module.__class__.__name__} does not extend BatchedNNModule.")
+
         return distances
