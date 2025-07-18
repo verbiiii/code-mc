@@ -145,15 +145,17 @@ class VectorizedTrainer:
 
         # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
         # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
+        # self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
 
+        # dampened rewards
+        self.current_rewards = (dmg_dealt * 0.01) - (dmg_taken * 0.01) + kills - deaths
         self.current_rewards -= num_bullets  # penalize for using too many bullets
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
         distances = torch.norm(positions[active_mask] - target_position, dim=1)
         # give a +5 reward for being within 5 blocks of the target position
-        self.current_rewards += torch.where(distances < 5.0, 100.0, 0.0)
+        self.current_rewards += torch.where(distances < 5.0, 0.1, 0.0)
 
         # give a small reward for being close to the enemy (baseline 100 blocks)
         # rewards += (1 / (distance_to_enemy[active_mask] + 1))
