@@ -8,7 +8,7 @@ MUTATION_AMPLITUDE = 0.01
 
 
 class RLOperators(torch.nn.Module):
-    def __init__(self, device='cpu', num_agents: int = 32, embedding_size: int = 8):
+    def __init__(self, device='cpu', num_agents: int = 32):
         super(RLOperators, self).__init__()
 
         self.num_agents = num_agents
@@ -31,14 +31,24 @@ class RLOperators(torch.nn.Module):
         self.positions_model = BatchedLinear(num_agents, 3, 32).to(self.device)
 
     def forward(self, observations: VectorizedObservations):
-        # let's zero-pad all of the agent indices that are missing
-        # padded_x = torch.zeros((self.num_agents, self.input_features), device=self.device)        
-        # padded_x[agent_indices] = x
-        # return self.model(padded_x)
-        
-        print(observations.tensorized())
-        print(observations.tensorized().shape)
-        raise NotImplementedError
+        x = observations.tensorized()  # [num_agents, 12]
+        num_agents = self.num_agents
+
+        # Duplicate to [num_agents, num_agents, 12]
+        batch_observations = x.unsqueeze(1).expand(-1, num_agents, -1).clone()
+
+        # Zero the 0th feature
+        batch_observations[:, :, 0] = 0.0
+
+        # Set one-hot indicator: [num_agents, num_agents], diagonal = 1.0
+        batch_observations[observations.agent_indices, observations.agent_indices, 0] = 1.0
+
+        # print(batch_observations)
+        # print(batch_observations[:, :, 0])
+        # print(batch_observations.shape)
+
+        # Now you can pass this to your model or return it
+        return batch_observations  # [num_agents, num_agents, 12]
     
     def blend_parameters(self, partner_indices: torch.Tensor, will_clone: torch.Tensor, will_perturbate: torch.Tensor = None):
         if will_perturbate is None:

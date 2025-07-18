@@ -49,6 +49,8 @@ class VectorizedObservations:
 
     def tensorized(self) -> torch.Tensor:
         return torch.cat((
+            # all zeros entry to fill later
+            torch.zeros((self.positions.shape[0], 1), dtype=torch.float32),
             self.positions,
             self.group_indices.unsqueeze(1).float(),
             self.team_indices.unsqueeze(1).float(),
