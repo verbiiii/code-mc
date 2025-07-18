@@ -1,5 +1,6 @@
 import torch
-from batched_linear import BatchedLinear, BatchedNNModule
+# from batched_linear import BatchedLinear, BatchedNNModule
+from batched_attention import BatchedCrossAttention, BatchedNNModule
 from observations import VectorizedObservations
 
 
@@ -13,19 +14,25 @@ class RLOperators(torch.nn.Module):
 
         self.num_agents = num_agents
         self.device = torch.device(device)
+
         self.input_features = 13
+        self.hidden_dim = 16
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
-            BatchedLinear(num_agents, self.input_features, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 32, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 64, 64),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 64, 32),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            # BatchedLinear(num_agents, self.input_features, 32),
+            BatchedCrossAttention(num_agents, self.input_features, 32, hidden_dim=self.hidden_dim),
+            # torch.nn.Tanh(),
+            # # BatchedLinear(num_agents, 32, 64),
+            # BatchedCrossAttention(num_agents, 32, 32, hidden_dim=self.hidden_dim),
+            # torch.nn.Tanh(),
+            # # BatchedLinear(num_agents, 64, 64),
+            # BatchedCrossAttention(num_agents, 32, 32, hidden_dim=self.hidden_dim),
+            # torch.nn.Tanh(),
+            # # BatchedLinear(num_agents, 64, 32),
+            # BatchedCrossAttention(num_agents, 32, 32, hidden_dim=self.hidden_dim),
+            # torch.nn.Tanh(),
+            # BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, observations: VectorizedObservations):
@@ -45,9 +52,12 @@ class RLOperators(torch.nn.Module):
         # print(batch_observations[:, :, 0])
         # print(batch_observations.shape)
 
-        # Now you can pass this to your model or return it
-        return batch_observations  # [num_agents, num_agents, 12]
-    
+        print(batch_observations.shape)
+        y = self.model.forward(batch_observations)
+        print(y.shape)
+
+        raise NotImplementedError
+
     def blend_parameters(self, partner_indices: torch.Tensor, will_clone: torch.Tensor, will_perturbate: torch.Tensor = None):
         if will_perturbate is None:
             will_perturbate = will_clone.clone()

@@ -54,19 +54,39 @@ class BatchedNNModule(nn.Module, ABC):
 class BatchedLinear(BatchedNNModule):
     def __init__(self, batch_size, in_features, out_features, bias=True):
         super().__init__(batch_size)
+
+        self.in_features = in_features
+        self.out_features = out_features
+
         self.weight = nn.Parameter(torch.randn(batch_size, out_features, in_features))
         self.bias = nn.Parameter(torch.randn(batch_size, out_features)) if bias else None
 
     def forward(self, x):
         if x.dim() == 2:  # [B, D]
-            out = torch.einsum('bi,bij->bj', x, self.weight.transpose(1, 2))
+            assert x.shape == (self.batch_size, self.in_features), \
+                f"Expected input shape ({self.batch_size}, {self.in_features}), got {x.shape}"
+            out = torch.einsum('bi,bij->bj', x, self.weight.transpose(1, 2))  # [B, O]
+            if self.bias is not None:
+                assert self.bias.shape == (self.batch_size, self.out_features)
+                out = out + self.bias
+            assert out.shape == (self.batch_size, self.out_features), \
+                f"Expected output shape ({self.batch_size}, {self.out_features}), got {out.shape}"
+
         elif x.dim() == 3:  # [B, N, D]
-            out = torch.einsum('bnd,boj->bno', x, self.weight.transpose(1, 2))
+            B, N, D = x.shape
+            assert B == self.batch_size, f"Batch size mismatch: {B} != {self.batch_size}"
+            assert D == self.in_features, f"in_features mismatch: {D} != {self.in_features}"
+            # x: [B, N, D], weight: [B, O, D] → want: [B, N, O]
+            out = torch.einsum('bnd,bod->bno', x, self.weight)
+            if self.bias is not None:
+                assert self.bias.shape == (self.batch_size, self.out_features)
+                out = out + self.bias.unsqueeze(1)  # [B, 1, O]
+            assert out.shape == (self.batch_size, N, self.out_features), \
+                f"Expected output shape ({self.batch_size}, {N}, {self.out_features}), got {out.shape}"
+
         else:
             raise ValueError(f"Unsupported input shape {x.shape}")
         
-        if self.bias is not None:
-            out = out + self.bias.unsqueeze(1) if x.dim() == 3 else self.bias
         return out
 
     @torch.no_grad()

@@ -5,12 +5,12 @@ from batched_linear import BatchedLinear, BatchedNNModule
 
 
 class BatchedCrossAttention(BatchedNNModule):
-    def __init__(self, num_agents, in_features, out_features, hidden_dim=64):
-        super().__init__()
+    def __init__(self, num_agents, in_features, out_features, hidden_dim):
+        super().__init__(num_agents)
         self.num_agents = num_agents
         self.query_proj = BatchedLinear(num_agents, in_features, hidden_dim)
-        self.key_proj   = BatchedLinear(num_agents, in_features, hidden_dim)
-        self.value_proj = BatchedLinear(num_agents, in_features, out_features)
+        self.key_proj   = BatchedLinear(num_agents, in_features, hidden_dim, bias=False)
+        self.value_proj = BatchedLinear(num_agents, in_features, out_features, bias=False)
         self.scale = hidden_dim ** 0.5
 
     def forward(self, x):
@@ -23,11 +23,17 @@ class BatchedCrossAttention(BatchedNNModule):
         # Compute per-agent query from each agent's self observation
         diag_indices = torch.arange(B, device=x.device)
         self_obs = x[diag_indices, diag_indices]  # [B, in_features]
+        print(self_obs.shape)
         q = self.query_proj(self_obs).unsqueeze(1)  # [B, 1, H]
+        print(q.shape)
 
         # Project keys/values (still per-agent weights, per-row input)
+        print(x.shape, "key input")
         k = self.key_proj(x)     # [B, N, H]
+        print(x.shape, "v input")
         v = self.value_proj(x)   # [B, N, O]
+
+        print(q.shape, k.shape, v.shape)  # Debugging shapes
 
         # Scaled dot product attention
         attn_scores = torch.matmul(q, k.transpose(1, 2)) / self.scale  # [B, 1, N]
