@@ -13,6 +13,7 @@ class VectorizedObservations:
         self.kills = torch.zeros(num_agents, dtype=torch.float32)
         self.deaths = torch.zeros(num_agents, dtype=torch.float32)
         self.num_bullets = torch.zeros(num_agents, dtype=torch.float32)
+        self.health = torch.zeros(num_agents, dtype=torch.float32)
         self.is_alive = torch.zeros(num_agents, dtype=torch.bool)
         self._fill(binary_data)
 

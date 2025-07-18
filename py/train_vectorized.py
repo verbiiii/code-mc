@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from observations import VectorizedObservations
-from operator import RLOperators
+from rl_operator import RLOperators
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
