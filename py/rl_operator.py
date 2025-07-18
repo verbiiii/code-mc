@@ -61,8 +61,6 @@ class RLOperators(torch.nn.Module):
                 # module.clone(will_clone, partner_indices)
                 module.blend(will_clone, partner_indices)
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
-            else:
-                raise NotImplementedError(f"Module {module.__class__.__name__} does not extend BatchedNNModule.")
 
     def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate Euclidean distances between agent parameters and their partners."""
@@ -72,10 +70,7 @@ class RLOperators(torch.nn.Module):
             raise ValueError(f"partner_indices must have shape ({self.num_agents},), got {partner_indices.shape}")
 
         for module in self.modules():
-            # if it's a base class of `BatchedNNModule`, call distances
             if isinstance(module, BatchedNNModule):
                 distances += module.calculate_distances(partner_indices)
-            else:
-                raise NotImplementedError(f"Module {module.__class__.__name__} does not extend BatchedNNModule.")
 
         return distances

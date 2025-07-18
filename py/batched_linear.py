@@ -131,7 +131,7 @@ class BatchedLinear(BatchedNNModule):
 
         # Calculate distances for weights
         weight_diffs = self.weight - self.weight[partner_indices]
-        weight_distances = torch.norm(weight_diffs.view(self.num_agents, -1), dim=1)
+        weight_distances = torch.norm(weight_diffs.view(self.batch_size, -1), dim=1)
         distances += weight_distances
         
         # Calculate distances for biases if they exist
