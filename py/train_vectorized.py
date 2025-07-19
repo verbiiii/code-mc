@@ -24,7 +24,7 @@ class VectorizedTrainer:
 
     def tick(self, observations: VectorizedObservations):
         self.calculate_rewards(observations)
-        return self.trainer.forward(observations)
+        return self.forward(observations)
 
     def forward(self, observations: VectorizedObservations):
         """
