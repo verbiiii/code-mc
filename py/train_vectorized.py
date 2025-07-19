@@ -147,6 +147,7 @@ class VectorizedTrainer:
         self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
             
         # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
+        self.round_cumulative_rewards[will_clone] = 0.0
         self.lifetime_cumulative_rewards[will_clone] = 0.0
         
         # Enhanced FMC metrics
