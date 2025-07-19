@@ -128,6 +128,10 @@ public class RLOperator extends AIOperator {
     public void addDeath() {
         deaths++;
         deathsLastTick++;
+
+        if (deathsLastTick > 0) {
+            throw new IllegalStateException("Should not be possible to die >1 per tick lol.");
+        }
     }
 
     public void addKill() {

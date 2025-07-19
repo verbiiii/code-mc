@@ -278,7 +278,6 @@ public class Minekov {
 
         // Only RL operators track deaths
         if (victimEntity instanceof RLOperator victim) {
-            victim.addDeath();
             if (trainingState != null) {
                 trainingState.onOperatorDeath(victim);
             }

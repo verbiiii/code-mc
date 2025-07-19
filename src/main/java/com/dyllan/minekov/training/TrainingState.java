@@ -36,6 +36,7 @@ public class TrainingState {
     private int currentRound = 0;
     private int globalTick = 0;
     private boolean roundActive = false;
+    private boolean stopped = false;
 
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
@@ -56,6 +57,10 @@ public class TrainingState {
     }
 
     public void tick() {
+        if (stopped) {
+            throw new IllegalStateException("Training session has been stopped, cannot tick.");
+        }
+
         if (!roundActive) return;
 
         performOperatorActions();
@@ -369,6 +374,7 @@ public class TrainingState {
     }
 
     public void stop() {
+        this.stopped = true;
         if (roundActive) {
             cleanupRound();
             roundActive = false;
@@ -387,7 +393,7 @@ public class TrainingState {
         operator.addDeath();
 
         // now, let's create a new operator in-place of them if respawns are enabled
-        if (allowRespawns) {
+        if (allowRespawns && !stopped) {
             operatorSpawningHandler.respawnRLOperator(operator);
         } else {
             // only clear the index if respawns are not allowed
