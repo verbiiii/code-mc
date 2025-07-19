@@ -78,12 +78,11 @@ class VectorizedTrainer:
         multiplier = 1 / (distances + 1)
 
         # dampened rewards
-        BASELINE_REWARD = 1.0
+        BASELINE_REWARD = 0
         self.current_rewards = torch.ones(active_mask.sum(), device=self.device, dtype=torch.float32) * BASELINE_REWARD
-        self.current_rewards += ((dmg_dealt * 0.1) + (kills * 10))
-        self.current_rewards -= (dmg_taken * 0.05) + (deaths * 5)
+        self.current_rewards += ((dmg_dealt * 0.1) + (kills * 10)) * multiplier
+        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 10)
         self.current_rewards -= num_bullets * 0.1
-        self.current_rewards *= multiplier
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
