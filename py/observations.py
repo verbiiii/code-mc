@@ -46,7 +46,6 @@ class VectorizedObservations:
         self.deaths[ai] = torch.from_numpy(raw_data[:, 9])[ai]
         self.num_bullets[ai] = torch.from_numpy(raw_data[:, 10])[ai]
         self.health[ai] = torch.from_numpy(raw_data[:, 11])[ai] if obs_size > 11 else torch.zeros(agent_count, dtype=torch.float32)
-        self.is_alive[ai] = self.health[ai] > 0.0
 
     def tensorized(self) -> torch.Tensor:
         return torch.cat((
@@ -62,5 +61,4 @@ class VectorizedObservations:
             self.deaths.unsqueeze(1),
             self.num_bullets.unsqueeze(1),
             self.health.unsqueeze(1),
-            self.is_alive.unsqueeze(1).float()
         ), dim=1)

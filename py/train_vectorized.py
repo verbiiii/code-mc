@@ -6,7 +6,7 @@ from rl_operator import RLOperators
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-FMC_BALANCE = 2.0
+FMC_BALANCE = 3.0
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
@@ -15,6 +15,7 @@ class VectorizedTrainer:
         self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
         self.reward_history = []
         self.num_updates = 0
+        self.tick_count = 0
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
@@ -23,8 +24,10 @@ class VectorizedTrainer:
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
 
     def tick(self, observations: VectorizedObservations):
+        self.tick_count += 1
         self.calculate_rewards(observations)
-        self.apply_fmc_update(observations)
+        if self.tick_count % 10 == 0:
+            self.apply_fmc_update(observations)
         return self.forward(observations)
 
     def forward(self, observations: VectorizedObservations):
@@ -72,6 +75,11 @@ class VectorizedTrainer:
         num_bullets = obs.num_bullets[active_mask]
         positions = obs.positions[active_mask]
 
+        # print(dmg_dealt.mean(), "dmg avg")
+        # print(kills.mean(), "kills avg")
+        # print(deaths.mean(), "deaths avg")
+        # print(num_bullets.mean(), "bullets avg")
+
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
         distances = torch.norm(positions[active_mask] - target_position, dim=1)
@@ -80,9 +88,12 @@ class VectorizedTrainer:
         # dampened rewards
         BASELINE_REWARD = 0
         self.current_rewards = torch.ones(active_mask.sum(), device=self.device, dtype=torch.float32) * BASELINE_REWARD
-        self.current_rewards += ((dmg_dealt * 0.1) + (kills * 10)) * multiplier
-        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 10)
-        self.current_rewards -= num_bullets * 0.1
+        self.current_rewards += ((dmg_dealt * 1.0) + (kills * 10)) * multiplier
+        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 1.0)
+        self.current_rewards -= num_bullets * 0.01
+
+        # print(self.current_rewards.mean().item(), "current rewards avg")
+        # print(self.current_rewards.max().item(), "current rewards max")
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
@@ -104,6 +115,8 @@ class VectorizedTrainer:
         # print("This Round's Cumulative Rewards:")
         # print(self.round_cumulative_rewards)
             
+        # scores = self.current_rewards.clone()
+        metric_for_top_k = self.round_cumulative_rewards.clone()
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
         
@@ -131,7 +144,7 @@ class VectorizedTrainer:
         if top_k <= 0:
             raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
 
-        top_agent_indices = torch.topk(scores, top_k).indices
+        top_agent_indices = torch.topk(metric_for_top_k, top_k).indices
         will_clone[top_agent_indices] = False
 
         # will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)

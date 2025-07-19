@@ -5,7 +5,7 @@ from observations import VectorizedObservations
 
 
 # maximum amplitude of the mutation (std dev for normal distribution)
-MUTATION_AMPLITUDE = 0.01
+MUTATION_AMPLITUDE = 0.1
 
 
 class RLOperators(torch.nn.Module):
@@ -15,18 +15,16 @@ class RLOperators(torch.nn.Module):
         self.num_agents = num_agents
         self.device = torch.device(device)
 
-        self.input_features = 14
-        self.hidden_dim = 64
+        self.input_features = 13
+        self.hidden_dim = 32
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
             # BatchedLinear(num_agents, self.input_features, 32),
-            BatchedCrossAttention(num_agents, self.input_features, 64, hidden_dim=self.hidden_dim),
-            torch.nn.Tanh(),
-            BatchedLinear(num_agents, 64, 32),
-            torch.nn.Tanh(),
+            BatchedCrossAttention(num_agents, self.input_features, 32, hidden_dim=self.hidden_dim),
+            torch.nn.Sigmoid(),
             BatchedLinear(num_agents, 32, 32),
-            torch.nn.Tanh(),
+            torch.nn.Sigmoid(),
             BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
