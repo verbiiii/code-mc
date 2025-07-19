@@ -24,6 +24,7 @@ class VectorizedTrainer:
 
     def tick(self, observations: VectorizedObservations):
         self.calculate_rewards(observations)
+        self.apply_fmc_update(observations)
         return self.forward(observations)
 
     def forward(self, observations: VectorizedObservations):
@@ -61,11 +62,6 @@ class VectorizedTrainer:
         active_mask = obs.agent_indices != -1
         if not active_mask.any():
             return  # No active agents
-        
-        # print number of dead agents
-        num_dead_agents = obs.deaths.sum().item()
-        if num_dead_agents > 0:
-            print(f"💀 {num_dead_agents} agents are dead this round.")
             
         active_indices = obs.agent_indices[active_mask]
 
@@ -100,14 +96,14 @@ class VectorizedTrainer:
     def on_round_end(self):
         """Called at the end of each round."""
 
-        self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
+        # self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
 
-    def apply_fmc_update(self):
+    def apply_fmc_update(self, obs: VectorizedObservations):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
 
-        print("This Round's Cumulative Rewards:")
-        print(self.round_cumulative_rewards)
+        # print("This Round's Cumulative Rewards:")
+        # print(self.round_cumulative_rewards)
             
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
@@ -127,7 +123,10 @@ class VectorizedTrainer:
         # Random threshold for cloning decision
         r = torch.rand(self.num_agents, device=self.device)
         will_clone = value >= r
-        
+
+        # force clone if dead
+        will_clone[obs.deaths > 0] = True  # Force clone if agent died this round
+
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
         if top_k <= 0:
@@ -149,8 +148,6 @@ class VectorizedTrainer:
             
         # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
         self.lifetime_cumulative_rewards[will_clone] = 0.0
-        cloned_count = will_clone.sum().item()
-        print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
         
         # Enhanced FMC metrics
         num_cloned = will_clone.sum().item()
@@ -158,13 +155,14 @@ class VectorizedTrainer:
         std_score = scores.std().item()
         max_score = scores.max().item()
         
-        print(f"🧬 FMC Evolution:")
-        print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
-        print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
-        if len(top_k_rewards) > 0:
-            print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
-            print(f"   🏅 Top {top_k} lifetimes (alive): {top_k_lifetime_rewards.tolist()}")
-            print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
+        if num_cloned > 0:
+            print(f"🧬 Agents Updated:")
+            print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
+            print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
+            if len(top_k_rewards) > 0:
+                print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
+                print(f"   🏅 Top {top_k} lifetimes (alive): {top_k_lifetime_rewards.tolist()}")
+                print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""

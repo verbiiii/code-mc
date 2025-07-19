@@ -130,7 +130,8 @@ public class RLOperator extends AIOperator {
         deathsLastTick++;
 
         if (deathsLastTick > 0) {
-            throw new IllegalStateException("Should not be possible to die >1 per tick lol.");
+            // clamp it (only one death per tick allowed per agent, hah.)
+            deathsLastTick = 1;
         }
     }
 
