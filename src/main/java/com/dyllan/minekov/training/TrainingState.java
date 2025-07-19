@@ -37,6 +37,7 @@ public class TrainingState {
     private int globalTick = 0;
     private boolean roundActive = false;
     private boolean stopped = false;
+    private boolean cleaningUp = false;
 
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
@@ -289,6 +290,7 @@ public class TrainingState {
         List<AIOperator> allOperators = new ArrayList<>();
 
         int maxTicks = (mode == TrainingGameMode.FREE_FOR_ALL) ? 0 : 200;
+        // int maxTicks = 200;
 
         if (mode == TrainingGameMode.ONE_VS_ONE) {
             for (int i = 0; i < numOperators / 2; i++) {
@@ -335,6 +337,8 @@ public class TrainingState {
     }
 
     private void cleanupRound() {
+        this.cleaningUp = true;
+
         System.out.println("🧹 Cleaning up round " + (currentRound + 1) + " with " + groups.size() + " groups");
         
         roundActive = false;
@@ -358,6 +362,7 @@ public class TrainingState {
 
         // No JSON messages - only binary protocol
         broadcastToPlayers("§cRound " + (currentRound + 1) + " complete.");
+        this.cleaningUp = false;
     }
 
     private void endSession() {
@@ -394,7 +399,10 @@ public class TrainingState {
 
         // now, let's create a new operator in-place of them if respawns are enabled
         if (allowRespawns && !stopped) {
-            operatorSpawningHandler.respawnRLOperator(operator);
+            if (!this.cleaningUp) {
+                // if we're cleaning up- we want to use fresh entities for the next round, so don't respawn
+                operatorSpawningHandler.respawnRLOperator(operator);
+            }
         } else {
             // only clear the index if respawns are not allowed
             int index = getIndexForRLOperator(operator);
