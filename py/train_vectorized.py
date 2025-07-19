@@ -66,31 +66,15 @@ class VectorizedTrainer:
         num_dead_agents = obs.deaths.sum().item()
         if num_dead_agents > 0:
             print(f"💀 {num_dead_agents} agents are dead this round.")
-        
-        # set our random seed to be `self.num_updates` (TODO expand on this)
-        # torch.manual_seed(self.num_updates)
             
         active_indices = obs.agent_indices[active_mask]
-        # active_reward_data = reward_data[active_mask]
-        
-        # dmg_dealt = active_reward_data[:, 0]
-        # dmg_taken = active_reward_data[:, 1]
-        # kills = active_reward_data[:, 2]
-        # deaths = active_reward_data[:, 3]
-        # num_bullets = active_reward_data[:, 4]
 
-        # let's use these variables instead
-        # obs.damage_dealt, obs.damage_taken, obs.kills, obs.deaths, obs.num_bullets
         dmg_dealt = obs.damage_dealt[active_mask]
         dmg_taken = obs.damage_taken[active_mask]
         kills = obs.kills[active_mask]
         deaths = obs.deaths[active_mask]
         num_bullets = obs.num_bullets[active_mask]
-        positions = obs.positions[active_mask]  # [N, 3] positions of active agents
-
-        # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
-        # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        # self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
+        positions = obs.positions[active_mask]
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
@@ -104,9 +88,6 @@ class VectorizedTrainer:
         self.current_rewards -= (dmg_taken * 0.05) + (deaths * 5)
         self.current_rewards -= num_bullets * 0.1
         self.current_rewards *= multiplier
-
-        # give a reward each tick for their proximity to the target position
-        # self.current_rewards *= (1 / (distances + 1))  # mutiply rewards by distance to target
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
