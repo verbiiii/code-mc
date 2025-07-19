@@ -22,13 +22,17 @@ class VectorizedTrainer:
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
 
+    def tick(self, observations: VectorizedObservations):
+        self.calculate_rewards(observations)
+        return self.trainer.forward(observations)
+
     def forward(self, observations: VectorizedObservations):
         """
         observations: [N, 3] – only alive agents
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
         group_indices: [N] – group id per agent (used to match group-mates)
         """
-
+        
         y = self.operators.forward(observations)
 
         # Split output logits
@@ -51,12 +55,17 @@ class VectorizedTrainer:
 
         return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
 
-    def update_episode_data(self, obs: VectorizedObservations):
+    def calculate_rewards(self, obs: VectorizedObservations):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = obs.agent_indices != -1
         if not active_mask.any():
             return  # No active agents
+        
+        # print number of dead agents
+        num_dead_agents = obs.deaths.sum().item()
+        if num_dead_agents > 0:
+            print(f"💀 {num_dead_agents} agents are dead this round.")
         
         # set our random seed to be `self.num_updates` (TODO expand on this)
         # torch.manual_seed(self.num_updates)
