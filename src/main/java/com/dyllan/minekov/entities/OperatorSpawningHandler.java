@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.Random;
 
@@ -39,6 +40,19 @@ public class OperatorSpawningHandler {
         rlOp.moveTo(spawnPos.getX() + 0.5, spawnPos.getY() + 1, spawnPos.getZ() + 0.5, 0, 0);
         world.addFreshEntity(rlOp);
         return rlOp;
+    }
+
+    public void respawnRLOperator(RLOperator operator) {
+        BlockPos spawnPos = findValidSpawn();
+        if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for RLOperator");
+        operator.setHealth(operator.getMaxHealth());
+        operator.fallDistance = 0;
+        operator.setDeltaMovement(Vec3.ZERO);
+        operator.removeAllEffects();
+        operator.clearFire();
+        operator.invulnerableTime = 0;
+        operator.hurtTime = 0;
+        operator.teleportTo(spawnPos.getX() + 0.5, spawnPos.getY() + 1, spawnPos.getZ() + 0.5);
     }
 
     public DumbOperator spawnDumbOperator() {

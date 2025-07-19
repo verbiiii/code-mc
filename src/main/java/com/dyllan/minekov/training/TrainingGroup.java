@@ -12,12 +12,14 @@ public class TrainingGroup {
     private List<Team> teams;
     private int maxTicks;
     private int currentTick;
+    private boolean allowRespawns;
     private final Random random = new Random();
 
-    public TrainingGroup(int maxTicks) {
+    public TrainingGroup(int maxTicks, boolean allowRespawns) {
         this.teams = new ArrayList<Team>();
         this.maxTicks = maxTicks;
         this.currentTick = 0;
+        this.allowRespawns = allowRespawns;
     }
 
     public void addTeam(Team team) {
@@ -31,7 +33,16 @@ public class TrainingGroup {
     public boolean isRoundComplete() {
         // e.g., only one team alive or time is up
         long aliveTeams = teams.stream().filter(Team::isAlive).count();
-        return aliveTeams <= 1 || currentTick >= maxTicks;
+
+        if (!allowRespawns && aliveTeams <= 1) {
+            return true;
+        }
+
+        if (maxTicks > 0 && currentTick >= maxTicks) {
+            return true;
+        }
+
+        return false;
     }
 
     public List<Team> getTeams() {

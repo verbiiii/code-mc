@@ -279,13 +279,16 @@ public class Minekov {
         // Only RL operators track deaths
         if (victimEntity instanceof RLOperator victim) {
             victim.addDeath();
-            // Silent death tracking - no console spam
+            if (trainingState != null) {
+                trainingState.onOperatorDeath(victim);
+            }
         }
 
         // Only RL operators track kills
         if (attackerEntity instanceof RLOperator attacker) {
-            attacker.addKill();
-            // Silent kill tracking - no console spam
+            if (trainingState != null) {
+                trainingState.onOperatorKill(attacker);
+            }
         }
     }
 

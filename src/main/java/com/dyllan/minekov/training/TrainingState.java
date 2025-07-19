@@ -24,6 +24,7 @@ import net.minecraft.world.entity.player.Player;
 public class TrainingState {
     private final int numOperators;
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
+    public final boolean allowRespawns = true;
 
     private List<TrainingGroup> groups = new ArrayList<>();
     private Player provisioningPlayer;
@@ -282,9 +283,12 @@ public class TrainingState {
     private List<AIOperator> setupOperators() {
         List<AIOperator> allOperators = new ArrayList<>();
 
+        int maxTicks = (mode == TrainingGameMode.FREE_FOR_ALL) ? 0 : 200;
+
         if (mode == TrainingGameMode.ONE_VS_ONE) {
             for (int i = 0; i < numOperators / 2; i++) {
-                TrainingGroup group = new TrainingGroup(200);
+
+                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
 
                 RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
                 allOperators.add(rl1);
@@ -309,7 +313,7 @@ public class TrainingState {
                 groups.add(group);
             }
         } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
-            TrainingGroup group = new TrainingGroup(200);
+            TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
             for (int i = 0; i < numOperators; i++) {
                 RLOperator rl = operatorSpawningHandler.spawnRLOperator();
                 allOperators.add(rl);
@@ -377,5 +381,22 @@ public class TrainingState {
 
     public List<TrainingGroup> getGroups() {
         return groups;
+    }
+
+    public void onOperatorDeath(RLOperator operator) {
+        operator.addDeath();
+
+        // now, let's create a new operator in-place of them if respawns are enabled
+        if (allowRespawns) {
+            operatorSpawningHandler.respawnRLOperator(operator);
+        } else {
+            // only clear the index if respawns are not allowed
+            int index = getIndexForRLOperator(operator);
+            operatorsArray[index] = null;
+        }
+    }
+
+    public void onOperatorKill(RLOperator operator) {
+        operator.addKill();
     }
 }
