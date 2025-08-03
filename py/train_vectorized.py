@@ -90,7 +90,7 @@ class VectorizedTrainer:
         self.current_rewards = torch.ones(active_mask.sum(), device=self.device, dtype=torch.float32) * BASELINE_REWARD
         self.current_rewards += ((dmg_dealt * 1.0) + (kills * 10)) * multiplier
         self.current_rewards -= (dmg_taken * 0.1) + (deaths * 1.0)
-        self.current_rewards -= num_bullets * 0.01
+        self.current_rewards -= (num_bullets * 0.25) * (dmg_dealt > 0).float()
 
         # print(self.current_rewards.mean().item(), "current rewards avg")
         # print(self.current_rewards.max().item(), "current rewards max")
