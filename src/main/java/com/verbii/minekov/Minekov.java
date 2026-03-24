@@ -218,6 +218,9 @@ public class Minekov {
         try {
             URI uri = new URI("ws://127.0.0.1:8050/socket");
             pythonController = new PythonRLController(uri);
+            pythonController.setOnConnectedCallback(() -> {
+                if (trainingState != null) trainingState.resendSessionStart();
+            });
             pythonController.connect();
             PythonBridge.rlController = pythonController;
         } catch (Exception e) {
@@ -238,8 +241,11 @@ public class Minekov {
                 try {
                     URI uri = new URI("ws://127.0.0.1:8050/socket");
                     pythonController = new PythonRLController(uri);
+                    pythonController.setOnConnectedCallback(() -> {
+                        if (trainingState != null) trainingState.resendSessionStart();
+                    });
                     pythonController.connect();
-                    PythonBridge.rlController = pythonController; // TODO: move this into the python socket connection automatically somehow
+                    PythonBridge.rlController = pythonController;
                 } catch (Exception e) {
                     // Silent reconnection failure - no console spam
                 }

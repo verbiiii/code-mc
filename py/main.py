@@ -40,9 +40,16 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"🔗 Client {client_id} connected. Total clients: {len(connected_clients)}")
 
     if len(connected_clients) > 1:
-        raise RuntimeError("Only one client allowed for vectorized training. Please disconnect other clients.")
-    
-    while True:
+        connected_clients.discard(websocket)
+        await websocket.close(code=1008, reason="Only one client allowed.")
+        return
+
+    # Reset state so a freshly started Python process can re-initialize from session_start
+    TRAINER = None
+    TRANSPORT = None
+
+    try:
+      while True:
         # Receive any message and check its type
         message = await websocket.receive()
         
@@ -64,9 +71,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     # spawn_center_y = payload["center_y"]
                     # spawn_center_z = payload["center_z"]
 
-                    if TRAINER is not None or TRANSPORT is not None:
-                        raise ValueError("TODO")
-                    
                     print(f"Initializing trainer with {num_agents} agents.")
 
                     TRAINER = VectorizedTrainer(
@@ -100,9 +104,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 
         elif "bytes" in message:
             if TRANSPORT is None or TRAINER is None:
-                logger.error("❌ Transport or trainer not initialized. Cannot process binary data.")
-                await websocket.close(code=1001, reason="Transport not initialized")
-                return
+                logger.warning("⚠️ Binary data received before session_start — dropping until initialized.")
+                continue
 
             # Handle binary messages
             binary_data = message["bytes"]
@@ -115,6 +118,9 @@ async def websocket_endpoint(websocket: WebSocket):
             
         else:
             logger.warning(f"⚠️ Unknown message type: {message}")
+    finally:
+        connected_clients.discard(websocket)
+        logger.info(f"🔌 Client {client_id} disconnected. Total clients: {len(connected_clients)}")
 
 async def main():
     """Run the server with proper event loop setup."""

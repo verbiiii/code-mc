@@ -26,6 +26,10 @@ public class PythonRLController {
         this.webSocket.setBinaryMessageHandler(this::handleBinaryMessage);
     }
 
+    public void setOnConnectedCallback(Runnable callback) {
+        webSocket.setOnConnectedCallback(callback);
+    }
+
     public void connect() {
         webSocket.connect();
     }

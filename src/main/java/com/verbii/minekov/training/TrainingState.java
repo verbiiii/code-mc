@@ -395,6 +395,10 @@ public class TrainingState {
         return groups;
     }
 
+    public void resendSessionStart() {
+        Minekov.sendTrainSessionStart(numOperators, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
+    }
+
     public void onOperatorDeath(RLOperator operator) {
         operator.addDeath();
 

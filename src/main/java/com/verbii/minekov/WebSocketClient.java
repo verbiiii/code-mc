@@ -27,6 +27,7 @@ public class WebSocketClient {
     private final Gson gson = new Gson();
     private Consumer<JsonObject> messageJSONHandler;
     private Consumer<byte[]> binaryMessageHandler;
+    private Runnable onConnectedCallback;
 
     public WebSocketClient(URI uri) {
         this.uri = uri;
@@ -38,6 +39,10 @@ public class WebSocketClient {
 
     public void setBinaryMessageHandler(Consumer<byte[]> handler) {
         this.binaryMessageHandler = handler;
+    }
+
+    public void setOnConnectedCallback(Runnable callback) {
+        this.onConnectedCallback = callback;
     }
 
     public void connect() {
@@ -115,6 +120,7 @@ public class WebSocketClient {
                                              hello.addProperty("type", "hello");
                                              hello.addProperty("msg", "Java WebSocket online");
                                              sendJson(hello);
+                                             if (onConnectedCallback != null) onConnectedCallback.run();
                                          } else {
                                              ctx.close();
                                              return false;
