@@ -41,6 +41,7 @@ class BinaryTransport:
         # Forward pass through model
         obs = VectorizedObservations(binary_data, self.trainer.num_agents)
         movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.tick(obs)
+        self.tick_count += 1
 
         # Convert actions and encode response
         angles = (movement_theta.float() / 8.0) * 360.0
@@ -53,9 +54,9 @@ class BinaryTransport:
         self.processing_times.append(processing_time)
         if len(self.processing_times) > 100:
             self.processing_times.pop(0)
-            
-        if processing_time > 5.0:  # Only warn if >5ms (reduced noise)
-            print(f"⚠️ Slow processing: {processing_time:.2f}ms")
+
+        active_agents = int((obs.agent_indices != -1).sum().item())
+        self.trainer.update_runtime_status(processing_time_ms=processing_time, active_agents=active_agents)
             
         return actions_binary
 
@@ -106,7 +107,6 @@ class BinaryTransport:
 
     def end_round(self):
         """Signal end of round for learning updates."""
-        print(f"🏁 Ending round")
         self.trainer.on_round_end()
 
     def get_performance_stats(self) -> Dict:

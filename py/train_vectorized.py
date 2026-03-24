@@ -1,12 +1,61 @@
 
 import torch
 import numpy as np
+import time
+import sys
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
+SLOW_PROCESSING_THRESHOLD_MS = 5.0
+
+
+class LiveStatusDisplay:
+    """In-place terminal dashboard for training status."""
+
+    def __init__(self, total_agents: int, min_refresh_seconds: float = 0.25):
+        self.total_agents = total_agents
+        self.min_refresh_seconds = min_refresh_seconds
+        self.last_render_time = 0.0
+        self.last_line_count = 0
+        self.enabled = sys.stdout.isatty()
+
+    def render(self, snapshot: dict):
+        now = time.perf_counter()
+        if now - self.last_render_time < self.min_refresh_seconds:
+            return
+        self.last_render_time = now
+
+        lines = [
+            "=== Minekov RL Status ===",
+            f"Ticks: {snapshot['tick_count']:,} | FMC updates: {snapshot['fmc_updates']:,} | Rounds: {snapshot['rounds']:,}",
+            f"Agents: active {snapshot['active_agents']}/{self.total_agents} | cloned(last) {snapshot['last_cloned']}/{self.total_agents}",
+            (
+                f"Processing ms: now {snapshot['processing_now_ms']:.2f} | avg100 {snapshot['processing_avg_ms']:.2f} "
+                f"| p95 {snapshot['processing_p95_ms']:.2f} | slow>{SLOW_PROCESSING_THRESHOLD_MS:.1f}ms "
+                f"{snapshot['slow_tick_count']}/{snapshot['tick_count']:,}"
+            ),
+            (
+                f"Scores: mean {snapshot['score_mean']:.2f} | std {snapshot['score_std']:.2f} | "
+                f"max {snapshot['score_max']:.2f} | best agent #{snapshot['best_agent_index']}"
+            ),
+            (
+                f"Top rewards: {snapshot['top_rewards']} | Top lifetimes: {snapshot['top_lifetimes']}"
+            ),
+        ]
+
+        if self.enabled:
+            if self.last_line_count > 0:
+                sys.stdout.write(f"\x1b[{self.last_line_count}A")
+            for line in lines:
+                sys.stdout.write("\x1b[2K" + line + "\n")
+            sys.stdout.flush()
+        else:
+            # Fallback when terminal does not support in-place updates
+            print(" | ".join(lines))
+        self.last_line_count = len(lines)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
@@ -15,11 +64,26 @@ class VectorizedTrainer:
         self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
         self.reward_history = []
         self.num_updates = 0
+        self.fmc_update_count = 0
         self.tick_count = 0
+        self.round_count = 0
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
+        self.processing_times_ms = []
+        self.slow_tick_count = 0
+        self.latest_obs_active_agents = 0
+        self.latest_fmc = {
+            "num_cloned": 0,
+            "mean_score": 0.0,
+            "std_score": 0.0,
+            "max_score": 0.0,
+            "best_agent_index": 0,
+            "top_rewards": [],
+            "top_lifetimes": [],
+        }
+        self.status_display = LiveStatusDisplay(total_agents=num_agents)
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
 
@@ -105,12 +169,13 @@ class VectorizedTrainer:
 
     def on_round_end(self):
         """Called at the end of each round."""
-
+        self.round_count += 1
         # self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
 
     def apply_fmc_update(self, obs: VectorizedObservations):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
+        self.fmc_update_count += 1
 
         # print("This Round's Cumulative Rewards:")
         # print(self.round_cumulative_rewards)
@@ -167,15 +232,56 @@ class VectorizedTrainer:
         mean_score = scores.mean().item()
         std_score = scores.std().item()
         max_score = scores.max().item()
-        
-        if num_cloned > 0:
-            print(f"🧬 Agents Updated:")
-            print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
-            print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
-            if len(top_k_rewards) > 0:
-                print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
-                print(f"   🏅 Top {top_k} lifetimes (alive): {top_k_lifetime_rewards.tolist()}")
-                print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
+        best_agent_index = top_agent_indices[0].item() if len(top_agent_indices) > 0 else 0
+
+        self.latest_fmc = {
+            "num_cloned": num_cloned,
+            "mean_score": mean_score,
+            "std_score": std_score,
+            "max_score": max_score,
+            "best_agent_index": best_agent_index,
+            "top_rewards": [round(float(x), 2) for x in top_k_rewards.tolist()],
+            "top_lifetimes": [round(float(x), 2) for x in top_k_lifetime_rewards.tolist()],
+        }
+
+    def update_runtime_status(self, processing_time_ms: float, active_agents: int):
+        self.processing_times_ms.append(float(processing_time_ms))
+        if len(self.processing_times_ms) > 100:
+            self.processing_times_ms.pop(0)
+        if processing_time_ms > SLOW_PROCESSING_THRESHOLD_MS:
+            self.slow_tick_count += 1
+
+        self.latest_obs_active_agents = int(active_agents)
+        self._render_status()
+
+    def _render_status(self):
+        if self.processing_times_ms:
+            processing_avg_ms = float(np.mean(self.processing_times_ms))
+            processing_p95_ms = float(np.percentile(self.processing_times_ms, 95))
+            processing_now_ms = float(self.processing_times_ms[-1])
+        else:
+            processing_avg_ms = 0.0
+            processing_p95_ms = 0.0
+            processing_now_ms = 0.0
+
+        snapshot = {
+            "tick_count": self.tick_count,
+            "fmc_updates": self.fmc_update_count,
+            "rounds": self.round_count,
+            "active_agents": self.latest_obs_active_agents,
+            "last_cloned": self.latest_fmc["num_cloned"],
+            "processing_now_ms": processing_now_ms,
+            "processing_avg_ms": processing_avg_ms,
+            "processing_p95_ms": processing_p95_ms,
+            "slow_tick_count": self.slow_tick_count,
+            "score_mean": self.latest_fmc["mean_score"],
+            "score_std": self.latest_fmc["std_score"],
+            "score_max": self.latest_fmc["max_score"],
+            "best_agent_index": self.latest_fmc["best_agent_index"],
+            "top_rewards": self.latest_fmc["top_rewards"],
+            "top_lifetimes": self.latest_fmc["top_lifetimes"],
+        }
+        self.status_display.render(snapshot)
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""
