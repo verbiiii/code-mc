@@ -13,6 +13,7 @@ KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
 SLOW_PROCESSING_THRESHOLD_MS = 5.0
 FORCE_CLONE_UPON_DEATH = False  # Not recommended: death is already penalized in the reward signal; let FMC decide fitness naturally
+BULLET_COST = 0.0  # Per-bullet penalty (only charged on ticks where damage was dealt)
 
 
 class LiveStatusDisplay:
@@ -164,24 +165,11 @@ class VectorizedTrainer:
         kills = obs.kills[active_mask]
         deaths = obs.deaths[active_mask]
         num_bullets = obs.num_bullets[active_mask]
-        positions = obs.positions[active_mask]
 
-        # print(dmg_dealt.mean(), "dmg avg")
-        # print(kills.mean(), "kills avg")
-        # print(deaths.mean(), "deaths avg")
-        # print(num_bullets.mean(), "bullets avg")
-
-        # calculate each agent's distance to `x=-38, y=0, z=2`
-        target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
-        distances = torch.norm(positions - target_position, dim=1)
-        multiplier = 1 / (distances + 1)
-
-        # dampened rewards
-        BASELINE_REWARD = 0
-        self.current_rewards = torch.ones(active_mask.sum(), device=self.device, dtype=torch.float32) * BASELINE_REWARD
-        self.current_rewards += ((dmg_dealt * 1.0) + (kills * 10)) * multiplier
-        self.current_rewards -= (dmg_taken * 0.1) + (deaths * 1.0)
-        self.current_rewards -= (num_bullets * 0.25) * (dmg_dealt > 0).float()
+        self.current_rewards = torch.zeros(active_mask.sum(), device=self.device, dtype=torch.float32)
+        self.current_rewards += (dmg_dealt * 1.0) + (kills * 10)
+        self.current_rewards -= (dmg_taken * 0.5) + (deaths * 1.0)
+        self.current_rewards -= (num_bullets * BULLET_COST) * (dmg_dealt > 0).float()
 
         # print(self.current_rewards.mean().item(), "current rewards avg")
         # print(self.current_rewards.max().item(), "current rewards max")
