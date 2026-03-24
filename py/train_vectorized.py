@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import time
 import sys
+import shutil
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
@@ -10,6 +11,7 @@ from rl_operator import RLOperators
 KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
 SLOW_PROCESSING_THRESHOLD_MS = 5.0
+FORCE_CLONE_UPON_DEATH = False  # Not recommended: death is already penalized in the reward signal; let FMC decide fitness naturally
 
 
 class LiveStatusDisplay:
@@ -19,7 +21,6 @@ class LiveStatusDisplay:
         self.total_agents = total_agents
         self.min_refresh_seconds = min_refresh_seconds
         self.last_render_time = 0.0
-        self.last_line_count = 0
         self.enabled = sys.stdout.isatty()
 
     def render(self, snapshot: dict):
@@ -41,21 +42,21 @@ class LiveStatusDisplay:
                 f"Scores: mean {snapshot['score_mean']:.2f} | std {snapshot['score_std']:.2f} | "
                 f"max {snapshot['score_max']:.2f} | best agent #{snapshot['best_agent_index']}"
             ),
-            (
-                f"Top rewards: {snapshot['top_rewards']} | Top lifetimes: {snapshot['top_lifetimes']}"
-            ),
+            f"Top rewards: {snapshot['top_rewards']}",
+            f"Top lifetimes: {snapshot['top_lifetimes']}",
         ]
 
         if self.enabled:
-            if self.last_line_count > 0:
-                sys.stdout.write(f"\x1b[{self.last_line_count}A")
-            for line in lines:
+            # Full redraw avoids duplicated headers on wrapped lines in some terminals.
+            cols = shutil.get_terminal_size(fallback=(120, 30)).columns
+            trimmed = [line if len(line) <= cols else f"{line[:max(cols - 3, 0)]}..." for line in lines]
+            sys.stdout.write("\x1b[2J\x1b[H")
+            for line in trimmed:
                 sys.stdout.write("\x1b[2K" + line + "\n")
             sys.stdout.flush()
         else:
             # Fallback when terminal does not support in-place updates
             print(" | ".join(lines))
-        self.last_line_count = len(lines)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
@@ -146,7 +147,7 @@ class VectorizedTrainer:
 
         # calculate each agent's distance to `x=-38, y=0, z=2`
         target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
-        distances = torch.norm(positions[active_mask] - target_position, dim=1)
+        distances = torch.norm(positions - target_position, dim=1)
         multiplier = 1 / (distances + 1)
 
         # dampened rewards
@@ -202,7 +203,8 @@ class VectorizedTrainer:
         will_clone = value >= r
 
         # force clone if dead
-        will_clone[obs.deaths > 0] = True  # Force clone if agent died this round
+        if FORCE_CLONE_UPON_DEATH:
+            will_clone[obs.deaths > 0] = True
 
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
