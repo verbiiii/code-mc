@@ -20,6 +20,8 @@ class BinaryTransport:
     def __init__(self, trainer: VectorizedTrainer):
         self.trainer = trainer
         self.tick_count = 0
+        self.expected_next_incoming_tick = None
+        self.total_skipped_steps = 0
         
         # Performance monitoring
         self.processing_times = []
@@ -40,6 +42,14 @@ class BinaryTransport:
         
         # Forward pass through model
         obs = VectorizedObservations(binary_data, self.trainer.num_agents)
+        if self.expected_next_incoming_tick is None:
+            self.expected_next_incoming_tick = obs.tick + 1
+            steps_behind = 0
+        else:
+            steps_behind = max(0, obs.tick - self.expected_next_incoming_tick)
+            self.expected_next_incoming_tick = obs.tick + 1
+        self.total_skipped_steps += steps_behind
+
         movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.tick(obs)
         self.tick_count += 1
 
@@ -56,7 +66,12 @@ class BinaryTransport:
             self.processing_times.pop(0)
 
         active_agents = int((obs.agent_indices != -1).sum().item())
-        self.trainer.update_runtime_status(processing_time_ms=processing_time, active_agents=active_agents)
+        self.trainer.update_runtime_status(
+            processing_time_ms=processing_time,
+            active_agents=active_agents,
+            steps_behind=steps_behind,
+            total_skipped_steps=self.total_skipped_steps,
+        )
             
         return actions_binary
 
@@ -66,20 +81,24 @@ class BinaryTransport:
         # Filter out inactive agents (agent_indices == -1)
         active_mask = agent_indices != -1
         active_count = active_mask.sum().item()
-        
+
         if active_count == 0:
             return self._encode_empty_actions()
-        
-        agent_indices_masked = agent_indices[active_mask].cpu().numpy().astype(np.float32)
 
-        # Get actions only for active agents
-        angles_active = angles[active_mask]
-        walk_active = walk[active_mask]
-        shoot_active = shoot[active_mask]
-        jump_active = jump[active_mask]
-        sneak_active = sneak[active_mask]
-        pitch_active = pitch[active_mask]
-        yaw_active = yaw[active_mask]
+        # Use actual agent IDs to index actions — NOT wire position.
+        # angles[i] is the model output for batch slot i (absolute agent index i),
+        # so we must index by agent ID, not by position in the packet.
+        active_ids = agent_indices[active_mask]
+        agent_indices_masked = active_ids.cpu().numpy().astype(np.float32)
+
+        # Get actions only for active agents, indexed by their absolute agent IDs
+        angles_active = angles[active_ids]
+        walk_active = walk[active_ids]
+        shoot_active = shoot[active_ids]
+        jump_active = jump[active_ids]
+        sneak_active = sneak[active_ids]
+        pitch_active = pitch[active_ids]
+        yaw_active = yaw[active_ids]
         
         # Convert to numpy arrays (pure vectorized) - NO AGENT INDICES
         angles_np = angles_active.cpu().numpy().astype(np.float32)

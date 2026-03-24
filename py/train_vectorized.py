@@ -4,6 +4,7 @@ import numpy as np
 import time
 import sys
 import shutil
+import atexit
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
@@ -22,6 +23,28 @@ class LiveStatusDisplay:
         self.min_refresh_seconds = min_refresh_seconds
         self.last_render_time = 0.0
         self.enabled = sys.stdout.isatty()
+        self._using_alt_buffer = False
+
+        if self.enabled:
+            # Use alternate screen buffer so repeated dashboard redraws
+            # do not flood normal terminal scrollback history.
+            self._enter_alt_buffer()
+            atexit.register(self.close)
+
+    def _enter_alt_buffer(self):
+        if self._using_alt_buffer:
+            return
+        sys.stdout.write("\x1b[?1049h\x1b[?25l")
+        sys.stdout.flush()
+        self._using_alt_buffer = True
+
+    def close(self):
+        if not self._using_alt_buffer:
+            return
+        # Restore cursor + return to primary screen buffer.
+        sys.stdout.write("\x1b[?25h\x1b[?1049l")
+        sys.stdout.flush()
+        self._using_alt_buffer = False
 
     def render(self, snapshot: dict):
         now = time.perf_counter()
@@ -38,6 +61,7 @@ class LiveStatusDisplay:
                 f"| p95 {snapshot['processing_p95_ms']:.2f} | slow>{SLOW_PROCESSING_THRESHOLD_MS:.1f}ms "
                 f"{snapshot['slow_tick_count']}/{snapshot['tick_count']:,}"
             ),
+            f"Steps behind: {snapshot['steps_behind']} | total skipped steps: {snapshot['total_skipped_steps']}",
             (
                 f"Scores: mean {snapshot['score_mean']:.2f} | std {snapshot['score_std']:.2f} | "
                 f"max {snapshot['score_max']:.2f} | best agent #{snapshot['best_agent_index']}"
@@ -75,6 +99,8 @@ class VectorizedTrainer:
         self.processing_times_ms = []
         self.slow_tick_count = 0
         self.latest_obs_active_agents = 0
+        self.latest_steps_behind = 0
+        self.total_skipped_steps = 0
         self.latest_fmc = {
             "num_cloned": 0,
             "mean_score": 0.0,
@@ -246,7 +272,7 @@ class VectorizedTrainer:
             "top_lifetimes": [round(float(x), 2) for x in top_k_lifetime_rewards.tolist()],
         }
 
-    def update_runtime_status(self, processing_time_ms: float, active_agents: int):
+    def update_runtime_status(self, processing_time_ms: float, active_agents: int, steps_behind: int = 0, total_skipped_steps: int = 0):
         self.processing_times_ms.append(float(processing_time_ms))
         if len(self.processing_times_ms) > 100:
             self.processing_times_ms.pop(0)
@@ -254,6 +280,8 @@ class VectorizedTrainer:
             self.slow_tick_count += 1
 
         self.latest_obs_active_agents = int(active_agents)
+        self.latest_steps_behind = int(steps_behind)
+        self.total_skipped_steps = int(total_skipped_steps)
         self._render_status()
 
     def _render_status(self):
@@ -276,6 +304,8 @@ class VectorizedTrainer:
             "processing_avg_ms": processing_avg_ms,
             "processing_p95_ms": processing_p95_ms,
             "slow_tick_count": self.slow_tick_count,
+            "steps_behind": self.latest_steps_behind,
+            "total_skipped_steps": self.total_skipped_steps,
             "score_mean": self.latest_fmc["mean_score"],
             "score_std": self.latest_fmc["std_score"],
             "score_max": self.latest_fmc["max_score"],
