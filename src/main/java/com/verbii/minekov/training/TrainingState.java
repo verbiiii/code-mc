@@ -33,6 +33,7 @@ public class TrainingState {
     private final AIOperator[] operatorsArray;
 
     private final int numRounds;
+    private final int maxSecondsPerRound;
     private int currentRound = 0;
     private int globalTick = 0;
     private boolean roundActive = false;
@@ -42,9 +43,10 @@ public class TrainingState {
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators) {
+    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators, int maxSecondsPerRound) {
         this.numOperators = numOperators;
         this.numRounds = rounds;
+        this.maxSecondsPerRound = maxSecondsPerRound;
         this.provisioningPlayer = provisioningPlayer;
         this.server = server;
         this.operatorSpawningHandler = operatorSpawningHandler;
@@ -289,8 +291,7 @@ public class TrainingState {
     private List<AIOperator> setupOperators() {
         List<AIOperator> allOperators = new ArrayList<>();
 
-        int maxTicks = (mode == TrainingGameMode.FREE_FOR_ALL) ? 0 : 200;
-        // int maxTicks = 200;
+        int maxTicks = maxSecondsPerRound * 20;
 
         if (mode == TrainingGameMode.ONE_VS_ONE) {
             for (int i = 0; i < numOperators / 2; i++) {
