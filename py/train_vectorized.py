@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import time
 import sys
-from typing import Tuple
+from typing import Dict, Tuple
 
 from observations import VectorizedObservations
 from rl_operator import RLOperators
@@ -196,34 +196,46 @@ class VectorizedTrainer:
         self.calculate_rewards(observations)
         return self.forward(observations)
 
+    def _wandb_log_entropy(self, entropy_by_component: Dict[str, torch.Tensor]) -> None:
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            if wandb.run is None:
+                return
+            # One value per agent: mean entropy across policy components (movement, walk, …).
+            stacked = torch.stack([t.float() for t in entropy_by_component.values()], dim=0)
+            per_agent = stacked.mean(dim=0)
+            wandb.log(
+                {
+                    "entropy/min": per_agent.min().item(),
+                    "entropy/max": per_agent.max().item(),
+                    "entropy/avg": per_agent.mean().item(),
+                },
+                step=self.tick_count,
+            )
+        except Exception:
+            pass
+
     def forward(self, observations: VectorizedObservations):
         """
         observations: [N, 3] – only alive agents
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
         group_indices: [N] – group id per agent (used to match group-mates)
         """
-        
-        y = self.operators.forward(observations)
+        sample = self.operators.sample_policy(observations)
+        self._wandb_log_entropy(sample.entropy_by_component)
 
-        # Split output logits
-        x_logits = y[:, :8]
-        walk_logits = y[:, 8]
-        shoot_logits = y[:, 9]
-        jump_logits = y[:, 10]
-        sneak_logits = y[:, 11]
-        pitch_logits = y[:, 12:20]
-        yaw_logits = y[:, 20:28]
-
-        # Deterministic policy
-        movement_theta = torch.argmax(x_logits, dim=1)
-        walk_actions = (walk_logits > 0.0)
-        shoot_actions = (shoot_logits > 0.0)
-        jump_actions = (jump_logits > 0.0)
-        sneak_actions = (sneak_logits > 0.0)
-        pitch_actions = torch.argmax(pitch_logits, dim=1)
-        yaw_actions = torch.argmax(yaw_logits, dim=1)
-
-        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
+        return (
+            sample.movement_theta,
+            sample.walk_actions,
+            sample.shoot_actions,
+            sample.jump_actions,
+            sample.sneak_actions,
+            sample.pitch_actions,
+            sample.yaw_actions,
+        )
 
     def calculate_rewards(self, obs: VectorizedObservations):
         """Update episode data using actual agent indices."""
@@ -414,7 +426,9 @@ class VectorizedTrainer:
                     "distance/rel_min": rel_dists.min().item(),
                     "distance/rel_max": rel_dists.max().item(),
                 },
-                step=self.fmc_update_count,
+                # Must use the same monotonic step as per-tick logs; `fmc_update_count` lags `tick_count`
+                # and would rewind the x-axis, so reward/distance metrics never appeared in W&B.
+                step=self.tick_count,
             )
         except Exception:
             pass
