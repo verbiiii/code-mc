@@ -49,9 +49,7 @@ public class OperatorSpawningHandler {
         return rlOp;
     }
 
-    public void respawnRLOperator(RLOperator operator) {
-        BlockPos spawnPos = findValidSpawn();
-        if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for RLOperator");
+    private void applySpawnReset(AIOperator operator, BlockPos spawnPos) {
         operator.setHealth(operator.getMaxHealth());
         operator.fallDistance = 0;
         operator.setDeltaMovement(Vec3.ZERO);
@@ -60,6 +58,27 @@ public class OperatorSpawningHandler {
         operator.invulnerableTime = 0;
         operator.hurtTime = 0;
         operator.teleportTo(spawnPos.getX() + 0.5, spawnPos.getY() + 1, spawnPos.getZ() + 0.5);
+    }
+
+    public void respawnRLOperator(RLOperator operator) {
+        BlockPos spawnPos = findValidSpawn();
+        if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for RLOperator");
+        applySpawnReset(operator, spawnPos);
+    }
+
+    /** Teleport + full reset for a new round (no death / remove). */
+    public void teleportRLOperatorForRound(RLOperator operator, int trainingGroupId) {
+        BlockPos spawnPos = findValidSpawn();
+        if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for RLOperator");
+        operator.setTrainingGroupId(trainingGroupId);
+        applySpawnReset(operator, spawnPos);
+    }
+
+    /** Teleport + full reset for a new round (no death / remove). */
+    public void teleportDumbOperatorForRound(DumbOperator operator) {
+        BlockPos spawnPos = findValidSpawn();
+        if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for DumbOperator");
+        applySpawnReset(operator, spawnPos);
     }
 
     public DumbOperator spawnDumbOperator() {
