@@ -8,7 +8,16 @@ from observations import VectorizedObservations
 MUTATION_AMPLITUDE = 0.1
 
 # Prefer GPU when available for operator forward passes.
-DEFAULT_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def _detect_device():
+    if torch.cuda.is_available():
+        try:
+            torch.zeros(1, device="cuda")
+            return torch.device("cuda")
+        except RuntimeError as e:
+            print(f"WARNING: CUDA unavailable ({e}), falling back to CPU")
+    return torch.device("cpu")
+
+DEFAULT_DEVICE = _detect_device()
 
 
 class RLOperators(torch.nn.Module):
