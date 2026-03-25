@@ -23,7 +23,15 @@ import net.minecraft.world.entity.player.Player;
 import org.jetbrains.annotations.Nullable;
 
 public class TrainingState {
-    private final int numOperators;
+    /**
+     * Total RL agent slots ({@link #operatorsArray} length). For FFA: {@code agentsPerGroup * numGroups};
+     * for 1v1: total agents in the session (even count).
+     */
+    private final int totalOperatorSlots;
+    /** FFA only: RL agents per arena; for 1v1 unused (use {@link #totalOperatorSlots}). */
+    private final int ffaAgentsPerGroup;
+    /** FFA only: parallel arenas; 1v1 always 1. */
+    private final int ffaNumGroups;
     private final boolean selfPlay = true; // ← set to false to use DumbOperator
     public final boolean allowRespawns = true;
 
@@ -44,8 +52,11 @@ public class TrainingState {
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
 
-    public TrainingState(@Nullable Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators, int maxSecondsPerRound) {
-        this.numOperators = numOperators;
+    /**
+     * @param numOperatorsForMode for {@link TrainingGameMode#FREE_FOR_ALL}: agents per group; for {@link TrainingGameMode#ONE_VS_ONE}: total agent count (even).
+     * @param numGroups           parallel FFA arenas (default 1); ignored for 1v1.
+     */
+    public TrainingState(@Nullable Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperatorsForMode, int numGroups, int maxSecondsPerRound) {
         this.numRounds = rounds;
         this.maxSecondsPerRound = maxSecondsPerRound;
         this.provisioningPlayer = provisioningPlayer;
@@ -53,8 +64,18 @@ public class TrainingState {
         this.operatorSpawningHandler = operatorSpawningHandler;
         this.mode = mode;
 
-        this.operatorsArray = new AIOperator[numOperators];
-        Minekov.sendTrainSessionStart(numOperators, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
+        if (mode == TrainingGameMode.FREE_FOR_ALL) {
+            this.ffaNumGroups = Math.max(1, numGroups);
+            this.ffaAgentsPerGroup = numOperatorsForMode;
+            this.totalOperatorSlots = this.ffaAgentsPerGroup * this.ffaNumGroups;
+        } else {
+            this.ffaNumGroups = 1;
+            this.ffaAgentsPerGroup = numOperatorsForMode;
+            this.totalOperatorSlots = numOperatorsForMode;
+        }
+
+        this.operatorsArray = new AIOperator[this.totalOperatorSlots];
+        Minekov.sendTrainSessionStart(this.totalOperatorSlots, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
 
         // No JSON messages - only binary observations for performance
         setupRound(); // begin first round
@@ -87,6 +108,8 @@ public class TrainingState {
         }
 
         givePythonOurObservations();
+
+        Minekov.updateRLOperatorNametags(this);
     }
 
     public void performOperatorActions() {
@@ -295,18 +318,18 @@ public class TrainingState {
         int maxTicks = maxSecondsPerRound * 20;
 
         if (mode == TrainingGameMode.ONE_VS_ONE) {
-            for (int i = 0; i < numOperators / 2; i++) {
+            for (int i = 0; i < totalOperatorSlots / 2; i++) {
 
                 TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
 
-                RLOperator rl1 = operatorSpawningHandler.spawnRLOperator();
+                RLOperator rl1 = operatorSpawningHandler.spawnRLOperator(0);
                 allOperators.add(rl1);
                 Team team1 = new Team();
                 team1.addOperator(rl1);
 
                 AIOperator opponent;
                 if (selfPlay) {
-                    RLOperator rl2 = operatorSpawningHandler.spawnRLOperator();
+                    RLOperator rl2 = operatorSpawningHandler.spawnRLOperator(0);
                     allOperators.add(rl2);
                     opponent = rl2;
                 } else {
@@ -322,15 +345,17 @@ public class TrainingState {
                 groups.add(group);
             }
         } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
-            TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
-            for (int i = 0; i < numOperators; i++) {
-                RLOperator rl = operatorSpawningHandler.spawnRLOperator();
-                allOperators.add(rl);
-                Team team = new Team();
-                team.addOperator(rl);
-                group.addTeam(team);
+            for (int g = 0; g < ffaNumGroups; g++) {
+                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
+                for (int i = 0; i < ffaAgentsPerGroup; i++) {
+                    RLOperator rl = operatorSpawningHandler.spawnRLOperator(g);
+                    allOperators.add(rl);
+                    Team team = new Team();
+                    team.addOperator(rl);
+                    group.addTeam(team);
+                }
+                groups.add(group);
             }
-            groups.add(group);
         } else {
             throw new IllegalStateException("Unsupported game mode: " + mode);
         }
@@ -382,6 +407,7 @@ public class TrainingState {
 
     public void stop() {
         this.stopped = true;
+        Minekov.clearEliteAgentIndices();
         if (roundActive) {
             cleanupRound();
             roundActive = false;
@@ -397,7 +423,7 @@ public class TrainingState {
     }
 
     public void resendSessionStart() {
-        Minekov.sendTrainSessionStart(numOperators, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
+        Minekov.sendTrainSessionStart(operatorsArray.length, operatorSpawningHandler.getRadius(), operatorSpawningHandler.getCenter());
     }
 
     public void onOperatorDeath(RLOperator operator) {

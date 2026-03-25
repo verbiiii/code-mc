@@ -15,9 +15,16 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -32,9 +39,11 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
+import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.net.URI;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @Mod(Minekov.MODID)
@@ -43,6 +52,60 @@ public class Minekov {
     public static final String MODID = "minekov";
 
     public static TrainingState trainingState = null;
+
+    /** Last Weights & Biases run URL from the Python trainer (clickable in chat). */
+    public static String lastWandbUrl = null;
+
+    /**
+     * FMC elite agent slot indices in rank order (Python {@code topk}; first = best).
+     * Those agents get the spectral (glowing) outline.
+     */
+    public static volatile int[] eliteAgentIndicesByRank = new int[0];
+
+    public static void setEliteAgentIndicesFromPython(int[] indices) {
+        eliteAgentIndicesByRank = indices != null ? indices.clone() : new int[0];
+    }
+
+    public static void clearEliteAgentIndices() {
+        eliteAgentIndicesByRank = new int[0];
+    }
+
+    /**
+     * Red heart count (HP/2) on the nametag; top-k elites get {@link MobEffects#GLOWING} (spectral outline).
+     */
+    public static void updateRLOperatorNametags(TrainingState state) {
+        if (state == null) {
+            return;
+        }
+        int[] elite = eliteAgentIndicesByRank;
+        for (RLOperator op : state.getRLOperators()) {
+            int idx;
+            try {
+                idx = state.getIndexForRLOperator(op);
+            } catch (IllegalStateException ignored) {
+                continue;
+            }
+            float hearts = op.getHealth() / 2.0F;
+            String heartStr = String.format(Locale.US, "%.1f", hearts);
+            Component name = Component.literal(heartStr + "\u2665")
+                    .withStyle(Style.EMPTY.withColor(TextColor.fromRgb(0xFF5555)));
+            op.setCustomName(name);
+            op.setCustomNameVisible(true);
+
+            boolean topK = false;
+            for (int eliteIdx : elite) {
+                if (eliteIdx == idx) {
+                    topK = true;
+                    break;
+                }
+            }
+            if (topK) {
+                op.addEffect(new MobEffectInstance(MobEffects.GLOWING, 40, 0, false, false, true));
+            } else {
+                op.removeEffect(MobEffects.GLOWING);
+            }
+        }
+    }
 
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
@@ -110,47 +173,52 @@ public class Minekov {
                                 return builder.buildFuture();
                             })
                             .then(Commands.argument("num_operators", IntegerArgumentType.integer(1))
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .then(Commands.argument("num_groups", IntegerArgumentType.integer(1))
+                                    .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                     .executes(ctx -> {
                                         var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
                                         var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                        var numGroups = IntegerArgumentType.getInteger(ctx, "num_groups");
                                         var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                         var source = ctx.getSource();
                                         var player = getOptionalPlayer(source);
-                                        return runTrainCommand(player, source.getLevel(), mode, 2048, center, 16, numOperators, 30);
+                                        return runTrainCommand(player, source.getLevel(), mode, 2048, center, 16, numOperators, numGroups, 30);
                                     })
                                     .then(Commands.argument("radius", IntegerArgumentType.integer(1))
                                         .executes(ctx -> {
                                             var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
                                             var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                            var numGroups = IntegerArgumentType.getInteger(ctx, "num_groups");
                                             var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                             var radius = IntegerArgumentType.getInteger(ctx, "radius");
                                             var source = ctx.getSource();
                                             var player = getOptionalPlayer(source);
-                                            return runTrainCommand(player, source.getLevel(), mode, 2048, center, radius, numOperators, 30);
+                                            return runTrainCommand(player, source.getLevel(), mode, 2048, center, radius, numOperators, numGroups, 30);
                                         })
                                         .then(Commands.argument("rounds", IntegerArgumentType.integer(1))
                                             .executes(ctx -> {
                                                 var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
                                                 var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                                var numGroups = IntegerArgumentType.getInteger(ctx, "num_groups");
                                                 var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                                 var radius = IntegerArgumentType.getInteger(ctx, "radius");
                                                 var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
                                                 var source = ctx.getSource();
                                                 var player = getOptionalPlayer(source);
-                                                return runTrainCommand(player, source.getLevel(), mode, rounds, center, radius, numOperators, 30);
+                                                return runTrainCommand(player, source.getLevel(), mode, rounds, center, radius, numOperators, numGroups, 30);
                                             })
                                             .then(Commands.argument("max_seconds_per_round", IntegerArgumentType.integer(1))
                                                 .executes(ctx -> {
                                                     var mode = TrainingGameMode.fromString(StringArgumentType.getString(ctx, "mode"));
                                                     var numOperators = IntegerArgumentType.getInteger(ctx, "num_operators");
+                                                    var numGroups = IntegerArgumentType.getInteger(ctx, "num_groups");
                                                     var center = BlockPosArgument.getLoadedBlockPos(ctx, "pos");
                                                     var radius = IntegerArgumentType.getInteger(ctx, "radius");
                                                     var rounds = IntegerArgumentType.getInteger(ctx, "rounds");
                                                     var maxSeconds = IntegerArgumentType.getInteger(ctx, "max_seconds_per_round");
                                                     var source = ctx.getSource();
                                                     var player = getOptionalPlayer(source);
-                                                    return runTrainCommand(player, source.getLevel(), mode, rounds, center, radius, numOperators, maxSeconds);
+                                                    return runTrainCommand(player, source.getLevel(), mode, rounds, center, radius, numOperators, numGroups, maxSeconds);
                                                 })
                                             )
                                         )
@@ -158,6 +226,7 @@ public class Minekov {
                                 )
                             )
                         )
+                    )
                     )
                     .then(Commands.literal("stop")
                         .executes(ctx -> {
@@ -174,16 +243,47 @@ public class Minekov {
                             }
                         })
                     )
+                    .then(Commands.literal("wandb")
+                        .executes(ctx -> {
+                            if (lastWandbUrl == null || lastWandbUrl.isEmpty()) {
+                                ctx.getSource().sendFailure(Component.literal(
+                                    "No W&B run URL yet. Connect Python and start a training session."));
+                                return 0;
+                            }
+                            MinecraftServer server = ctx.getSource().getServer();
+                            broadcastWandbLink(server);
+                            return 1;
+                        })
+                    )
                 )
                 .then(Commands.literal("play")
                     .executes(ctx -> runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel()))
                 )
+                .then(Commands.literal("scoreboard")
+                    .then(Commands.literal("clear")
+                        .executes(ctx -> {
+                            Scoreboard scoreboard = ctx.getSource().getServer().getScoreboard();
+                            Objective obj = scoreboard.getObjective("ai_kills");
+                            if (obj == null) {
+                                ctx.getSource().sendFailure(Component.literal("No AI kills scoreboard found."));
+                                return 0;
+                            }
+                            var scores = scoreboard.getPlayerScores(obj);
+                            for (var score : scores) {
+                                score.setScore(0);
+                            }
+                            int count = scores.size();
+                            ctx.getSource().sendSuccess(() -> Component.literal("AI kill scores cleared (" + count + " entries)."), false);
+                            return 1;
+                        })
+                    )
+                )
         );
     }
 
-    private static int runTrainCommand(Player provisioningPlayer, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius, int numOperators, int maxSecondsPerRound) {
+    private static int runTrainCommand(Player provisioningPlayer, ServerLevel world, TrainingGameMode mode, int rounds, BlockPos centerPosition, int spawnRadius, int numOperators, int numGroups, int maxSecondsPerRound) {
         OperatorSpawningHandler operatorSpawningHandler = new OperatorSpawningHandler(world, centerPosition, spawnRadius);
-        trainingState = new TrainingState(provisioningPlayer, world.getServer(), rounds, operatorSpawningHandler, mode, numOperators, maxSecondsPerRound);
+        trainingState = new TrainingState(provisioningPlayer, world.getServer(), rounds, operatorSpawningHandler, mode, numOperators, numGroups, maxSecondsPerRound);
 
         TrainingScoreboard.setServer(world.getServer());
         Scoreboard scoreboard = world.getServer().getScoreboard();
@@ -271,6 +371,7 @@ public class Minekov {
 
             // clear instance if we're done
             if (trainingState.isComplete()) {
+                clearEliteAgentIndices();
                 trainingState = null;
             }
         }
@@ -387,5 +488,25 @@ public class Minekov {
         // sessionStartData.put("center_y", center.getY());
         // sessionStartData.put("center_z", center.getZ());
         PythonBridge.tickPython(sessionStartData);
+    }
+
+    public static void onWandbUrlReceived(String url) {
+        lastWandbUrl = url;
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            broadcastWandbLink(server);
+        }
+    }
+
+    public static void broadcastWandbLink(MinecraftServer server) {
+        if (lastWandbUrl == null || lastWandbUrl.isEmpty()) {
+            return;
+        }
+        MutableComponent link = Component.literal(lastWandbUrl)
+            .withStyle(Style.EMPTY
+                .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, lastWandbUrl))
+                .withUnderlined(true));
+        Component msg = Component.literal("W&B run (click to open): ").append(link);
+        server.getPlayerList().broadcastSystemMessage(msg, false);
     }
 }

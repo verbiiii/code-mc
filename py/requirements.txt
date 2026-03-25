@@ -1,4 +1,7 @@
 fastapi==0.135.2
-uvicorn==0.42.0
-torch==2.11.0
-numpy==2.4.3
+uvicorn[standard]==0.42.0
+# RTX 5070 Ti (sm_120 / Blackwell) requires PyTorch nightly cu128.
+# Install with: pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+torch>=2.11.0.dev
+numpy
+wandb

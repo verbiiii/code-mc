@@ -92,13 +92,15 @@ class BinaryTransport:
         agent_indices_masked = active_ids.cpu().numpy().astype(np.float32)
 
         # Get actions only for active agents, indexed by their absolute agent IDs
-        angles_active = angles[active_ids]
-        walk_active = walk[active_ids]
-        shoot_active = shoot[active_ids]
-        jump_active = jump[active_ids]
-        sneak_active = sneak[active_ids]
-        pitch_active = pitch[active_ids]
-        yaw_active = yaw[active_ids]
+        # (If model outputs are on GPU, indices must be on the same device.)
+        active_ids_dev = active_ids.to(angles.device)
+        angles_active = angles[active_ids_dev]
+        walk_active = walk[active_ids_dev]
+        shoot_active = shoot[active_ids_dev]
+        jump_active = jump[active_ids_dev]
+        sneak_active = sneak[active_ids_dev]
+        pitch_active = pitch[active_ids_dev]
+        yaw_active = yaw[active_ids_dev]
         
         # Convert to numpy arrays (pure vectorized) - NO AGENT INDICES
         angles_np = angles_active.cpu().numpy().astype(np.float32)

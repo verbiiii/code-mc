@@ -3,14 +3,18 @@ import torch
 import numpy as np
 import time
 import sys
+from typing import Dict, Tuple
+
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
+USE_WANDB = True
+
 # FMC Constants
+USE_LIFETIME_REWARDS_FOR_TOPK = True
 KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
 SLOW_PROCESSING_THRESHOLD_MS = 5.0
-FORCE_CLONE_UPON_DEATH = False  # Not recommended: death is already penalized in the reward signal; let FMC decide fitness naturally
 BULLET_COST = 0.0  # Per-bullet penalty (only charged on ticks where damage was dealt)
 
 
@@ -107,7 +111,6 @@ class LiveStatusDisplay:
         self._last_snapshot = snapshot
 
         lines = [
-            "=== Minekov RL Status ===",
             f"Ticks: {snapshot['tick_count']:,} | FMC updates: {snapshot['fmc_updates']:,} | Rounds: {snapshot['rounds']:,}",
             f"Agents: active {snapshot['active_agents']}/{self.total_agents} | cloned(last) {snapshot['last_cloned']}/{self.total_agents}",
             (
@@ -143,7 +146,9 @@ class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
         self.num_agents = num_agents
         self.device = torch.device(device)
-        self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
+        # Keep the operator forward pass on GPU when available (see `RLOperators.DEFAULT_DEVICE`),
+        # while allowing the trainer bookkeeping to remain on `self.device` (default CPU).
+        self.operators = RLOperators(num_agents=self.num_agents)
         self.reward_history = []
         self.num_updates = 0
         self.fmc_update_count = 0
@@ -152,7 +157,8 @@ class VectorizedTrainer:
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
-        self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
+        # Per-slot scalars: accumulate across rounds; zero when this slot is cloned (new policy).
+        self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)
         self.processing_times_ms = []
         self.slow_tick_count = 0
         self.latest_obs_active_agents = 0
@@ -167,17 +173,54 @@ class VectorizedTrainer:
             "top_rewards": [],
             "top_lifetimes": [],
         }
+        # Synced to Java after each FMC round for nametag crowns (elite indices in rank order).
+        self.last_elite_indices: list = []
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
-        print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
+        self.wandb_url = None
+        self._init_wandb()
+
+        print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
+
+    def _init_wandb(self):
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            run = wandb.init(project="minekov-rl", config={"num_agents": self.num_agents})
+            self.wandb_url = getattr(run, "url", None)
+        except Exception as e:
+            print(f"W&B init failed (training continues): {e}")
+            self.wandb_url = None
 
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
         self.calculate_rewards(observations)
-        if self.tick_count % 10 == 0:
-            self.apply_fmc_update(observations)
         return self.forward(observations)
+
+    def _wandb_log_entropy(self, entropy_by_component: Dict[str, torch.Tensor]) -> None:
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            if wandb.run is None:
+                return
+            # One value per agent: mean entropy across policy components (movement, walk, …).
+            stacked = torch.stack([t.float() for t in entropy_by_component.values()], dim=0)
+            per_agent = stacked.mean(dim=0)
+            wandb.log(
+                {
+                    "entropy/min": per_agent.min().item(),
+                    "entropy/max": per_agent.max().item(),
+                    "entropy/avg": per_agent.mean().item(),
+                },
+                step=self.tick_count,
+            )
+        except Exception:
+            pass
 
     def forward(self, observations: VectorizedObservations):
         """
@@ -185,28 +228,18 @@ class VectorizedTrainer:
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
         group_indices: [N] – group id per agent (used to match group-mates)
         """
-        
-        y = self.operators.forward(observations)
+        sample = self.operators.sample_policy(observations)
+        self._wandb_log_entropy(sample.entropy_by_component)
 
-        # Split output logits
-        x_logits = y[:, :8]
-        walk_logits = y[:, 8]
-        shoot_logits = y[:, 9]
-        jump_logits = y[:, 10]
-        sneak_logits = y[:, 11]
-        pitch_logits = y[:, 12:20]
-        yaw_logits = y[:, 20:28]
-
-        # Deterministic policy
-        movement_theta = torch.argmax(x_logits, dim=1)
-        walk_actions = (walk_logits > 0.0)
-        shoot_actions = (shoot_logits > 0.0)
-        jump_actions = (jump_logits > 0.0)
-        sneak_actions = (sneak_logits > 0.0)
-        pitch_actions = torch.argmax(pitch_logits, dim=1)
-        yaw_actions = torch.argmax(yaw_logits, dim=1)
-
-        return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
+        return (
+            sample.movement_theta,
+            sample.walk_actions,
+            sample.shoot_actions,
+            sample.jump_actions,
+            sample.sneak_actions,
+            sample.pitch_actions,
+            sample.yaw_actions,
+        )
 
     def calculate_rewards(self, obs: VectorizedObservations):
         """Update episode data using actual agent indices."""
@@ -242,46 +275,49 @@ class VectorizedTrainer:
     def on_round_end(self):
         """Called at the end of each round."""
         self.round_count += 1
-        # self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
-        self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
+        self.apply_fmc_update()
+        self.reset_cumulative_rewards()
 
-    def apply_fmc_update(self, obs: VectorizedObservations):
+    def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
         self.fmc_update_count += 1
 
+        ops_device = self.operators.device
+
         # print("This Round's Cumulative Rewards:")
         # print(self.round_cumulative_rewards)
-            
+
         # scores = self.current_rewards.clone()
-        metric_for_top_k = self.round_cumulative_rewards.clone()
-        scores = self.round_cumulative_rewards.clone()
-        # scores = self.lifetime_cumulative_rewards.clone()
-        
-        # Select partners with fitness bias so strong policies actually propagate.
-        # (Uniform random partners tends to stall: only protected elites stay good.)
-        fitness = scores - scores.min()
-        if float(fitness.sum().item()) <= 0.0:
-            partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
+        scores = self.round_cumulative_rewards.clone().to(ops_device)
+        if USE_LIFETIME_REWARDS_FOR_TOPK:
+            metric_for_top_k = self.lifetime_cumulative_rewards.clone().to(ops_device)
         else:
-            probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
-            partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
-        
+            metric_for_top_k = scores.clone()
+
+        # # Select partners with fitness bias so strong policies actually propagate.
+        # # (Uniform random partners tends to stall: only protected elites stay good.)
+        # fitness = scores - scores.min()
+        # if float(fitness.sum().item()) <= 0.0:
+        #     partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=ops_device)
+        # else:
+        #     probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
+        #     partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
+        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=ops_device)
+
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
-        
-        # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, partner_indices)
+
+        # Calculate virtual rewards (also keep raw / relativized distances for logging)
+        vr, dists, rel_dists = self._calculate_virtual_rewards(scores, partner_indices)
         partner_vr = vr[partner_indices]
-        
+
+        self._wandb_log_fmc(scores, vr, dists, rel_dists)
+
         # Determine cloning probability based on virtual rewards
-        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=ops_device))
         
         # Random threshold for cloning decision
-        r = torch.rand(self.num_agents, device=self.device)
+        r = torch.rand(self.num_agents, device=ops_device)
         will_clone = value >= r
-
-        # force clone if dead
-        if FORCE_CLONE_UPON_DEATH:
-            will_clone[obs.deaths > 0] = True
 
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
@@ -289,6 +325,7 @@ class VectorizedTrainer:
             raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
 
         top_agent_indices = torch.topk(metric_for_top_k, top_k).indices
+        self.last_elite_indices = [int(x) for x in top_agent_indices.cpu().tolist()]
         will_clone[top_agent_indices] = False
 
         # will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)
@@ -298,13 +335,13 @@ class VectorizedTrainer:
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
 
-        top_k_lifetime_rewards = self.lifetime_cumulative_rewards[top_agent_indices] if top_k > 0 else torch.tensor([])
+        top_k_lifetime_rewards = self.lifetime_cumulative_rewards.to(ops_device)[top_agent_indices] if top_k > 0 else torch.tensor([])
 
         self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
-            
-        # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
-        self.round_cumulative_rewards[will_clone] = 0.0
-        self.lifetime_cumulative_rewards[will_clone] = 0.0
+
+        will_clone_cpu = will_clone.cpu()
+        self.round_cumulative_rewards[will_clone_cpu] = 0.0
+        self.lifetime_cumulative_rewards[will_clone_cpu] = 0.0
         
         # Enhanced FMC metrics
         num_cloned = will_clone.sum().item()
@@ -366,17 +403,51 @@ class VectorizedTrainer:
         }
         self.status_display.render(snapshot)
 
-    def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
-        """Calculate virtual rewards based on scores and parameter distances."""
-        # Calculate distances between agents and their partners
+    def _wandb_log_fmc(
+        self,
+        scores: torch.Tensor,
+        vr: torch.Tensor,
+        dists: torch.Tensor,
+        rel_dists: torch.Tensor,
+    ):
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            if wandb.run is None:
+                return
+            wandb.log(
+                {
+                    "reward/average_reward": scores.mean().item(),
+                    "reward/min_reward": scores.min().item(),
+                    "reward/max_reward": scores.max().item(),
+                    "virtual_reward/average_reward": vr.mean().item(),
+                    "virtual_reward/min_reward": vr.min().item(),
+                    "virtual_reward/max_reward": vr.max().item(),
+                    "distance/raw_mean": dists.mean().item(),
+                    "distance/raw_min": dists.min().item(),
+                    "distance/raw_max": dists.max().item(),
+                    "distance/rel_mean": rel_dists.mean().item(),
+                    "distance/rel_min": rel_dists.min().item(),
+                    "distance/rel_max": rel_dists.max().item(),
+                },
+                # Must use the same monotonic step as per-tick logs; `fmc_update_count` lags `tick_count`
+                # and would rewind the x-axis, so reward/distance metrics never appeared in W&B.
+                step=self.tick_count,
+            )
+        except Exception:
+            pass
+
+    def _calculate_virtual_rewards(
+        self, scores: torch.Tensor, partner_indices: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Virtual rewards from relativized scores and partner parameter distances."""
         dists = self.operators.calculate_distances(partner_indices)
-        
-        # Relativize distances and scores
         rel_dists = self._relativize(dists)
         rel_scores = self._relativize(scores) ** FMC_BALANCE
-        
-        # Virtual rewards are the product of relativized scores and distances
-        return rel_scores * rel_dists
+        vr = rel_scores * rel_dists
+        return vr, dists, rel_dists
 
     def _relativize(self, vector: torch.Tensor) -> torch.Tensor:
         """Relativize a vector using log/exp transformation as in the JAX implementation."""
@@ -401,11 +472,16 @@ class VectorizedTrainer:
         self.round_cumulative_rewards.zero_()
 
     def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
-        """Get indices of top-k agents based on cumulative rewards."""
-        if self.round_cumulative_rewards.numel() == 0:
+        """Get indices of top-k agents by round or lifetime cumulative rewards (see USE_LIFETIME_REWARDS_FOR_TOPK)."""
+        metric = (
+            self.lifetime_cumulative_rewards
+            if USE_LIFETIME_REWARDS_FOR_TOPK
+            else self.round_cumulative_rewards
+        )
+        if metric.numel() == 0:
             return torch.tensor([], device=self.device, dtype=torch.long)
-        
-        top_k_values, top_k_indices = torch.topk(self.round_cumulative_rewards, k, sorted=True)
+
+        top_k_values, top_k_indices = torch.topk(metric, k, sorted=True)
         return top_k_indices
 
     def get_stats(self):

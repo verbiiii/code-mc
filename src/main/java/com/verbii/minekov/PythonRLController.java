@@ -1,5 +1,6 @@
 package com.verbii.minekov;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.verbii.minekov.VectorizedActionDecoder.AgentAction;
 import com.verbii.minekov.entities.RLOperator;
@@ -8,6 +9,9 @@ import java.net.URI;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+
+import net.minecraft.server.MinecraftServer;
+import net.minecraftforge.server.ServerLifecycleHooks;
 
 /**
  * Game-specific controller that handles RL agent actions.
@@ -24,6 +28,27 @@ public class PythonRLController {
         
         // Handle both JSON and binary messages
         this.webSocket.setBinaryMessageHandler(this::handleBinaryMessage);
+        this.webSocket.setMessageJSONHandler(this::handleJsonFromPython);
+    }
+
+    private void handleJsonFromPython(JsonObject obj) {
+        if (!obj.has("type")) {
+            return;
+        }
+        String type = obj.get("type").getAsString();
+        if ("wandb_url".equals(type) && obj.has("url")) {
+            Minekov.onWandbUrlReceived(obj.get("url").getAsString());
+        } else if ("elite_board".equals(type) && obj.has("indices")) {
+            JsonArray arr = obj.getAsJsonArray("indices");
+            int[] indices = new int[arr.size()];
+            for (int i = 0; i < arr.size(); i++) {
+                indices[i] = arr.get(i).getAsInt();
+            }
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server != null) {
+                server.execute(() -> Minekov.setEliteAgentIndicesFromPython(indices));
+            }
+        }
     }
 
     public void setOnConnectedCallback(Runnable callback) {

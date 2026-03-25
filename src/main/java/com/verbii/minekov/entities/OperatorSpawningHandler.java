@@ -33,11 +33,17 @@ public class OperatorSpawningHandler {
     }
 
     public RLOperator spawnRLOperator() {
-        System.out.println("Spawning RLOperator");
+        return spawnRLOperator(-1);
+    }
+
+    /** @param trainingGroupId FFA arena index for solid-color skin tint; -1 keeps default texture. */
+    public RLOperator spawnRLOperator(int trainingGroupId) {
+        System.out.println("Spawning RLOperator (group " + trainingGroupId + ")");
         BlockPos spawnPos = findValidSpawn();
         if (spawnPos == null) throw new IllegalStateException("Failed to find valid spawn location for RLOperator");
 
         RLOperator rlOp = ModEntities.RL_OPERATOR.get().create(world);
+        rlOp.setTrainingGroupId(trainingGroupId);
         rlOp.moveTo(spawnPos.getX() + 0.5, spawnPos.getY() + 1, spawnPos.getZ() + 0.5, 0, 0);
         world.addFreshEntity(rlOp);
         return rlOp;
