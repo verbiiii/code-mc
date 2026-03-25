@@ -5,6 +5,9 @@ import java.util.function.Supplier;
 import com.tacz.guns.api.entity.ShootResult;
 import com.verbii.minekov.entities.ai.goals.WatchClosestTargetGoal;
 
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.PathfinderMob;
@@ -13,6 +16,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
 public class RLOperator extends AIOperator {
+    /** FFA arena index for tinting; -1 = default texture (play mode / unset). */
+    public static final EntityDataAccessor<Integer> DATA_TRAINING_GROUP_ID =
+            SynchedEntityData.defineId(RLOperator.class, EntityDataSerializers.INT);
     private WatchClosestTargetGoal watchGoal;
     private int agentId = 0; // Compact agent ID for binary protocol
 
@@ -34,6 +40,20 @@ public class RLOperator extends AIOperator {
 
     public RLOperator(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
+    }
+
+    @Override
+    protected void defineSynchedData() {
+        super.defineSynchedData();
+        this.entityData.define(DATA_TRAINING_GROUP_ID, -1);
+    }
+
+    public int getTrainingGroupId() {
+        return this.entityData.get(DATA_TRAINING_GROUP_ID);
+    }
+
+    public void setTrainingGroupId(int groupId) {
+        this.entityData.set(DATA_TRAINING_GROUP_ID, groupId);
     }
 
     @Override
