@@ -257,14 +257,15 @@ class VectorizedTrainer:
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
         
-        # Select partners with fitness bias so strong policies actually propagate.
-        # (Uniform random partners tends to stall: only protected elites stay good.)
-        fitness = scores - scores.min()
-        if float(fitness.sum().item()) <= 0.0:
-            partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
-        else:
-            probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
-            partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
+        # # Select partners with fitness bias so strong policies actually propagate.
+        # # (Uniform random partners tends to stall: only protected elites stay good.)
+        # fitness = scores - scores.min()
+        # if float(fitness.sum().item()) <= 0.0:
+        #     partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
+        # else:
+        #     probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
+        #     partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
+        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
         
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
