@@ -14,7 +14,6 @@ USE_WANDB = True
 KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
 SLOW_PROCESSING_THRESHOLD_MS = 5.0
-FORCE_CLONE_UPON_DEATH = False  # Not recommended: death is already penalized in the reward signal; let FMC decide fitness naturally
 BULLET_COST = 0.0  # Per-bullet penalty (only charged on ticks where damage was dealt)
 
 
@@ -196,8 +195,6 @@ class VectorizedTrainer:
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
         self.calculate_rewards(observations)
-        if self.tick_count % 10 == 0:
-            self.apply_fmc_update(observations)
         return self.forward(observations)
 
     def forward(self, observations: VectorizedObservations):
@@ -263,10 +260,10 @@ class VectorizedTrainer:
     def on_round_end(self):
         """Called at the end of each round."""
         self.round_count += 1
-        # self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
-        self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
+        self.apply_fmc_update()
+        self.reset_cumulative_rewards()
 
-    def apply_fmc_update(self, obs: VectorizedObservations):
+    def apply_fmc_update(self):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
         self.fmc_update_count += 1
 
@@ -304,10 +301,6 @@ class VectorizedTrainer:
         # Random threshold for cloning decision
         r = torch.rand(self.num_agents, device=ops_device)
         will_clone = value >= r
-
-        # force clone if dead
-        if FORCE_CLONE_UPON_DEATH:
-            will_clone[obs.deaths > 0] = True
 
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
