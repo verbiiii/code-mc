@@ -225,7 +225,7 @@ class VectorizedTrainer:
 
         self.current_rewards = torch.zeros(active_mask.sum(), device=self.device, dtype=torch.float32)
         self.current_rewards += (dmg_dealt * 1.0) + (kills * 10)
-        self.current_rewards -= (dmg_taken * 0.5) + (deaths * 1.0)
+        self.current_rewards -= (dmg_taken * 1.0) + (deaths * 10.0)
         self.current_rewards -= (num_bullets * BULLET_COST) * (dmg_dealt > 0).float()
 
         # print(self.current_rewards.mean().item(), "current rewards avg")
