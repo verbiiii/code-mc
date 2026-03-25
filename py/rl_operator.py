@@ -51,8 +51,9 @@ class RLOperators(torch.nn.Module):
         # Perform cloning and perturbation
         for module in self.modules():
             if isinstance(module, BatchedNNModule):
-                # module.clone(will_clone, partner_indices)
-                module.blend(will_clone, partner_indices)
+                # IMPORTANT: true cloning (copy winner -> loser). Blending here causes
+                # the best policies to not actually propagate through the population.
+                module.clone(will_clone, partner_indices)
                 module.mutate(will_perturbate, MUTATION_AMPLITUDE)
 
     def calculate_distances(self, partner_indices: torch.Tensor) -> torch.Tensor:
