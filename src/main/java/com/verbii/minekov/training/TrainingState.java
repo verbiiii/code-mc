@@ -20,6 +20,7 @@ import com.verbii.minekov.entities.RLOperator;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.player.Player;
+import org.jetbrains.annotations.Nullable;
 
 public class TrainingState {
     private final int numOperators;
@@ -27,7 +28,7 @@ public class TrainingState {
     public final boolean allowRespawns = true;
 
     private List<TrainingGroup> groups = new ArrayList<>();
-    private Player provisioningPlayer;
+    private @Nullable Player provisioningPlayer;
     private final MinecraftServer server;
 
     private final AIOperator[] operatorsArray;
@@ -43,7 +44,7 @@ public class TrainingState {
     private final TrainingGameMode mode;
     private final OperatorSpawningHandler operatorSpawningHandler;
 
-    public TrainingState(Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators, int maxSecondsPerRound) {
+    public TrainingState(@Nullable Player provisioningPlayer, MinecraftServer server, int rounds, OperatorSpawningHandler operatorSpawningHandler, TrainingGameMode mode, int numOperators, int maxSecondsPerRound) {
         this.numOperators = numOperators;
         this.numRounds = rounds;
         this.maxSecondsPerRound = maxSecondsPerRound;
