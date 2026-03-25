@@ -251,35 +251,37 @@ class VectorizedTrainer:
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
         self.fmc_update_count += 1
 
+        ops_device = self.operators.device
+
         # print("This Round's Cumulative Rewards:")
         # print(self.round_cumulative_rewards)
-            
+
         # scores = self.current_rewards.clone()
-        metric_for_top_k = self.round_cumulative_rewards.clone()
-        scores = self.round_cumulative_rewards.clone()
+        metric_for_top_k = self.round_cumulative_rewards.clone().to(ops_device)
+        scores = self.round_cumulative_rewards.clone().to(ops_device)
         # scores = self.lifetime_cumulative_rewards.clone()
-        
+
         # # Select partners with fitness bias so strong policies actually propagate.
         # # (Uniform random partners tends to stall: only protected elites stay good.)
         # fitness = scores - scores.min()
         # if float(fitness.sum().item()) <= 0.0:
-        #     partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
+        #     partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=ops_device)
         # else:
         #     probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
         #     partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
-        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
-        
+        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=ops_device)
+
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
-        
+
         # Calculate virtual rewards
         vr = self._calculate_virtual_rewards(scores, partner_indices)
         partner_vr = vr[partner_indices]
-        
+
         # Determine cloning probability based on virtual rewards
-        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=self.device))
+        value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=ops_device))
         
         # Random threshold for cloning decision
-        r = torch.rand(self.num_agents, device=self.device)
+        r = torch.rand(self.num_agents, device=ops_device)
         will_clone = value >= r
 
         # force clone if dead
@@ -301,13 +303,14 @@ class VectorizedTrainer:
         # Get top k rewards for display
         top_k_rewards = scores[top_agent_indices] if top_k > 0 else torch.tensor([])
 
-        top_k_lifetime_rewards = self.lifetime_cumulative_rewards[top_agent_indices] if top_k > 0 else torch.tensor([])
+        top_k_lifetime_rewards = self.lifetime_cumulative_rewards.to(ops_device)[top_agent_indices] if top_k > 0 else torch.tensor([])
 
         self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
-            
+
         # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
-        self.round_cumulative_rewards[will_clone] = 0.0
-        self.lifetime_cumulative_rewards[will_clone] = 0.0
+        will_clone_cpu = will_clone.cpu()
+        self.round_cumulative_rewards[will_clone_cpu] = 0.0
+        self.lifetime_cumulative_rewards[will_clone_cpu] = 0.0
         
         # Enhanced FMC metrics
         num_cloned = will_clone.sum().item()
