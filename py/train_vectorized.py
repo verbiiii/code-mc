@@ -3,8 +3,12 @@ import torch
 import numpy as np
 import time
 import sys
+from typing import Tuple
+
 from observations import VectorizedObservations
 from rl_operator import RLOperators
+
+USE_WANDB = True
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
@@ -172,7 +176,22 @@ class VectorizedTrainer:
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
+        self.wandb_url = None
+        self._init_wandb()
+
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
+
+    def _init_wandb(self):
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            run = wandb.init(project="minekov-rl", config={"num_agents": self.num_agents})
+            self.wandb_url = getattr(run, "url", None)
+        except Exception as e:
+            print(f"W&B init failed (training continues): {e}")
+            self.wandb_url = None
 
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
@@ -273,9 +292,11 @@ class VectorizedTrainer:
 
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
 
-        # Calculate virtual rewards
-        vr = self._calculate_virtual_rewards(scores, partner_indices)
+        # Calculate virtual rewards (also keep raw / relativized distances for logging)
+        vr, dists, rel_dists = self._calculate_virtual_rewards(scores, partner_indices)
         partner_vr = vr[partner_indices]
+
+        self._wandb_log_fmc(scores, vr, dists, rel_dists)
 
         # Determine cloning probability based on virtual rewards
         value = (partner_vr - vr) / torch.where(vr > 0, vr, torch.tensor(1e-8, device=ops_device))
@@ -372,17 +393,49 @@ class VectorizedTrainer:
         }
         self.status_display.render(snapshot)
 
-    def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
-        """Calculate virtual rewards based on scores and parameter distances."""
-        # Calculate distances between agents and their partners
+    def _wandb_log_fmc(
+        self,
+        scores: torch.Tensor,
+        vr: torch.Tensor,
+        dists: torch.Tensor,
+        rel_dists: torch.Tensor,
+    ):
+        if not USE_WANDB:
+            return
+        try:
+            import wandb
+
+            if wandb.run is None:
+                return
+            wandb.log(
+                {
+                    "reward/average_reward": scores.mean().item(),
+                    "reward/min_reward": scores.min().item(),
+                    "reward/max_reward": scores.max().item(),
+                    "virtual_reward/average_reward": vr.mean().item(),
+                    "virtual_reward/min_reward": vr.min().item(),
+                    "virtual_reward/max_reward": vr.max().item(),
+                    "distance/raw_mean": dists.mean().item(),
+                    "distance/raw_min": dists.min().item(),
+                    "distance/raw_max": dists.max().item(),
+                    "distance/rel_mean": rel_dists.mean().item(),
+                    "distance/rel_min": rel_dists.min().item(),
+                    "distance/rel_max": rel_dists.max().item(),
+                },
+                step=self.fmc_update_count,
+            )
+        except Exception:
+            pass
+
+    def _calculate_virtual_rewards(
+        self, scores: torch.Tensor, partner_indices: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Virtual rewards from relativized scores and partner parameter distances."""
         dists = self.operators.calculate_distances(partner_indices)
-        
-        # Relativize distances and scores
         rel_dists = self._relativize(dists)
         rel_scores = self._relativize(scores) ** FMC_BALANCE
-        
-        # Virtual rewards are the product of relativized scores and distances
-        return rel_scores * rel_dists
+        vr = rel_scores * rel_dists
+        return vr, dists, rel_dists
 
     def _relativize(self, vector: torch.Tensor) -> torch.Tensor:
         """Relativize a vector using log/exp transformation as in the JAX implementation."""

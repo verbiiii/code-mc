@@ -10,7 +10,7 @@ import json
 from fastapi import FastAPI, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
-from train_vectorized import VectorizedTrainer
+from train_vectorized import VectorizedTrainer, USE_WANDB
 from binary_transport import BinaryTransport
 
 # Setup logging
@@ -81,6 +81,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         num_agents=num_agents,
                     )
                     TRANSPORT = BinaryTransport(trainer=TRAINER)
+                    if getattr(TRAINER, "wandb_url", None):
+                        try:
+                            await websocket.send_text(
+                                json.dumps({"type": "wandb_url", "url": TRAINER.wandb_url})
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not send W&B URL to client: {e}")
                     continue
                 elif message_type == "round_start":
                     # Reduced logging noise
@@ -122,6 +129,14 @@ async def websocket_endpoint(websocket: WebSocket):
         pass
     finally:
         connected_clients.discard(websocket)
+        if USE_WANDB:
+            try:
+                import wandb
+
+                if wandb.run is not None:
+                    wandb.finish()
+            except Exception:
+                pass
         logger.info(f"🔌 Client {client_id} disconnected. Total clients: {len(connected_clients)}")
 
 async def main():

@@ -24,6 +24,17 @@ public class PythonRLController {
         
         // Handle both JSON and binary messages
         this.webSocket.setBinaryMessageHandler(this::handleBinaryMessage);
+        this.webSocket.setMessageJSONHandler(this::handleJsonFromPython);
+    }
+
+    private void handleJsonFromPython(JsonObject obj) {
+        if (!obj.has("type")) {
+            return;
+        }
+        String type = obj.get("type").getAsString();
+        if ("wandb_url".equals(type) && obj.has("url")) {
+            Minekov.onWandbUrlReceived(obj.get("url").getAsString());
+        }
     }
 
     public void setOnConnectedCallback(Runnable callback) {

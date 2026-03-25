@@ -15,7 +15,11 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -32,6 +36,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
+import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -43,6 +48,9 @@ public class Minekov {
     public static final String MODID = "minekov";
 
     public static TrainingState trainingState = null;
+
+    /** Last Weights & Biases run URL from the Python trainer (clickable in chat). */
+    public static String lastWandbUrl = null;
 
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
@@ -172,6 +180,18 @@ public class Minekov {
                                 ctx.getSource().sendFailure(Component.literal("No active training session."));
                                 return 0;
                             }
+                        })
+                    )
+                    .then(Commands.literal("wandb")
+                        .executes(ctx -> {
+                            if (lastWandbUrl == null || lastWandbUrl.isEmpty()) {
+                                ctx.getSource().sendFailure(Component.literal(
+                                    "No W&B run URL yet. Connect Python and start a training session."));
+                                return 0;
+                            }
+                            MinecraftServer server = ctx.getSource().getServer();
+                            broadcastWandbLink(server);
+                            return 1;
                         })
                     )
                 )
@@ -406,5 +426,25 @@ public class Minekov {
         // sessionStartData.put("center_y", center.getY());
         // sessionStartData.put("center_z", center.getZ());
         PythonBridge.tickPython(sessionStartData);
+    }
+
+    public static void onWandbUrlReceived(String url) {
+        lastWandbUrl = url;
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            broadcastWandbLink(server);
+        }
+    }
+
+    public static void broadcastWandbLink(MinecraftServer server) {
+        if (lastWandbUrl == null || lastWandbUrl.isEmpty()) {
+            return;
+        }
+        MutableComponent link = Component.literal(lastWandbUrl)
+            .withStyle(Style.EMPTY
+                .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, lastWandbUrl))
+                .withUnderlined(true));
+        Component msg = Component.literal("W&B run (click to open): ").append(link);
+        server.getPlayerList().broadcastSystemMessage(msg, false);
     }
 }
