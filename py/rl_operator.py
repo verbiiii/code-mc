@@ -7,13 +7,16 @@ from observations import VectorizedObservations
 # maximum amplitude of the mutation (std dev for normal distribution)
 MUTATION_AMPLITUDE = 0.1
 
+# Prefer GPU when available for operator forward passes.
+DEFAULT_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class RLOperators(torch.nn.Module):
-    def __init__(self, device='cpu', num_agents: int = 32):
+    def __init__(self, device=None, num_agents: int = 32):
         super(RLOperators, self).__init__()
 
         self.num_agents = num_agents
-        self.device = torch.device(device)
+        self._device = DEFAULT_DEVICE if device is None else torch.device(device)
 
         self.input_features = 13
         self.hidden_dim = 16
@@ -32,8 +35,12 @@ class RLOperators(torch.nn.Module):
             BatchedLinear(num_agents, self.hidden_dim, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
     def forward(self, observations: VectorizedObservations):
-        x = observations.tensorized()  # [num_agents, 12]
+        x = observations.tensorized().to(self.device)  # [num_agents, 13]
         num_agents = self.num_agents
 
         # Duplicate to [num_agents, num_agents, 12]
@@ -43,7 +50,8 @@ class RLOperators(torch.nn.Module):
         batch_observations[:, :, 0] = 0.0
 
         # Set one-hot indicator: [num_agents, num_agents], diagonal = 1.0
-        batch_observations[observations.agent_indices, observations.agent_indices, 0] = 1.0
+        agent_indices = observations.agent_indices.to(self.device)
+        batch_observations[agent_indices, agent_indices, 0] = 1.0
 
         y = self.model.forward(batch_observations)
         return y

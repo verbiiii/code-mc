@@ -143,7 +143,9 @@ class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
         self.num_agents = num_agents
         self.device = torch.device(device)
-        self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
+        # Keep the operator forward pass on GPU when available (see `RLOperators.DEFAULT_DEVICE`),
+        # while allowing the trainer bookkeeping to remain on `self.device` (default CPU).
+        self.operators = RLOperators(num_agents=self.num_agents)
         self.reward_history = []
         self.num_updates = 0
         self.fmc_update_count = 0
@@ -170,7 +172,7 @@ class VectorizedTrainer:
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
-        print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
+        print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
 
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
