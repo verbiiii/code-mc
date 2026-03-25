@@ -178,6 +178,25 @@ public class Minekov {
                 .then(Commands.literal("play")
                     .executes(ctx -> runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel()))
                 )
+                .then(Commands.literal("scoreboard")
+                    .then(Commands.literal("clear")
+                        .executes(ctx -> {
+                            Scoreboard scoreboard = ctx.getSource().getServer().getScoreboard();
+                            Objective obj = scoreboard.getObjective("ai_kills");
+                            if (obj == null) {
+                                ctx.getSource().sendFailure(Component.literal("No AI kills scoreboard found."));
+                                return 0;
+                            }
+                            var scores = scoreboard.getPlayerScores(obj);
+                            for (var score : scores) {
+                                score.setScore(0);
+                            }
+                            int count = scores.size();
+                            ctx.getSource().sendSuccess(() -> Component.literal("AI kill scores cleared (" + count + " entries)."), false);
+                            return 1;
+                        })
+                    )
+                )
         );
     }
 
