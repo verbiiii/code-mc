@@ -171,6 +171,8 @@ class VectorizedTrainer:
             "top_rewards": [],
             "top_lifetimes": [],
         }
+        # Synced to Java after each FMC round for nametag crowns (elite indices in rank order).
+        self.last_elite_indices: list = []
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
@@ -319,6 +321,7 @@ class VectorizedTrainer:
             raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
 
         top_agent_indices = torch.topk(metric_for_top_k, top_k).indices
+        self.last_elite_indices = [int(x) for x in top_agent_indices.cpu().tolist()]
         will_clone[top_agent_indices] = False
 
         # will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)

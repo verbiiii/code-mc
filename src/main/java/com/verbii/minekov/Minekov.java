@@ -40,6 +40,7 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.net.URI;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @Mod(Minekov.MODID)
@@ -51,6 +52,55 @@ public class Minekov {
 
     /** Last Weights & Biases run URL from the Python trainer (clickable in chat). */
     public static String lastWandbUrl = null;
+
+    /**
+     * FMC elite agent slot indices in rank order (Python {@code topk}; first = best).
+     * Used for crown prefixes on RL operator nametags.
+     */
+    public static volatile int[] eliteAgentIndicesByRank = new int[0];
+
+    public static void setEliteAgentIndicesFromPython(int[] indices) {
+        eliteAgentIndicesByRank = indices != null ? indices.clone() : new int[0];
+    }
+
+    public static void clearEliteAgentIndices() {
+        eliteAgentIndicesByRank = new int[0];
+    }
+
+    /**
+     * Show hearts (HP / 2) and optional 👑rank for top-k elites above each RL operator.
+     */
+    public static void updateRLOperatorNametags(TrainingState state) {
+        if (state == null) {
+            return;
+        }
+        int[] elite = eliteAgentIndicesByRank;
+        for (RLOperator op : state.getRLOperators()) {
+            int idx;
+            try {
+                idx = state.getIndexForRLOperator(op);
+            } catch (IllegalStateException ignored) {
+                continue;
+            }
+            float hearts = op.getHealth() / 2.0F;
+            String heartStr = String.format(Locale.US, "%.1f", hearts);
+            int rank = 0;
+            for (int i = 0; i < elite.length; i++) {
+                if (elite[i] == idx) {
+                    rank = i + 1;
+                    break;
+                }
+            }
+            Component name;
+            if (rank > 0) {
+                name = Component.literal("\uD83D\uDC51" + rank + " " + heartStr + "\u2665");
+            } else {
+                name = Component.literal(heartStr + "\u2665");
+            }
+            op.setCustomName(name);
+            op.setCustomNameVisible(true);
+        }
+    }
 
     private static PythonRLController pythonController;
     private static int tickCounter = 0;
@@ -310,6 +360,7 @@ public class Minekov {
 
             // clear instance if we're done
             if (trainingState.isComplete()) {
+                clearEliteAgentIndices();
                 trainingState = null;
             }
         }

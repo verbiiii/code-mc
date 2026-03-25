@@ -96,7 +96,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     update_model = payload.get("update_model_parameters", True)  # Default to True for backwards compatibility
                     if update_model:
                         logger.info("🔴 Round ended - applying learning updates")
-                        TRAINER.on_round_end()
+                        if TRAINER is not None:
+                            TRAINER.on_round_end()
+                            try:
+                                indices = getattr(TRAINER, "last_elite_indices", None) or []
+                                await websocket.send_text(
+                                    json.dumps({"type": "elite_board", "indices": indices})
+                                )
+                            except Exception as e:
+                                logger.warning(f"Could not send elite_board to client: {e}")
                     else:
                         logger.info("🔄 Round ended - skipping learning updates (play mode)")
                     continue

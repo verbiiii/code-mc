@@ -87,6 +87,8 @@ public class TrainingState {
         }
 
         givePythonOurObservations();
+
+        Minekov.updateRLOperatorNametags(this);
     }
 
     public void performOperatorActions() {
@@ -382,6 +384,7 @@ public class TrainingState {
 
     public void stop() {
         this.stopped = true;
+        Minekov.clearEliteAgentIndices();
         if (roundActive) {
             cleanupRound();
             roundActive = false;
