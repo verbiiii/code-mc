@@ -110,7 +110,6 @@ class LiveStatusDisplay:
         self._last_snapshot = snapshot
 
         lines = [
-            "=== Minekov RL Status ===",
             f"Ticks: {snapshot['tick_count']:,} | FMC updates: {snapshot['fmc_updates']:,} | Rounds: {snapshot['rounds']:,}",
             f"Agents: active {snapshot['active_agents']}/{self.total_agents} | cloned(last) {snapshot['last_cloned']}/{self.total_agents}",
             (
