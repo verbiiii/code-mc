@@ -14,16 +14,17 @@ MUTATION_AMPLITUDE = 0.1
 
 
 # Prefer GPU when available for operator forward passes.
-def _detect_device():
-    if torch.cuda.is_available():
-        try:
-            torch.zeros(1, device="cuda")
-            return torch.device("cuda")
-        except RuntimeError as e:
-            print(f"WARNING: CUDA unavailable ({e}), falling back to CPU")
-    return torch.device("cpu")
+# def _detect_device():
+#     if torch.cuda.is_available():
+#         try:
+#             torch.zeros(1, device="cuda")
+#             return torch.device("cuda")
+#         except RuntimeError as e:
+#             print(f"WARNING: CUDA unavailable ({e}), falling back to CPU")
+#     return torch.device("cpu")
 
-DEFAULT_DEVICE = _detect_device()
+# DEFAULT_DEVICE = _detect_device()
+DEFAULT_DEVICE = torch.device("cpu")
 
 
 def _split_policy_means_stds(y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

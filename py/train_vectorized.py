@@ -11,6 +11,7 @@ from rl_operator import RLOperators
 USE_WANDB = True
 
 # FMC Constants
+USE_LIFETIME_REWARDS_FOR_TOPK = True
 KEEP_TOP_PERCENT = 0.2
 FMC_BALANCE = 3.0
 SLOW_PROCESSING_THRESHOLD_MS = 5.0
@@ -156,7 +157,8 @@ class VectorizedTrainer:
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
-        self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
+        # Per-slot scalars: accumulate across rounds; zero when this slot is cloned (new policy).
+        self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)
         self.processing_times_ms = []
         self.slow_tick_count = 0
         self.latest_obs_active_agents = 0
@@ -286,9 +288,11 @@ class VectorizedTrainer:
         # print(self.round_cumulative_rewards)
 
         # scores = self.current_rewards.clone()
-        metric_for_top_k = self.round_cumulative_rewards.clone().to(ops_device)
         scores = self.round_cumulative_rewards.clone().to(ops_device)
-        # scores = self.lifetime_cumulative_rewards.clone()
+        if USE_LIFETIME_REWARDS_FOR_TOPK:
+            metric_for_top_k = self.lifetime_cumulative_rewards.clone().to(ops_device)
+        else:
+            metric_for_top_k = scores.clone()
 
         # # Select partners with fitness bias so strong policies actually propagate.
         # # (Uniform random partners tends to stall: only protected elites stay good.)
@@ -335,7 +339,6 @@ class VectorizedTrainer:
 
         self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
 
-        # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
         will_clone_cpu = will_clone.cpu()
         self.round_cumulative_rewards[will_clone_cpu] = 0.0
         self.lifetime_cumulative_rewards[will_clone_cpu] = 0.0
@@ -469,11 +472,16 @@ class VectorizedTrainer:
         self.round_cumulative_rewards.zero_()
 
     def top_k_agent_indices(self, k: int = 5) -> torch.Tensor:
-        """Get indices of top-k agents based on cumulative rewards."""
-        if self.round_cumulative_rewards.numel() == 0:
+        """Get indices of top-k agents by round or lifetime cumulative rewards (see USE_LIFETIME_REWARDS_FOR_TOPK)."""
+        metric = (
+            self.lifetime_cumulative_rewards
+            if USE_LIFETIME_REWARDS_FOR_TOPK
+            else self.round_cumulative_rewards
+        )
+        if metric.numel() == 0:
             return torch.tensor([], device=self.device, dtype=torch.long)
-        
-        top_k_values, top_k_indices = torch.topk(self.round_cumulative_rewards, k, sorted=True)
+
+        top_k_values, top_k_indices = torch.topk(metric, k, sorted=True)
         return top_k_indices
 
     def get_stats(self):
