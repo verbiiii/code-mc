@@ -1,12 +1,143 @@
 
 import torch
 import numpy as np
+import time
+import sys
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
 # FMC Constants
 KEEP_TOP_PERCENT = 0.2
-FMC_BALANCE = 2.0
+FMC_BALANCE = 3.0
+SLOW_PROCESSING_THRESHOLD_MS = 5.0
+FORCE_CLONE_UPON_DEATH = False  # Not recommended: death is already penalized in the reward signal; let FMC decide fitness naturally
+BULLET_COST = 0.0  # Per-bullet penalty (only charged on ticks where damage was dealt)
+
+
+class LiveStatusDisplay:
+    """In-place terminal dashboard for training status."""
+
+    def __init__(self, total_agents: int, min_refresh_seconds: float = 0.25):
+        self.total_agents = total_agents
+        self.min_refresh_seconds = min_refresh_seconds
+        self.last_render_time = 0.0
+        self.enabled = sys.stdout.isatty()
+        # Track how many lines we printed last render so we can overwrite
+        # only the dashboard block (without clearing the whole terminal).
+        self._last_line_count = 0
+        self._last_snapshot = None
+
+        # Keep references to the original streams so we can draw the panel
+        # without going through any wrappers (prevents recursion).
+        self._raw_stdout = sys.stdout
+        self._raw_stderr = sys.stderr
+        self._installed = False
+        self._prev_stdout = None
+        self._prev_stderr = None
+
+    def install_stream_interceptor(self):
+        """Wrap stdout/stderr so other output doesn't corrupt the panel."""
+        if not self.enabled or self._installed:
+            return
+
+        display = self
+
+        class _StatusAwareStream:
+            def __init__(self, raw_stream):
+                self._raw = raw_stream
+
+            def write(self, s):
+                if not s:
+                    return 0
+                # If no panel has ever rendered, just pass through.
+                if display._last_line_count <= 0:
+                    return self._raw.write(s)
+
+                # Clear current panel, print message, then redraw panel.
+                display._clear_panel()
+                n = self._raw.write(s)
+                self._raw.flush()
+                display._redraw_last_snapshot()
+                return n
+
+            def flush(self):
+                return self._raw.flush()
+
+            def isatty(self):
+                return self._raw.isatty()
+
+            @property
+            def encoding(self):
+                return getattr(self._raw, "encoding", None)
+
+        self._prev_stdout = sys.stdout
+        self._prev_stderr = sys.stderr
+        sys.stdout = _StatusAwareStream(self._raw_stdout)
+        sys.stderr = _StatusAwareStream(self._raw_stderr)
+        self._installed = True
+
+    def uninstall_stream_interceptor(self):
+        if not self._installed:
+            return
+        if self._prev_stdout is not None:
+            sys.stdout = self._prev_stdout
+        if self._prev_stderr is not None:
+            sys.stderr = self._prev_stderr
+        self._installed = False
+
+    def _clear_panel(self):
+        if self._last_line_count <= 0:
+            return
+        # Move to top of panel, then clear from cursor to end of screen.
+        self._raw_stdout.write(f"\x1b[{self._last_line_count}A")
+        self._raw_stdout.write("\x1b[0J")
+        self._raw_stdout.flush()
+
+    def _redraw_last_snapshot(self):
+        if self._last_snapshot is None:
+            return
+        # Force render regardless of throttling so logs don't leave the panel erased.
+        self._render_snapshot(self._last_snapshot, force=True)
+
+    def _render_snapshot(self, snapshot: dict, force: bool = False):
+        now = time.perf_counter()
+        if not force and now - self.last_render_time < self.min_refresh_seconds:
+            return
+        self.last_render_time = now
+        self._last_snapshot = snapshot
+
+        lines = [
+            "=== Minekov RL Status ===",
+            f"Ticks: {snapshot['tick_count']:,} | FMC updates: {snapshot['fmc_updates']:,} | Rounds: {snapshot['rounds']:,}",
+            f"Agents: active {snapshot['active_agents']}/{self.total_agents} | cloned(last) {snapshot['last_cloned']}/{self.total_agents}",
+            (
+                f"Processing ms: now {snapshot['processing_now_ms']:.2f} | avg100 {snapshot['processing_avg_ms']:.2f} "
+                f"| p95 {snapshot['processing_p95_ms']:.2f} | slow>{SLOW_PROCESSING_THRESHOLD_MS:.1f}ms "
+                f"{snapshot['slow_tick_count']}/{snapshot['tick_count']:,}"
+            ),
+            f"Steps behind: {snapshot['steps_behind']} | total skipped steps: {snapshot['total_skipped_steps']}",
+            (
+                f"Scores: mean {snapshot['score_mean']:.2f} | std {snapshot['score_std']:.2f} | "
+                f"max {snapshot['score_max']:.2f} | best agent #{snapshot['best_agent_index']}"
+            ),
+            f"Top rewards: {snapshot['top_rewards']}",
+            f"Top lifetimes: {snapshot['top_lifetimes']}",
+        ]
+
+        if self.enabled:
+            # Always erase the entire previous panel block before drawing.
+            if self._last_line_count > 0:
+                self._raw_stdout.write(f"\x1b[{self._last_line_count}A")
+            self._raw_stdout.write("\x1b[0J")
+            for line in lines:
+                self._raw_stdout.write("\x1b[2K\r" + line + "\n")
+            self._raw_stdout.flush()
+            self._last_line_count = len(lines)
+        else:
+            print(" | ".join(lines))
+
+    def render(self, snapshot: dict):
+        self._render_snapshot(snapshot, force=False)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
@@ -15,12 +146,38 @@ class VectorizedTrainer:
         self.operators = RLOperators(device=self.device, num_agents=self.num_agents).to(self.device)
         self.reward_history = []
         self.num_updates = 0
+        self.fmc_update_count = 0
+        self.tick_count = 0
+        self.round_count = 0
 
         # Fitness tracking
         self.round_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Current round rewards
         self.lifetime_cumulative_rewards = torch.zeros(num_agents, device=self.device)  # Never reset unless cloned
+        self.processing_times_ms = []
+        self.slow_tick_count = 0
+        self.latest_obs_active_agents = 0
+        self.latest_steps_behind = 0
+        self.total_skipped_steps = 0
+        self.latest_fmc = {
+            "num_cloned": 0,
+            "mean_score": 0.0,
+            "std_score": 0.0,
+            "max_score": 0.0,
+            "best_agent_index": 0,
+            "top_rewards": [],
+            "top_lifetimes": [],
+        }
+        self.status_display = LiveStatusDisplay(total_agents=num_agents)
+        self.status_display.install_stream_interceptor()
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
+
+    def tick(self, observations: VectorizedObservations):
+        self.tick_count += 1
+        self.calculate_rewards(observations)
+        if self.tick_count % 10 == 0:
+            self.apply_fmc_update(observations)
+        return self.forward(observations)
 
     def forward(self, observations: VectorizedObservations):
         """
@@ -28,7 +185,7 @@ class VectorizedTrainer:
         agent_indices: [N] – indices of those agents (0 <= index < MAX_AGENTS)
         group_indices: [N] – group id per agent (used to match group-mates)
         """
-
+        
         y = self.operators.forward(observations)
 
         # Split output logits
@@ -51,82 +208,63 @@ class VectorizedTrainer:
 
         return movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions
 
-    def update_episode_data(self, obs: VectorizedObservations):
+    def calculate_rewards(self, obs: VectorizedObservations):
         """Update episode data using actual agent indices."""
         # Filter out inactive agents (agent_indices == -1)
         active_mask = obs.agent_indices != -1
         if not active_mask.any():
             return  # No active agents
-        
-        # set our random seed to be `self.num_updates` (TODO expand on this)
-        # torch.manual_seed(self.num_updates)
             
         active_indices = obs.agent_indices[active_mask]
-        # active_reward_data = reward_data[active_mask]
-        
-        # dmg_dealt = active_reward_data[:, 0]
-        # dmg_taken = active_reward_data[:, 1]
-        # kills = active_reward_data[:, 2]
-        # deaths = active_reward_data[:, 3]
-        # num_bullets = active_reward_data[:, 4]
 
-        # let's use these variables instead
-        # obs.damage_dealt, obs.damage_taken, obs.kills, obs.deaths, obs.num_bullets
         dmg_dealt = obs.damage_dealt[active_mask]
         dmg_taken = obs.damage_taken[active_mask]
         kills = obs.kills[active_mask]
         deaths = obs.deaths[active_mask]
         num_bullets = obs.num_bullets[active_mask]
-        positions = obs.positions[active_mask]  # [N, 3] positions of active agents
 
-        # rewards = dmg_dealt - (dmg_taken * 0.1) + (100 * kills) - (10 * deaths)  # asymmetrical reward (cheap pain)
-        # rewards = dmg_dealt - dmg_taken + (100 * kills) - (100 * deaths)  # symmetrical reward
-        # self.current_rewards = dmg_dealt - (dmg_taken * 2) + (100 * kills) - (200 * deaths)  # asymmetrical reward (expensive pain)
+        self.current_rewards = torch.zeros(active_mask.sum(), device=self.device, dtype=torch.float32)
+        self.current_rewards += (dmg_dealt * 1.0) + (kills * 10)
+        self.current_rewards -= (dmg_taken * 0.5) + (deaths * 1.0)
+        self.current_rewards -= (num_bullets * BULLET_COST) * (dmg_dealt > 0).float()
 
-        # dampened rewards
-        # self.current_rewards = (dmg_dealt * 0.01) - (dmg_taken * 0.01) + kills - deaths
-        self.current_rewards = (dmg_dealt * 0.01) + kills
-        self.current_rewards -= num_bullets  # penalize for using too many bullets
-
-        # calculate each agent's distance to `x=-38, y=0, z=2`
-        target_position = torch.tensor([-38.0, 0.0, 2.0], device=self.device)  # NOTE: keep this in mind
-        distances = torch.norm(positions[active_mask] - target_position, dim=1)
-        # give a +5 reward for being within 5 blocks of the target position
-        self.current_rewards += torch.where(distances < 5.0, 0.1, 0.0)
-
-        # give a small reward for being close to the enemy (baseline 100 blocks)
-        # rewards += (1 / (distance_to_enemy[active_mask] + 1))
+        # print(self.current_rewards.mean().item(), "current rewards avg")
+        # print(self.current_rewards.max().item(), "current rewards max")
         
         # Use the actual agent indices from the data
         self.round_cumulative_rewards[active_indices] += self.current_rewards
         self.lifetime_cumulative_rewards[active_indices] += self.current_rewards  # Also update lifetime rewards
-        
-        # Debug: Only print non-zero rewards
-        non_zero_mask = self.current_rewards != 0
-        if non_zero_mask.any():
-            pass  # Removed individual agent reward prints for cleaner output
-        
-        # Note: log_probs is None for deterministic policies, so we don't store them
-
         self.num_updates += 1
+
+        # update rewards
+        obs.rewards[active_mask] = self.current_rewards
 
     def on_round_end(self):
         """Called at the end of each round."""
-
-        self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
+        self.round_count += 1
+        # self.apply_fmc_update()  # Apply FMC first while we still have cumulative rewards
         self.reset_cumulative_rewards()  # Then reset ONLY current round rewards
 
-    def apply_fmc_update(self):
+    def apply_fmc_update(self, obs: VectorizedObservations):
         """Apply FMC (Functional Mutation and Crossover) updates to the model parameters."""
+        self.fmc_update_count += 1
 
-        print("This Round's Cumulative Rewards:")
-        print(self.round_cumulative_rewards)
+        # print("This Round's Cumulative Rewards:")
+        # print(self.round_cumulative_rewards)
             
+        # scores = self.current_rewards.clone()
+        metric_for_top_k = self.round_cumulative_rewards.clone()
         scores = self.round_cumulative_rewards.clone()
         # scores = self.lifetime_cumulative_rewards.clone()
         
-        # Select partners uniformly at random
-        partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
+        # Select partners with fitness bias so strong policies actually propagate.
+        # (Uniform random partners tends to stall: only protected elites stay good.)
+        fitness = scores - scores.min()
+        if float(fitness.sum().item()) <= 0.0:
+            partner_indices = torch.randint(0, self.num_agents, (self.num_agents,), device=self.device)
+        else:
+            probs = (fitness + 1e-6) / (fitness.sum() + 1e-6 * self.num_agents)
+            partner_indices = torch.multinomial(probs, self.num_agents, replacement=True)
         
         # distance_partner_is = torch.multinomial(normalized_scores, MAX_AGENTS, replacement=True)
         
@@ -140,13 +278,17 @@ class VectorizedTrainer:
         # Random threshold for cloning decision
         r = torch.rand(self.num_agents, device=self.device)
         will_clone = value >= r
-        
+
+        # force clone if dead
+        if FORCE_CLONE_UPON_DEATH:
+            will_clone[obs.deaths > 0] = True
+
         # Protect top agents from being cloned (they keep their parameters)
         top_k = max(int(self.num_agents * KEEP_TOP_PERCENT), 1)
         if top_k <= 0:
             raise ValueError("KEEP_TOP_PERCENT must be greater than 0 to protect at least one agent.")
 
-        top_agent_indices = torch.topk(scores, top_k).indices
+        top_agent_indices = torch.topk(metric_for_top_k, top_k).indices
         will_clone[top_agent_indices] = False
 
         # will_perturbate = torch.ones(self.num_agents, device=self.device, dtype=torch.bool)
@@ -161,23 +303,68 @@ class VectorizedTrainer:
         self.operators.blend_parameters(partner_indices, will_clone, will_perturbate)
             
         # CRITICAL: Reset lifetime rewards for cloned agents (they have new brains now)
+        self.round_cumulative_rewards[will_clone] = 0.0
         self.lifetime_cumulative_rewards[will_clone] = 0.0
-        cloned_count = will_clone.sum().item()
-        print(f"🧠 Reset lifetime rewards for {cloned_count} cloned agents (new brains)")
         
         # Enhanced FMC metrics
         num_cloned = will_clone.sum().item()
         mean_score = scores.mean().item()
         std_score = scores.std().item()
         max_score = scores.max().item()
-        
-        print(f"🧬 FMC Evolution:")
-        print(f"   📊 Scores: μ={mean_score:.2f}, σ={std_score:.2f}, max={max_score:.2f}")
-        print(f"   🔄 Cloned: {num_cloned}/{self.num_agents} agents (protected top {top_k})")
-        if len(top_k_rewards) > 0:
-            print(f"   🏆 Top {top_k} rewards: {top_k_rewards.tolist()}")
-            print(f"   🏅 Top {top_k} lifetimes (alive): {top_k_lifetime_rewards.tolist()}")
-            print(f"       🏆 Best Agent Index: {top_agent_indices[0].item()}")
+        best_agent_index = top_agent_indices[0].item() if len(top_agent_indices) > 0 else 0
+
+        self.latest_fmc = {
+            "num_cloned": num_cloned,
+            "mean_score": mean_score,
+            "std_score": std_score,
+            "max_score": max_score,
+            "best_agent_index": best_agent_index,
+            "top_rewards": [round(float(x), 2) for x in top_k_rewards.tolist()],
+            "top_lifetimes": [round(float(x), 2) for x in top_k_lifetime_rewards.tolist()],
+        }
+
+    def update_runtime_status(self, processing_time_ms: float, active_agents: int, steps_behind: int = 0, total_skipped_steps: int = 0):
+        self.processing_times_ms.append(float(processing_time_ms))
+        if len(self.processing_times_ms) > 100:
+            self.processing_times_ms.pop(0)
+        if processing_time_ms > SLOW_PROCESSING_THRESHOLD_MS:
+            self.slow_tick_count += 1
+
+        self.latest_obs_active_agents = int(active_agents)
+        self.latest_steps_behind = int(steps_behind)
+        self.total_skipped_steps = int(total_skipped_steps)
+        self._render_status()
+
+    def _render_status(self):
+        if self.processing_times_ms:
+            processing_avg_ms = float(np.mean(self.processing_times_ms))
+            processing_p95_ms = float(np.percentile(self.processing_times_ms, 95))
+            processing_now_ms = float(self.processing_times_ms[-1])
+        else:
+            processing_avg_ms = 0.0
+            processing_p95_ms = 0.0
+            processing_now_ms = 0.0
+
+        snapshot = {
+            "tick_count": self.tick_count,
+            "fmc_updates": self.fmc_update_count,
+            "rounds": self.round_count,
+            "active_agents": self.latest_obs_active_agents,
+            "last_cloned": self.latest_fmc["num_cloned"],
+            "processing_now_ms": processing_now_ms,
+            "processing_avg_ms": processing_avg_ms,
+            "processing_p95_ms": processing_p95_ms,
+            "slow_tick_count": self.slow_tick_count,
+            "steps_behind": self.latest_steps_behind,
+            "total_skipped_steps": self.total_skipped_steps,
+            "score_mean": self.latest_fmc["mean_score"],
+            "score_std": self.latest_fmc["std_score"],
+            "score_max": self.latest_fmc["max_score"],
+            "best_agent_index": self.latest_fmc["best_agent_index"],
+            "top_rewards": self.latest_fmc["top_rewards"],
+            "top_lifetimes": self.latest_fmc["top_lifetimes"],
+        }
+        self.status_display.render(snapshot)
 
     def _calculate_virtual_rewards(self, scores: torch.Tensor, partner_indices: torch.Tensor) -> torch.Tensor:
         """Calculate virtual rewards based on scores and parameter distances."""
