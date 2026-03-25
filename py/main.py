@@ -8,6 +8,7 @@ import asyncio
 import logging
 import json
 from fastapi import FastAPI, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from train_vectorized import VectorizedTrainer
 from binary_transport import BinaryTransport
@@ -49,17 +50,20 @@ async def websocket_endpoint(websocket: WebSocket):
     TRANSPORT = None
 
     try:
-      while True:
-        # Receive any message and check its type
-        message = await websocket.receive()
-        
-        if "text" in message:
-            # Handle JSON messages
-            data = message["text"]
-            try:
-                payload = json.loads(data)
+        while True:
+            # Receive any message and check its type
+            message = await websocket.receive()
+            if "text" in message:
+                # Handle JSON messages
+                data = message["text"]
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    logger.warning(f"⚠️ Invalid JSON: {data}")
+                    continue
+
                 message_type = payload.get("type")
-                
+
                 if message_type == "sync_operators":
                     continue
                 elif message_type == "session_start":
@@ -77,8 +81,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         num_agents=num_agents,
                     )
                     TRANSPORT = BinaryTransport(trainer=TRAINER)
-
-                    # trainer.on_session_start(payload)
                     continue
                 elif message_type == "round_start":
                     # Reduced logging noise
@@ -97,27 +99,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 else:
                     logger.info(f"📝 Unknown message: {message_type}")
                     continue
-                    
-            except json.JSONDecodeError:
-                logger.warning(f"⚠️ Invalid JSON: {data}")
-                continue
-                
-        elif "bytes" in message:
-            if TRANSPORT is None or TRAINER is None:
-                logger.warning("⚠️ Binary data received before session_start — dropping until initialized.")
-                continue
 
-            # Handle binary messages
-            binary_data = message["bytes"]
-            
-            # Process through vectorized pipeline and get actions
-            response_data = TRANSPORT.process_observations(binary_data)
-            
-            # Send binary action response
-            await websocket.send_bytes(response_data)
-            
-        else:
-            logger.warning(f"⚠️ Unknown message type: {message}")
+            elif "bytes" in message:
+                if TRANSPORT is None or TRAINER is None:
+                    logger.warning("⚠️ Binary data received before session_start — dropping until initialized.")
+                    continue
+
+                # Handle binary messages
+                binary_data = message["bytes"]
+
+                # Process through vectorized pipeline and get actions
+                response_data = TRANSPORT.process_observations(binary_data)
+
+                # Send binary action response (client may disconnect during shutdown)
+                try:
+                    await websocket.send_bytes(response_data)
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    break
+            else:
+                logger.warning(f"⚠️ Unknown message type: {message}")
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        pass
     finally:
         connected_clients.discard(websocket)
         logger.info(f"🔌 Client {client_id} disconnected. Total clients: {len(connected_clients)}")
@@ -133,7 +135,7 @@ async def main():
         app, 
         host="0.0.0.0", 
         port=8050,
-        log_level="info",
+        log_level="warning",
         access_log=False,  # Disable access logs for performance
         loop="asyncio"
     )
@@ -147,6 +149,6 @@ if __name__ == "__main__":
         asyncio.set_event_loop(event_loop)
         event_loop.run_until_complete(main())
     except KeyboardInterrupt:
-        logger.info("🛑 Server stopped by user")
+        print("User stopping training session")
     except Exception as e:
         logger.error(f"💥 Server error: {e}")

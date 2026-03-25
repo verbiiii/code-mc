@@ -3,8 +3,6 @@ import torch
 import numpy as np
 import time
 import sys
-import shutil
-import atexit
 from observations import VectorizedObservations
 from rl_operator import RLOperators
 
@@ -24,34 +22,89 @@ class LiveStatusDisplay:
         self.min_refresh_seconds = min_refresh_seconds
         self.last_render_time = 0.0
         self.enabled = sys.stdout.isatty()
-        self._using_alt_buffer = False
+        # Track how many lines we printed last render so we can overwrite
+        # only the dashboard block (without clearing the whole terminal).
+        self._last_line_count = 0
+        self._last_snapshot = None
 
-        if self.enabled:
-            # Use alternate screen buffer so repeated dashboard redraws
-            # do not flood normal terminal scrollback history.
-            self._enter_alt_buffer()
-            atexit.register(self.close)
+        # Keep references to the original streams so we can draw the panel
+        # without going through any wrappers (prevents recursion).
+        self._raw_stdout = sys.stdout
+        self._raw_stderr = sys.stderr
+        self._installed = False
+        self._prev_stdout = None
+        self._prev_stderr = None
 
-    def _enter_alt_buffer(self):
-        if self._using_alt_buffer:
+    def install_stream_interceptor(self):
+        """Wrap stdout/stderr so other output doesn't corrupt the panel."""
+        if not self.enabled or self._installed:
             return
-        sys.stdout.write("\x1b[?1049h\x1b[?25l")
-        sys.stdout.flush()
-        self._using_alt_buffer = True
 
-    def close(self):
-        if not self._using_alt_buffer:
+        display = self
+
+        class _StatusAwareStream:
+            def __init__(self, raw_stream):
+                self._raw = raw_stream
+
+            def write(self, s):
+                if not s:
+                    return 0
+                # If no panel has ever rendered, just pass through.
+                if display._last_line_count <= 0:
+                    return self._raw.write(s)
+
+                # Clear current panel, print message, then redraw panel.
+                display._clear_panel()
+                n = self._raw.write(s)
+                self._raw.flush()
+                display._redraw_last_snapshot()
+                return n
+
+            def flush(self):
+                return self._raw.flush()
+
+            def isatty(self):
+                return self._raw.isatty()
+
+            @property
+            def encoding(self):
+                return getattr(self._raw, "encoding", None)
+
+        self._prev_stdout = sys.stdout
+        self._prev_stderr = sys.stderr
+        sys.stdout = _StatusAwareStream(self._raw_stdout)
+        sys.stderr = _StatusAwareStream(self._raw_stderr)
+        self._installed = True
+
+    def uninstall_stream_interceptor(self):
+        if not self._installed:
             return
-        # Restore cursor + return to primary screen buffer.
-        sys.stdout.write("\x1b[?25h\x1b[?1049l")
-        sys.stdout.flush()
-        self._using_alt_buffer = False
+        if self._prev_stdout is not None:
+            sys.stdout = self._prev_stdout
+        if self._prev_stderr is not None:
+            sys.stderr = self._prev_stderr
+        self._installed = False
 
-    def render(self, snapshot: dict):
+    def _clear_panel(self):
+        if self._last_line_count <= 0:
+            return
+        # Move to top of panel, then clear from cursor to end of screen.
+        self._raw_stdout.write(f"\x1b[{self._last_line_count}A")
+        self._raw_stdout.write("\x1b[0J")
+        self._raw_stdout.flush()
+
+    def _redraw_last_snapshot(self):
+        if self._last_snapshot is None:
+            return
+        # Force render regardless of throttling so logs don't leave the panel erased.
+        self._render_snapshot(self._last_snapshot, force=True)
+
+    def _render_snapshot(self, snapshot: dict, force: bool = False):
         now = time.perf_counter()
-        if now - self.last_render_time < self.min_refresh_seconds:
+        if not force and now - self.last_render_time < self.min_refresh_seconds:
             return
         self.last_render_time = now
+        self._last_snapshot = snapshot
 
         lines = [
             "=== Minekov RL Status ===",
@@ -72,16 +125,19 @@ class LiveStatusDisplay:
         ]
 
         if self.enabled:
-            # Full redraw avoids duplicated headers on wrapped lines in some terminals.
-            cols = shutil.get_terminal_size(fallback=(120, 30)).columns
-            trimmed = [line if len(line) <= cols else f"{line[:max(cols - 3, 0)]}..." for line in lines]
-            sys.stdout.write("\x1b[2J\x1b[H")
-            for line in trimmed:
-                sys.stdout.write("\x1b[2K" + line + "\n")
-            sys.stdout.flush()
+            # Always erase the entire previous panel block before drawing.
+            if self._last_line_count > 0:
+                self._raw_stdout.write(f"\x1b[{self._last_line_count}A")
+            self._raw_stdout.write("\x1b[0J")
+            for line in lines:
+                self._raw_stdout.write("\x1b[2K\r" + line + "\n")
+            self._raw_stdout.flush()
+            self._last_line_count = len(lines)
         else:
-            # Fallback when terminal does not support in-place updates
             print(" | ".join(lines))
+
+    def render(self, snapshot: dict):
+        self._render_snapshot(snapshot, force=False)
 
 class VectorizedTrainer:
     def __init__(self, device='cpu', num_agents: int = 32):
@@ -112,6 +168,7 @@ class VectorizedTrainer:
             "top_lifetimes": [],
         }
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
+        self.status_display.install_stream_interceptor()
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {device}")
 
