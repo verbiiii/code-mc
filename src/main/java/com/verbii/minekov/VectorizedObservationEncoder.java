@@ -2,6 +2,9 @@ package com.verbii.minekov;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,11 +41,16 @@ public class VectorizedObservationEncoder {
         buffer.putInt(agentCount);
         buffer.putInt(OBSERVATION_SIZE);
         
-        // Write observation data - including agent indices
-        for (Map.Entry<Integer, AgentObservation> entry : observations.entrySet()) {
-            int agentIndex = entry.getKey();
-            AgentObservation obs = entry.getValue();
-            
+        // Write observation data - including agent indices.
+        //
+        // IMPORTANT: Do NOT rely on Map iteration order (e.g., HashMap is not deterministic).
+        // The Python side uses agent_index to scatter each row into a stable [agent_id] slot,
+        // but keeping wire-order deterministic makes debugging and auditing much easier.
+        List<Integer> sortedAgentIndices = new ArrayList<>(observations.keySet());
+        Collections.sort(sortedAgentIndices);
+
+        for (int agentIndex : sortedAgentIndices) {
+            AgentObservation obs = observations.get(agentIndex);
             if (obs == null) {
                 System.err.println("ERROR: Missing observation for agent index " + agentIndex);
                 continue;
