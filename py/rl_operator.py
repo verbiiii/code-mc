@@ -16,16 +16,18 @@ class RLOperators(torch.nn.Module):
         self.device = torch.device(device)
 
         self.input_features = 13
-        self.hidden_dim = 32
+        self.hidden_dim = 64
 
         # Model with BatchedLinear layers - updated for pitch/yaw aiming + jump/sneak
         self.model = torch.nn.Sequential(
             # BatchedLinear(num_agents, self.input_features, 32),
-            BatchedCrossAttention(num_agents, self.input_features, 32, hidden_dim=self.hidden_dim),
+            BatchedCrossAttention(num_agents, self.input_features, self.hidden_dim, hidden_dim=self.hidden_dim),
             torch.nn.Sigmoid(),
-            BatchedLinear(num_agents, 32, 32),
+            BatchedLinear(num_agents, self.hidden_dim, self.hidden_dim),
             torch.nn.Sigmoid(),
-            BatchedLinear(num_agents, 32, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
+            BatchedLinear(num_agents, self.hidden_dim, self.hidden_dim),
+            torch.nn.Sigmoid(),
+            BatchedLinear(num_agents, self.hidden_dim, 28),  # [theta(8) + walk(1) + shoot(1) + jump(1) + sneak(1) + pitch(8) + yaw(8)]
         ).to(self.device)
 
     def forward(self, observations: VectorizedObservations):
