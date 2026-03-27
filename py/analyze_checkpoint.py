@@ -1,21 +1,10 @@
 import argparse
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 
 from rl_operator import RLOperators
-
-
-def _iter_checkpoint_files(path: Path) -> List[Path]:
-    if path.is_file():
-        return [path]
-    if not path.exists():
-        raise FileNotFoundError(f"Path does not exist: {path}")
-    files = sorted(path.glob("*.pth"))
-    if not files:
-        raise FileNotFoundError(f"No .pth files found under: {path}")
-    return files
 
 
 def _infer_num_models(state_dict: Dict[str, torch.Tensor]) -> int:
@@ -83,6 +72,13 @@ def _per_model_stats(state_dict: Dict[str, torch.Tensor], num_models: int) -> Li
 
 
 def analyze_checkpoint(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint path does not exist: {path}")
+    if not path.is_file():
+        raise ValueError(f"Expected a checkpoint file path, got directory: {path}")
+    if path.suffix.lower() != ".pth":
+        raise ValueError(f"Expected a .pth checkpoint file, got: {path}")
+
     state_dict = torch.load(path, map_location="cpu")
     if not isinstance(state_dict, dict):
         raise ValueError(f"Checkpoint is not a state_dict dict: {path}")
@@ -96,7 +92,7 @@ def analyze_checkpoint(path: Path) -> None:
     counts = _per_model_param_counts(operators.state_dict(), num_models)
     stats = _per_model_stats(operators.state_dict(), num_models)
 
-    print(f"\n=== {path} ===")
+    print(f"checkpoint: {path}")
     print(f"models: {num_models}")
     print("per-model summary:")
     for i in range(num_models):
@@ -109,23 +105,15 @@ def analyze_checkpoint(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyze RLOperators checkpoints (.pth state_dict files)."
+        description="Analyze one RLOperators checkpoint (.pth state_dict file)."
     )
     parser.add_argument(
         "path",
         type=str,
-        nargs="?",
-        default="./checkpoints",
-        help="Checkpoint file or directory (default: ./checkpoints).",
+        help="Path to exactly one .pth checkpoint file.",
     )
     args = parser.parse_args()
-
-    target = Path(args.path)
-    files = _iter_checkpoint_files(target)
-    print(f"Found {len(files)} checkpoint file(s).")
-
-    for ckpt in files:
-        analyze_checkpoint(ckpt)
+    analyze_checkpoint(Path(args.path))
 
 
 if __name__ == "__main__":
