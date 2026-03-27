@@ -133,7 +133,9 @@ def analyze_checkpoint(path: Path) -> None:
 
     counts = _per_model_param_counts(operators.state_dict(), num_models)
     stats = _per_model_stats(operators.state_dict(), num_models)
+    experiment_name = path.parent.name
 
+    print(f"experiment: {experiment_name}")
     print(f"checkpoint: {path}")
     print(f"models: {num_models}")
     print("per-model summary:")

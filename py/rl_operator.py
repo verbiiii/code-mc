@@ -169,7 +169,7 @@ class RLOperators(torch.nn.Module):
         self._device = DEFAULT_DEVICE if device is None else torch.device(device)
 
         self.input_features = 13
-        self.hidden_dim = 16
+        self.hidden_dim = 32
 
         self.model = torch.nn.Sequential(
             BatchedCrossAttention(num_agents, self.input_features, self.hidden_dim, hidden_dim=self.hidden_dim),
