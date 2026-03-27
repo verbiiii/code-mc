@@ -8,13 +8,15 @@ from rl_operator import RLOperators
 
 
 _DIST_COMPONENTS = [
-    ("movement", slice(0, 8)),
-    ("walk", slice(8, 9)),
-    ("shoot", slice(9, 10)),
-    ("jump", slice(10, 11)),
-    ("sneak", slice(11, 12)),
-    ("pitch", slice(12, 20)),
-    ("yaw", slice(20, 28)),
+    ("move_w", slice(0, 1)),
+    ("move_a", slice(1, 2)),
+    ("move_s", slice(2, 3)),
+    ("move_d", slice(3, 4)),
+    ("shoot", slice(4, 5)),
+    ("jump", slice(5, 6)),
+    ("sneak", slice(6, 7)),
+    ("pitch", slice(7, 15)),
+    ("yaw", slice(15, 23)),
 ]
 
 
@@ -83,22 +85,22 @@ def _per_model_stats(state_dict: Dict[str, torch.Tensor], num_models: int) -> Li
 
 
 def _print_policy_distribution_stats(state_dict: Dict[str, torch.Tensor], num_models: int) -> None:
-    # Final policy head BatchedLinear(num_agents, hidden_dim, 56)
+    # Final policy head BatchedLinear(num_agents, hidden_dim, 46)
     bias_key = "model.8.bias"
     if bias_key not in state_dict:
         print("policy distribution stats: unavailable (missing model.8.bias)")
         return
 
     bias = state_dict[bias_key].detach().float().cpu()
-    if bias.shape != (num_models, 56):
+    if bias.shape != (num_models, 46):
         print(f"policy distribution stats: unavailable (unexpected bias shape {tuple(bias.shape)})")
         return
 
     print("policy distribution stats (per agent, from policy-head bias):")
     for agent_idx in range(num_models):
         print(f"  agent {agent_idx:03d}:")
-        mu_bias = bias[agent_idx, :28]
-        log_std_bias = bias[agent_idx, 28:]
+        mu_bias = bias[agent_idx, :23]
+        log_std_bias = bias[agent_idx, 23:]
         std_bias = torch.exp(log_std_bias)
 
         for name, comp_slice in _DIST_COMPONENTS:

@@ -218,7 +218,7 @@ class VectorizedTrainer:
 
             if wandb.run is None:
                 return
-            # One value per agent: mean entropy across policy components (movement, walk, …).
+            # One value per agent: mean entropy across policy components.
             stacked = torch.stack([t.float() for t in entropy_by_component.values()], dim=0)
             per_agent = stacked.mean(dim=0)
             wandb.log(
@@ -242,8 +242,10 @@ class VectorizedTrainer:
         self._wandb_log_entropy(sample.entropy_by_component)
 
         return (
-            sample.movement_theta,
-            sample.walk_actions,
+            sample.move_w_actions,
+            sample.move_a_actions,
+            sample.move_s_actions,
+            sample.move_d_actions,
             sample.shoot_actions,
             sample.jump_actions,
             sample.sneak_actions,

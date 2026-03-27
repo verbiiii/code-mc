@@ -30,9 +30,9 @@ DEFAULT_DEVICE = torch.device("cpu")
 
 
 def _split_policy_means_stds(y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """y: [N, 56] → means [N, 28], log_std [N, 28]."""
-    mean = y[:, :28]
-    log_std = y[:, 28:]
+    """y: [N, 46] -> means [N, 23], log_std [N, 23]."""
+    mean = y[:, :23]
+    log_std = y[:, 23:]
     return mean, log_std
 
 
@@ -46,8 +46,10 @@ def _std_from_log(log_std: torch.Tensor, exploration_scale: float) -> torch.Tens
 class PolicyDistributions:
     """Separable Normal distributions; entropy sums independently per group."""
 
-    movement: Normal
-    walk: Normal
+    move_w: Normal
+    move_a: Normal
+    move_s: Normal
+    move_d: Normal
     shoot: Normal
     jump: Normal
     sneak: Normal
@@ -59,25 +61,31 @@ class PolicyDistributions:
         mean, log_std = _split_policy_means_stds(y)
         std = _std_from_log(log_std, exploration_scale)
 
-        m_mov = mean[:, :8]
-        s_mov = std[:, :8]
-        m_walk = mean[:, 8]
-        m_shoot = mean[:, 9]
-        m_jump = mean[:, 10]
-        m_sneak = mean[:, 11]
-        m_pitch = mean[:, 12:20]
-        m_yaw = mean[:, 20:28]
+        m_w = mean[:, 0]
+        m_a = mean[:, 1]
+        m_s = mean[:, 2]
+        m_d = mean[:, 3]
+        m_shoot = mean[:, 4]
+        m_jump = mean[:, 5]
+        m_sneak = mean[:, 6]
+        m_pitch = mean[:, 7:15]
+        m_yaw = mean[:, 15:23]
 
-        s_walk = std[:, 8]
-        s_shoot = std[:, 9]
-        s_jump = std[:, 10]
-        s_sneak = std[:, 11]
-        s_pitch = std[:, 12:20]
-        s_yaw = std[:, 20:28]
+        s_w = std[:, 0]
+        s_a = std[:, 1]
+        s_s = std[:, 2]
+        s_d = std[:, 3]
+        s_shoot = std[:, 4]
+        s_jump = std[:, 5]
+        s_sneak = std[:, 6]
+        s_pitch = std[:, 7:15]
+        s_yaw = std[:, 15:23]
 
         return cls(
-            movement=Normal(m_mov, s_mov),
-            walk=Normal(m_walk, s_walk),
+            move_w=Normal(m_w, s_w),
+            move_a=Normal(m_a, s_a),
+            move_s=Normal(m_s, s_s),
+            move_d=Normal(m_d, s_d),
             shoot=Normal(m_shoot, s_shoot),
             jump=Normal(m_jump, s_jump),
             sneak=Normal(m_sneak, s_sneak),
@@ -86,10 +94,12 @@ class PolicyDistributions:
         )
 
     def entropy_by_component(self) -> Dict[str, torch.Tensor]:
-        """Per-agent entropy [N] for each separable group (movement/pitch/yaw summed over discrete dims)."""
+        """Per-agent entropy [N] for each separable group."""
         return {
-            "movement": self.movement.entropy().sum(dim=-1),
-            "walk": self.walk.entropy(),
+            "move_w": self.move_w.entropy(),
+            "move_a": self.move_a.entropy(),
+            "move_s": self.move_s.entropy(),
+            "move_d": self.move_d.entropy(),
             "shoot": self.shoot.entropy(),
             "jump": self.jump.entropy(),
             "sneak": self.sneak.entropy(),
@@ -107,11 +117,13 @@ class PolicyDistributions:
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
-        mov = self.movement.rsample()
-        movement_theta = mov.argmax(dim=-1)
-
-        walk_actions = self.walk.rsample() > 0.0
+        move_w_actions = self.move_w.rsample() > 0.0
+        move_a_actions = self.move_a.rsample() > 0.0
+        move_s_actions = self.move_s.rsample() > 0.0
+        move_d_actions = self.move_d.rsample() > 0.0
         shoot_actions = self.shoot.rsample() > 0.0
         jump_actions = self.jump.rsample() > 0.0
         sneak_actions = self.sneak.rsample() > 0.0
@@ -122,8 +134,10 @@ class PolicyDistributions:
         yaw_actions = yaw_s.argmax(dim=-1)
 
         return (
-            movement_theta,
-            walk_actions,
+            move_w_actions,
+            move_a_actions,
+            move_s_actions,
+            move_d_actions,
             shoot_actions,
             jump_actions,
             sneak_actions,
@@ -134,8 +148,10 @@ class PolicyDistributions:
 
 @dataclass
 class PolicySample:
-    movement_theta: torch.Tensor
-    walk_actions: torch.Tensor
+    move_w_actions: torch.Tensor
+    move_a_actions: torch.Tensor
+    move_s_actions: torch.Tensor
+    move_d_actions: torch.Tensor
     shoot_actions: torch.Tensor
     jump_actions: torch.Tensor
     sneak_actions: torch.Tensor
@@ -164,7 +180,7 @@ class RLOperators(torch.nn.Module):
             torch.nn.Sigmoid(),
             BatchedLinear(num_agents, self.hidden_dim, self.hidden_dim),
             torch.nn.Sigmoid(),
-            BatchedLinear(num_agents, self.hidden_dim, 56),
+            BatchedLinear(num_agents, self.hidden_dim, 46),
         ).to(self.device)
 
     @property
@@ -197,8 +213,10 @@ class RLOperators(torch.nn.Module):
         dists = PolicyDistributions.from_raw_output(y, exploration_scale=exploration_scale)
         entropy_by_component = dists.entropy_by_component()
         (
-            movement_theta,
-            walk_actions,
+            move_w_actions,
+            move_a_actions,
+            move_s_actions,
+            move_d_actions,
             shoot_actions,
             jump_actions,
             sneak_actions,
@@ -206,8 +224,10 @@ class RLOperators(torch.nn.Module):
             yaw_actions,
         ) = dists.sample_actions()
         return PolicySample(
-            movement_theta=movement_theta,
-            walk_actions=walk_actions,
+            move_w_actions=move_w_actions,
+            move_a_actions=move_a_actions,
+            move_s_actions=move_s_actions,
+            move_d_actions=move_d_actions,
             shoot_actions=shoot_actions,
             jump_actions=jump_actions,
             sneak_actions=sneak_actions,
