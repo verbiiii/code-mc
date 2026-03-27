@@ -1,6 +1,8 @@
 import torch
 from dataclasses import dataclass
 from typing import Dict, Tuple
+from pathlib import Path
+from typing import Optional
 
 from torch.distributions import Normal
 
@@ -236,3 +238,16 @@ class RLOperators(torch.nn.Module):
                 distances += module.calculate_distances(partner_indices)
 
         return distances
+
+    @torch.no_grad()
+    def save_checkpoint(self, checkpoint_dir: str, fmc_update: int, filename: Optional[str] = None) -> str:
+        """Save only this module's state_dict and return the written path."""
+        out_dir = Path(checkpoint_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if filename is None:
+            filename = f"{int(fmc_update)}.pth"
+
+        output_path = out_dir / filename
+        torch.save(self.state_dict(), output_path)
+        return str(output_path.resolve())

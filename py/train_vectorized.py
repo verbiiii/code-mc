@@ -4,6 +4,8 @@ import numpy as np
 import time
 import sys
 from typing import Dict, Tuple
+from pathlib import Path
+from datetime import datetime
 
 from observations import VectorizedObservations
 from rl_operator import RLOperators
@@ -180,6 +182,9 @@ class VectorizedTrainer:
 
         self.wandb_url = None
         self._init_wandb()
+        self.checkpoint_root = Path("./checkpoints")
+        self.checkpoint_run_name = self._resolve_checkpoint_run_name()
+        self.checkpoint_dir = self.checkpoint_root / self.checkpoint_run_name
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
 
@@ -194,6 +199,16 @@ class VectorizedTrainer:
         except Exception as e:
             print(f"W&B init failed (training continues): {e}")
             self.wandb_url = None
+
+    def _resolve_checkpoint_run_name(self) -> str:
+        if USE_WANDB:
+            try:
+                import wandb
+                if wandb.run is not None and getattr(wandb.run, "name", None):
+                    return str(wandb.run.name)
+            except Exception:
+                pass
+        return datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
@@ -359,6 +374,12 @@ class VectorizedTrainer:
             "top_rewards": [round(float(x), 2) for x in top_k_rewards.tolist()],
             "top_lifetimes": [round(float(x), 2) for x in top_k_lifetime_rewards.tolist()],
         }
+
+        checkpoint_path = self.operators.save_checkpoint(
+            checkpoint_dir=str(self.checkpoint_dir),
+            fmc_update=self.fmc_update_count,
+        )
+        print(f"💾 Saved FMC checkpoint: {checkpoint_path}")
 
     def update_runtime_status(self, processing_time_ms: float, active_agents: int, steps_behind: int = 0, total_skipped_steps: int = 0):
         self.processing_times_ms.append(float(processing_time_ms))
