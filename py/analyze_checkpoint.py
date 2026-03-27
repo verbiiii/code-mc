@@ -7,6 +7,17 @@ import torch
 from rl_operator import RLOperators
 
 
+_DIST_COMPONENTS = [
+    ("movement", slice(0, 8)),
+    ("walk", slice(8, 9)),
+    ("shoot", slice(9, 10)),
+    ("jump", slice(10, 11)),
+    ("sneak", slice(11, 12)),
+    ("pitch", slice(12, 20)),
+    ("yaw", slice(20, 28)),
+]
+
+
 def _infer_num_models(state_dict: Dict[str, torch.Tensor]) -> int:
     for tensor in state_dict.values():
         if torch.is_tensor(tensor) and tensor.dim() > 0:
@@ -71,6 +82,35 @@ def _per_model_stats(state_dict: Dict[str, torch.Tensor], num_models: int) -> Li
     return out
 
 
+def _print_policy_distribution_stats(state_dict: Dict[str, torch.Tensor], num_models: int) -> None:
+    # Final policy head BatchedLinear(num_agents, hidden_dim, 56)
+    bias_key = "model.8.bias"
+    if bias_key not in state_dict:
+        print("policy distribution stats: unavailable (missing model.8.bias)")
+        return
+
+    bias = state_dict[bias_key].detach().float().cpu()
+    if bias.shape != (num_models, 56):
+        print(f"policy distribution stats: unavailable (unexpected bias shape {tuple(bias.shape)})")
+        return
+
+    print("policy distribution stats (per agent, from policy-head bias):")
+    for agent_idx in range(num_models):
+        print(f"  agent {agent_idx:03d}:")
+        mu_bias = bias[agent_idx, :28]
+        log_std_bias = bias[agent_idx, 28:]
+        std_bias = torch.exp(log_std_bias)
+
+        for name, comp_slice in _DIST_COMPONENTS:
+            mu_vals = mu_bias[comp_slice]
+            std_vals = std_bias[comp_slice]
+            print(
+                f"    {name:<8} "
+                f"mu(mean={mu_vals.mean().item():.6f}, std={mu_vals.std(unbiased=False).item():.6f}) "
+                f"sigma(mean={std_vals.mean().item():.6f}, std={std_vals.std(unbiased=False).item():.6f})"
+            )
+
+
 def analyze_checkpoint(path: Path) -> None:
     if not path.exists():
         raise FileNotFoundError(f"Checkpoint path does not exist: {path}")
@@ -101,6 +141,7 @@ def analyze_checkpoint(path: Path) -> None:
             f"  agent {i:03d}: params={counts[i]:,} "
             f"mean={mean:.6f} min={min_val:.6f} max={max_val:.6f}"
         )
+    _print_policy_distribution_stats(operators.state_dict(), num_models)
 
 
 def main() -> None:
