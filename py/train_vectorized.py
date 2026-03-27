@@ -5,10 +5,10 @@ import time
 import sys
 from typing import Dict, Tuple
 from pathlib import Path
-from datetime import datetime
 
 from observations import VectorizedObservations
 from rl_operator import RLOperators
+from metrics import get_random_experiment_name
 
 USE_WANDB = True
 
@@ -180,10 +180,11 @@ class VectorizedTrainer:
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
+        self.experiment_name = get_random_experiment_name()
         self.wandb_url = None
         self._init_wandb()
         self.checkpoint_root = Path("./checkpoints")
-        self.checkpoint_run_name = self._resolve_checkpoint_run_name()
+        self.checkpoint_run_name = self.experiment_name
         self.checkpoint_dir = self.checkpoint_root / self.checkpoint_run_name
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
@@ -194,21 +195,15 @@ class VectorizedTrainer:
         try:
             import wandb
 
-            run = wandb.init(project="minekov-rl", config={"num_agents": self.num_agents})
+            run = wandb.init(
+                project="minekov-rl",
+                name=self.experiment_name,
+                config={"num_agents": self.num_agents},
+            )
             self.wandb_url = getattr(run, "url", None)
         except Exception as e:
             print(f"W&B init failed (training continues): {e}")
             self.wandb_url = None
-
-    def _resolve_checkpoint_run_name(self) -> str:
-        if USE_WANDB:
-            try:
-                import wandb
-                if wandb.run is not None and getattr(wandb.run, "name", None):
-                    return str(wandb.run.name)
-            except Exception:
-                pass
-        return datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     def tick(self, observations: VectorizedObservations):
         self.tick_count += 1
