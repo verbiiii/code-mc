@@ -30,6 +30,9 @@ public final class XosViewportRuntime {
     private static final ResourceLocation TEX_LOC =
             ResourceLocation.fromNamespaceAndPath(Minekov.MODID, "dynamic/xos_viewport");
 
+    /** xos α=255 maps to this (80% of 255) so the texture never overrides the chat panel’s own opacity. */
+    private static final int MAX_TEXTURE_ALPHA = Math.round(255 * 0.8f);
+
     private static boolean libraryTried;
     private static boolean libraryOk;
     private static boolean engineRunning;
@@ -226,7 +229,9 @@ public final class XosViewportRuntime {
                 int r = buf.get(base) & 0xFF;
                 int g = buf.get(base + 1) & 0xFF;
                 int b = buf.get(base + 2) & 0xFF;
-                int a = buf.get(base + 3) & 0xFF;
+                int aIn = buf.get(base + 3) & 0xFF;
+                // Scale [0,255] → [0, MAX_TEXTURE_ALPHA] so full xos opacity matches our 80% cap
+                int a = (aIn * MAX_TEXTURE_ALPHA + 127) / 255;
                 nativeImage.setPixelRGBA(x, y, FastColor.ARGB32.color(a, r, g, b));
             }
         }
