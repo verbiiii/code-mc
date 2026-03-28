@@ -631,9 +631,9 @@ public final class XosViewportOverlay {
         int sh = event.getScreen().height;
         ensureLayout(sw, sh);
 
-        double mx = event.getMouseX();
-        double my = event.getMouseY();
         Minecraft mc = Minecraft.getInstance();
+        double mx = scaledMouseX(mc, sw);
+        double my = scaledMouseY(mc, sh);
 
         if (minimized) {
             if (inMinimizedRestoreBtn(mx, my, mc)) {
@@ -681,6 +681,8 @@ public final class XosViewportOverlay {
         }
 
         if (inViewportBody(mx, my)) {
+            int bodyTop = panelY + TITLE_BAR_H;
+            XosViewportRuntime.syncPointer(mc, mx, my, panelX, bodyTop, panelW, contentH);
             XosViewportRuntime.onMouseDownInBody();
             event.setCanceled(true);
             return;

@@ -18,8 +18,12 @@ import org.slf4j.Logger;
 import java.nio.ByteBuffer;
 
 /**
- * Runs the xos engine (ball app via JNI) at the viewport size and copies each frame into a
- * {@link DynamicTexture} for {@link GuiGraphics#blit}.
+ * Runs the xos engine (ball app via JNI) and copies each frame into a {@link DynamicTexture}.
+ * <p>
+ * Resolution is kept in lockstep with the on-screen viewport: {@code init}/{@code resize} and the
+ * texture are exactly {@code w}×{@code h} GUI pixels — the same {@code w} and {@code h} passed to
+ * {@link #renderIntoViewport}. Pointer coordinates from {@link #syncPointer} use the same space
+ * (0…w, 0…h inside the body rectangle).
  */
 @OnlyIn(Dist.CLIENT)
 public final class XosViewportRuntime {
@@ -56,6 +60,8 @@ public final class XosViewportRuntime {
     }
 
     /**
+     * @param w viewport width in GUI pixels (engine framebuffer width)
+     * @param h viewport height in GUI pixels (engine framebuffer height)
      * @return true if the framebuffer was drawn (caller should skip solid black fill)
      */
     public static boolean renderIntoViewport(GuiGraphics g, int x, int y, int w, int h) {
