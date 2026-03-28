@@ -666,6 +666,9 @@ public final class XosViewportOverlay {
                 (Math.min(255, Math.max(0, Math.round(drawA * 255.0f))) << 24) | 0x00202020;
 
         GuiGraphics g = event.getGuiGraphics();
+        // Reset tint so blit() uses framebuffer α as-uploaded (60% idle / 80% hover), not × leftover shader.
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        g.setColor(1.0F, 1.0F, 1.0F, 1.0F);
 
         if (minimized) {
             int bx = MINIMIZED_BTN_MARGIN;
