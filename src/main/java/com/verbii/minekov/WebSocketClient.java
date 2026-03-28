@@ -288,7 +288,7 @@ public class WebSocketClient {
             channel = bootstrap.connect(host, port).sync().channel();
 
         } catch (Exception e) {
-            System.err.println("⚠️ WebSocket: Connection failed: " + e.getMessage());
+            // System.err.println("⚠️ WebSocket: Connection failed: " + e.getMessage());
         }
     }
 
