@@ -31,6 +31,10 @@ base {
 // Mojang ships Java 17 to end users in 1.18+, so your mod should target Java 17.
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
+// xos JNI: `ai.xlate.xos` sources and native build live in the xos repo (override with -Pxos_root=...).
+def xosRoot = file(findProperty('xos_root') ?: '../xos')
+sourceSets.main.java.srcDir(file("${xosRoot}/crates/xos-jni/java"))
+
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 minecraft {
     // The mappings can be changed at any time and must be in the following format.
@@ -100,6 +104,8 @@ minecraft {
         client {
             // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
             property 'forge.enabledGameTestNamespaces', mod_id
+            // xos_jni: load native library from run/natives (populated by copyXosJniNative).
+            jvmArgs "-Djava.library.path=${file('run/natives').absolutePath}"
         }
 
         server {
@@ -306,4 +312,69 @@ tasks.withType(JavaCompile).configureEach {
 jarJar.enable()
 tasks.jarJar {
     archiveClassifier.set('forge')
+}
+
+// --- xos_jni: cargo build + copy native lib into dev client run dir ---
+def xosNativeLibName = {
+    String os = System.getProperty('os.name').toLowerCase(java.util.Locale.US)
+    if (os.contains('win')) {
+        return 'xos_jni.dll'
+    }
+    if (os.contains('mac')) {
+        return 'libxos_jni.dylib'
+    }
+    return 'libxos_jni.so'
+}()
+
+// Gradle does not inherit conda/shell PATH — rustup's cargo is often missing. Override: -PcargoExe=C:\path\to\cargo.exe
+def resolveCargoExecutable = {
+    def o = findProperty('cargoExe')
+    if (o != null) {
+        def f = file(o.toString())
+        if (f.isFile()) {
+            return f.absolutePath
+        }
+    }
+    def home = System.getProperty('user.home')
+    def win = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('win')
+    def rustupCargo = new File(home, win ? '.cargo/bin/cargo.exe' : '.cargo/bin/cargo')
+    if (rustupCargo.isFile()) {
+        return rustupCargo.absolutePath
+    }
+    return 'cargo'
+}()
+
+tasks.register('buildXosJni', Exec) {
+    group = 'build'
+    description = 'Runs cargo build -p xos_jni --release in the xos repo'
+    workingDir xosRoot
+    def cargoBin = new File(resolveCargoExecutable).parentFile
+    if (cargoBin != null && cargoBin.exists()) {
+        def pathSep = File.pathSeparator
+        def base = System.getenv('Path') ?: System.getenv('PATH') ?: ''
+        def combined = "${cargoBin.absolutePath}${pathSep}${base}"
+        def win = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('win')
+        if (win) {
+            environment 'Path', combined
+        } else {
+            environment 'PATH', combined
+        }
+    }
+    commandLine resolveCargoExecutable, 'build', '-p', 'xos_jni', '--release'
+}
+
+tasks.register('copyXosJniNative', Copy) {
+    group = 'build'
+    description = 'Copies xos_jni shared library into run/natives for java.library.path'
+    dependsOn buildXosJni
+    from("${xosRoot}/target/release/${xosNativeLibName}")
+    into file('run/natives')
+    duplicatesStrategy DuplicatesStrategy.INCLUDE
+}
+
+// ForgeGradle registers `runClient` after normal afterEvaluate — hook when the task appears.
+tasks.configureEach { task ->
+    if (task.name == 'runClient') {
+        task.dependsOn copyXosJniNative
+    }
 }
