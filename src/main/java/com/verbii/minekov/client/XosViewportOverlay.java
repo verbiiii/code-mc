@@ -27,13 +27,16 @@ public final class XosViewportOverlay {
 
     /** ~5% shorter than prior 8px */
     private static final int TITLE_BAR_H = 7;
-    private static final int MINIMIZE_BTN = 6;
-    private static final int MINIMIZE_PAD = 1;
+    /** Minimize / maximize hit targets — centered vertically in the title bar */
+    private static final int TITLE_BAR_BTN = 5;
+    private static final int TITLE_BAR_BTN_GAP = 1;
+    private static final int TITLE_BAR_PAD = 1;
     /** 1 logical px; drawn with reduced alpha so it reads ~30% thinner */
     private static final int BORDER_PX = 1;
     private static final float BORDER_ALPHA_MUL = 0.65f;
-    private static final int HANDLE_CORNER = 6;
-    private static final int HANDLE_EDGE = 4;
+    /** Resize hit zones (~50% thinner than original 6/4 for easier corner vs edge grabs). */
+    private static final int HANDLE_CORNER = 3;
+    private static final int HANDLE_EDGE = 2;
 
     /** Default body size; ~20% larger than prior 0.26 → 0.312 */
     private static final float DEFAULT_BODY_FRAC = 0.312f;
@@ -156,7 +159,7 @@ public final class XosViewportOverlay {
             applyGlfwCursor(mc, 0L);
             return;
         }
-        if (inMinimizeBtn(mx, my)) {
+        if (inMinimizeBtn(mx, my) || inMaximizeBtn(mx, my)) {
             applyGlfwCursor(mc, cursorHand);
             return;
         }
@@ -187,6 +190,27 @@ public final class XosViewportOverlay {
     private static int blackArgb(float alpha) {
         int a = Math.min(255, Math.max(0, Math.round(alpha * 255.0f)));
         return (a << 24);
+    }
+
+    /** Hollow square = maximize; overlapping outlines = restore (fits {@value #TITLE_BAR_BTN} px). */
+    private static void drawMaximizeGlyph(GuiGraphics g, int bx, int by, boolean maxed, int color) {
+        if (!maxed) {
+            int o = 1;
+            int s = 3;
+            g.fill(bx + o, by + o, bx + o + s, by + o + 1, color);
+            g.fill(bx + o, by + o + s - 1, bx + o + s, by + o + s, color);
+            g.fill(bx + o, by + o + 1, bx + o + 1, by + o + s - 1, color);
+            g.fill(bx + o + s - 1, by + o + 1, bx + o + s, by + o + s - 1, color);
+        } else {
+            g.fill(bx + 0, by + 1, bx + 3, by + 2, color);
+            g.fill(bx + 0, by + 3, bx + 3, by + 4, color);
+            g.fill(bx + 0, by + 2, bx + 1, by + 3, color);
+            g.fill(bx + 2, by + 2, bx + 3, by + 3, color);
+            g.fill(bx + 2, by + 0, bx + 5, by + 1, color);
+            g.fill(bx + 2, by + 2, bx + 5, by + 3, color);
+            g.fill(bx + 2, by + 1, bx + 3, by + 2, color);
+            g.fill(bx + 4, by + 1, bx + 5, by + 2, color);
+        }
     }
 
     private static void ensureLayout(int sw, int sh) {
@@ -253,25 +277,36 @@ public final class XosViewportOverlay {
         clampPartialOnScreen(sw, sh);
     }
 
-    private static int minimizeBtnX() {
-        return panelX + panelW - MINIMIZE_BTN - MINIMIZE_PAD;
+    /** Rightmost = maximize; next left = minimize */
+    private static int maximizeBtnX() {
+        return panelX + panelW - TITLE_BAR_PAD - TITLE_BAR_BTN;
     }
 
-    private static int minimizeBtnY() {
-        return panelY + (TITLE_BAR_H - MINIMIZE_BTN) / 2;
+    private static int minimizeBtnX() {
+        return panelX + panelW - TITLE_BAR_PAD - 2 * TITLE_BAR_BTN - TITLE_BAR_BTN_GAP;
+    }
+
+    private static int titleBarBtnY() {
+        return panelY + (TITLE_BAR_H - TITLE_BAR_BTN) / 2;
     }
 
     private static boolean inMinimizeBtn(double mx, double my) {
         int bx = minimizeBtnX();
-        int by = minimizeBtnY();
-        return mx >= bx && mx < bx + MINIMIZE_BTN && my >= by && my < by + MINIMIZE_BTN;
+        int by = titleBarBtnY();
+        return mx >= bx && mx < bx + TITLE_BAR_BTN && my >= by && my < by + TITLE_BAR_BTN;
+    }
+
+    private static boolean inMaximizeBtn(double mx, double my) {
+        int bx = maximizeBtnX();
+        int by = titleBarBtnY();
+        return mx >= bx && mx < bx + TITLE_BAR_BTN && my >= by && my < by + TITLE_BAR_BTN;
     }
 
     private static boolean inTitleBarDragRegion(double mx, double my) {
         if (mx < panelX || mx >= panelX + panelW || my < panelY || my >= panelY + TITLE_BAR_H) {
             return false;
         }
-        return !inMinimizeBtn(mx, my);
+        return !inMinimizeBtn(mx, my) && !inMaximizeBtn(mx, my);
     }
 
     private static DragMode hitTestResize(double mx, double my) {
@@ -497,16 +532,28 @@ public final class XosViewportOverlay {
         // Title bar (neon)
         g.fill(ox, oy, ox + ow, oy + th, neon);
 
-        // Minimize: black square + neon minus
-        int bx = minimizeBtnX();
-        int by = minimizeBtnY();
-        int btnA = Math.min(255, Math.round(a * 255));
-        int blackBtn = (btnA << 24);
-        g.fill(bx, by, bx + MINIMIZE_BTN, by + MINIMIZE_BTN, blackBtn);
-        int minus = neonArgb(a);
-        int mw = MINIMIZE_BTN - 4;
-        int mh = Math.max(1, MINIMIZE_BTN / 4);
-        g.fill(bx + 2, by + MINIMIZE_BTN / 2 - mh / 2, bx + 2 + mw, by + MINIMIZE_BTN / 2 - mh / 2 + mh, minus);
+        int btnY = titleBarBtnY();
+        int minBx = minimizeBtnX();
+        int maxBx = maximizeBtnX();
+        boolean hovMin = inMinimizeBtn(mx, my);
+        boolean hovMax = inMaximizeBtn(mx, my);
+
+        // Minimize: optional faded hover, then a thin black dash (no square)
+        if (hovMin) {
+            int hoverA = Math.min(255, Math.round(a * 0.22f * 255.0f));
+            g.fill(minBx, btnY, minBx + TITLE_BAR_BTN, btnY + TITLE_BAR_BTN, (hoverA << 24));
+        }
+        int dashW = 2;
+        int cxMin = minBx + TITLE_BAR_BTN / 2;
+        int dashY = btnY + TITLE_BAR_BTN / 2;
+        g.fill(cxMin - dashW / 2, dashY, cxMin - dashW / 2 + dashW, dashY + 1, blackArgb(a));
+
+        // Maximize / restore: optional faded hover, square glyph in neon
+        if (hovMax) {
+            int hoverA = Math.min(255, Math.round(a * 0.22f * 255.0f));
+            g.fill(maxBx, btnY, maxBx + TITLE_BAR_BTN, btnY + TITLE_BAR_BTN, (hoverA << 24));
+        }
+        drawMaximizeGlyph(g, maxBx, btnY, maximized, neonArgb(a));
 
         // Black viewport
         if (!minimized && bodyH > 0) {
@@ -542,6 +589,14 @@ public final class XosViewportOverlay {
 
         if (inMinimizeBtn(mx, my)) {
             minimized = !minimized;
+            dragMode = DragMode.NONE;
+            titleBarAwaitingSecondClick = false;
+            event.setCanceled(true);
+            return;
+        }
+
+        if (inMaximizeBtn(mx, my)) {
+            toggleMaximizedLayout(sw, sh);
             dragMode = DragMode.NONE;
             titleBarAwaitingSecondClick = false;
             event.setCanceled(true);
