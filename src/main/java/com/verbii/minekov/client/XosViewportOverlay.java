@@ -15,7 +15,7 @@ import org.lwjgl.glfw.GLFW;
 
 /**
  * xos viewport placeholder on {@link ChatScreen}: draggable neon title bar, resizable body,
- * minimize to title-only, synced 60%→100% opacity on hover (black fill + neon chrome).
+ * minimize to title-only (fully opaque, clamped on-screen), synced 60%→80% opacity on hover when expanded.
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -48,7 +48,7 @@ public final class XosViewportOverlay {
     private static final double MIN_VISIBLE_FRAC = 0.10;
 
     private static final float ALPHA_IDLE = 0.6f;
-    private static final float ALPHA_HOVER = 1.0f;
+    private static final float ALPHA_HOVER = 0.8f;
     private static final float SMOOTH = 0.18f;
 
     private static float smoothedAlpha = ALPHA_IDLE;
@@ -192,7 +192,10 @@ public final class XosViewportOverlay {
         return (a << 24);
     }
 
-    /** Hollow square = maximize; overlapping outlines = restore (fits {@value #TITLE_BAR_BTN} px). */
+    /**
+     * Maximize: one hollow square. Restore (when {@code maxed}): two overlapping hollow squares
+     * (lower-left + upper-right) — same metaphor as Windows/Linux window controls.
+     */
     private static void drawMaximizeGlyph(GuiGraphics g, int bx, int by, boolean maxed, int color) {
         if (!maxed) {
             int o = 1;
@@ -202,15 +205,16 @@ public final class XosViewportOverlay {
             g.fill(bx + o, by + o + 1, bx + o + 1, by + o + s - 1, color);
             g.fill(bx + o + s - 1, by + o + 1, bx + o + s, by + o + s - 1, color);
         } else {
-            g.fill(bx + 0, by + 1, bx + 3, by + 2, color);
-            g.fill(bx + 0, by + 3, bx + 3, by + 4, color);
-            g.fill(bx + 0, by + 2, bx + 1, by + 3, color);
-            g.fill(bx + 2, by + 2, bx + 3, by + 3, color);
-            g.fill(bx + 2, by + 0, bx + 5, by + 1, color);
-            g.fill(bx + 2, by + 2, bx + 5, by + 3, color);
-            g.fill(bx + 2, by + 1, bx + 3, by + 2, color);
-            g.fill(bx + 4, by + 1, bx + 5, by + 2, color);
+            drawHollowSquare3(g, bx + 0, by + 1, color);
+            drawHollowSquare3(g, bx + 2, by + 0, color);
         }
+    }
+
+    private static void drawHollowSquare3(GuiGraphics g, int bx, int by, int color) {
+        g.fill(bx, by, bx + 3, by + 1, color);
+        g.fill(bx, by + 2, bx + 3, by + 3, color);
+        g.fill(bx, by + 1, bx + 1, by + 2, color);
+        g.fill(bx + 2, by + 1, bx + 3, by + 2, color);
     }
 
     private static void ensureLayout(int sw, int sh) {
@@ -231,12 +235,18 @@ public final class XosViewportOverlay {
 
     /**
      * Allow most of the panel off-screen, but keep at least {@value #MIN_VISIBLE_FRAC} of width and
-     * height intersecting the GUI viewport.
+     * height intersecting the GUI viewport. When minimized, the title strip must stay fully on-screen.
      */
     private static void clampPartialOnScreen(int sw, int sh) {
         panelW = Math.max(MIN_PANEL_W, panelW);
         contentH = Math.max(MIN_CONTENT_H, contentH);
         int th = totalPanelH();
+
+        if (minimized) {
+            panelX = Mth.clamp(panelX, 0, Math.max(0, sw - panelW));
+            panelY = Mth.clamp(panelY, 0, Math.max(0, sh - th));
+            return;
+        }
 
         int minVisW = Math.max(1, (int) Math.ceil(panelW * MIN_VISIBLE_FRAC));
         int minVisH = Math.max(1, (int) Math.ceil(th * MIN_VISIBLE_FRAC));
@@ -513,10 +523,12 @@ public final class XosViewportOverlay {
         float target = hover ? ALPHA_HOVER : ALPHA_IDLE;
         smoothedAlpha += (target - smoothedAlpha) * SMOOTH;
 
-        float a = smoothedAlpha;
-        int neon = neonArgb(a);
-        int neonBorder = neonBorderArgb(a);
-        int blk = blackArgb(a);
+        float drawA = minimized ? 1.0f : smoothedAlpha;
+        int neon = neonArgb(drawA);
+        int neonBorder = neonBorderArgb(drawA);
+        int blk = blackArgb(drawA);
+        int titleTextColor =
+                (Math.min(255, Math.max(0, Math.round(drawA * 255.0f))) << 24) | 0x00202020;
 
         GuiGraphics g = event.getGuiGraphics();
         int ox = panelX;
@@ -532,6 +544,10 @@ public final class XosViewportOverlay {
         // Title bar (neon)
         g.fill(ox, oy, ox + ow, oy + th, neon);
 
+        int titlePad = BORDER_PX + 1;
+        int textY = oy + Math.max(0, (th - mc.font.lineHeight) / 2);
+        g.drawString(mc.font, "xos viewport", ox + titlePad, textY, titleTextColor, false);
+
         int btnY = titleBarBtnY();
         int minBx = minimizeBtnX();
         int maxBx = maximizeBtnX();
@@ -540,20 +556,20 @@ public final class XosViewportOverlay {
 
         // Minimize: optional faded hover, then a thin black dash (no square)
         if (hovMin) {
-            int hoverA = Math.min(255, Math.round(a * 0.22f * 255.0f));
+            int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
             g.fill(minBx, btnY, minBx + TITLE_BAR_BTN, btnY + TITLE_BAR_BTN, (hoverA << 24));
         }
         int dashW = 2;
         int cxMin = minBx + TITLE_BAR_BTN / 2;
         int dashY = btnY + TITLE_BAR_BTN / 2;
-        g.fill(cxMin - dashW / 2, dashY, cxMin - dashW / 2 + dashW, dashY + 1, blackArgb(a));
+        g.fill(cxMin - dashW / 2, dashY, cxMin - dashW / 2 + dashW, dashY + 1, blackArgb(drawA));
 
         // Maximize / restore: optional faded hover, square glyph in neon
         if (hovMax) {
-            int hoverA = Math.min(255, Math.round(a * 0.22f * 255.0f));
+            int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
             g.fill(maxBx, btnY, maxBx + TITLE_BAR_BTN, btnY + TITLE_BAR_BTN, (hoverA << 24));
         }
-        drawMaximizeGlyph(g, maxBx, btnY, maximized, neonArgb(a));
+        drawMaximizeGlyph(g, maxBx, btnY, maximized, blackArgb(drawA));
 
         // Black viewport
         if (!minimized && bodyH > 0) {
@@ -589,6 +605,7 @@ public final class XosViewportOverlay {
 
         if (inMinimizeBtn(mx, my)) {
             minimized = !minimized;
+            clampPartialOnScreen(sw, sh);
             dragMode = DragMode.NONE;
             titleBarAwaitingSecondClick = false;
             event.setCanceled(true);
