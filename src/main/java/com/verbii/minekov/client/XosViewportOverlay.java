@@ -25,10 +25,10 @@ public final class XosViewportOverlay {
     /** Softer mint / light neon — title bar, minus sign (border uses same hue, lower alpha). */
     private static final int NEON_RGB = 0x7DD87A;
 
-    /** ~5% shorter than prior 8px */
-    private static final int TITLE_BAR_H = 7;
+    /** Title chrome height (+10% vs prior 7px). */
+    private static final int TITLE_BAR_H = 8;
     /** Minimize / maximize hit targets — centered vertically in the title bar */
-    private static final int TITLE_BAR_BTN = 5;
+    private static final int TITLE_BAR_BTN = 6;
     private static final int TITLE_BAR_BTN_GAP = 1;
     private static final int TITLE_BAR_PAD = 1;
     /** 1 logical px; drawn with reduced alpha so it reads ~30% thinner */
