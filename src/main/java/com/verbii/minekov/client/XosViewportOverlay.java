@@ -84,6 +84,76 @@ public final class XosViewportOverlay {
     private static double anchorMouseX;
     private static double anchorMouseY;
 
+    /** GLFW standard cursors for resize affordances (lazy-init). */
+    private static long cursorResizeH;
+    private static long cursorResizeV;
+    private static long cursorResizeNwse;
+    private static long cursorResizeNesw;
+    private static long cursorHand;
+    private static boolean cursorsInitialized;
+
+    private static void ensureResizeCursors() {
+        if (cursorsInitialized) {
+            return;
+        }
+        cursorsInitialized = true;
+        cursorResizeH = GLFW.glfwCreateStandardCursor(GLFW.GLFW_HRESIZE_CURSOR);
+        cursorResizeV = GLFW.glfwCreateStandardCursor(GLFW.GLFW_VRESIZE_CURSOR);
+        cursorResizeNwse = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NWSE_CURSOR);
+        cursorResizeNesw = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NESW_CURSOR);
+        cursorHand = GLFW.glfwCreateStandardCursor(GLFW.GLFW_POINTING_HAND_CURSOR);
+        if (cursorHand == 0) {
+            cursorHand = GLFW.glfwCreateStandardCursor(GLFW.GLFW_HAND_CURSOR);
+        }
+    }
+
+    /** @return GLFW cursor handle, or 0 for OS default arrow */
+    private static long glfwCursorForMode(DragMode m) {
+        return switch (m) {
+            case MOVE -> 0L;
+            case RESIZE_E, RESIZE_W -> cursorResizeH;
+            case RESIZE_N, RESIZE_S -> cursorResizeV;
+            case RESIZE_NW, RESIZE_SE -> cursorResizeNwse;
+            case RESIZE_NE, RESIZE_SW -> cursorResizeNesw;
+            default -> 0L;
+        };
+    }
+
+    private static void applyGlfwCursor(Minecraft mc, long cursor) {
+        long win = mc.getWindow().getWindow();
+        GLFW.glfwSetCursor(win, cursor);
+    }
+
+    /**
+     * While chat + panel are active, sets resize/move/hand cursors; otherwise restores default.
+     */
+    private static void updateResizeCursor(Minecraft mc, int sw, int sh, double mx, double my) {
+        ensureResizeCursors();
+        if (dragMode != DragMode.NONE) {
+            long c = glfwCursorForMode(dragMode);
+            applyGlfwCursor(mc, c);
+            return;
+        }
+        if (!panelContains(mx, my)) {
+            applyGlfwCursor(mc, 0L);
+            return;
+        }
+        if (inMinimizeBtn(mx, my)) {
+            applyGlfwCursor(mc, cursorHand);
+            return;
+        }
+        DragMode edge = hitTestResize(mx, my);
+        if (edge != DragMode.NONE) {
+            applyGlfwCursor(mc, glfwCursorForMode(edge));
+            return;
+        }
+        if (inTitleBarDragRegion(mx, my)) {
+            applyGlfwCursor(mc, 0L);
+            return;
+        }
+        applyGlfwCursor(mc, 0L);
+    }
+
     private static int neonArgb(float alpha) {
         int a = Math.min(255, Math.max(0, Math.round(alpha * 255.0f)));
         return (a << 24) | (NEON_RGB & 0x00FFFFFF);
@@ -397,6 +467,8 @@ public final class XosViewportOverlay {
         g.fill(ox + ow - BORDER_PX, oy, ox + ow, oy + oh, neon);
 
         RenderSystem.disableBlend();
+
+        updateResizeCursor(mc, sw, sh, mx, my);
     }
 
     @SubscribeEvent
@@ -462,6 +534,7 @@ public final class XosViewportOverlay {
         if (!(mc.screen instanceof ChatScreen)) {
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
+            applyGlfwCursor(mc, 0L);
         }
     }
 }
