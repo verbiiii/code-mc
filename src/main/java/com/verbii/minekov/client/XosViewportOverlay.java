@@ -15,7 +15,7 @@ import org.lwjgl.glfw.GLFW;
 
 /**
  * xos viewport placeholder on {@link ChatScreen}: draggable neon title bar, resizable body,
- * minimize to title-only (fully opaque, clamped on-screen), synced 60%→80% opacity on hover when expanded.
+ * minimize hides the panel and shows a top-left restore button, synced 60%→80% opacity on hover when expanded.
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -31,6 +31,13 @@ public final class XosViewportOverlay {
     private static final int TITLE_BAR_BTN = 6;
     private static final int TITLE_BAR_BTN_GAP = 1;
     private static final int TITLE_BAR_PAD = 1;
+    /** Top-left restore control when minimized (padding around label). */
+    private static final int MINIMIZED_BTN_MARGIN = 8;
+    private static final int MINIMIZED_BTN_PAD_X = 12;
+    private static final int MINIMIZED_BTN_PAD_Y = 8;
+
+    private static final String MINIMIZED_RESTORE_LABEL = "xos viewport";
+
     /** 1 logical px; drawn with reduced alpha so it reads ~30% thinner */
     private static final int BORDER_PX = 1;
     private static final float BORDER_ALPHA_MUL = 0.65f;
@@ -75,6 +82,14 @@ public final class XosViewportOverlay {
     private static double titleBarFirstClickMy;
     private static final long TITLE_DOUBLE_CLICK_NS = 400_000_000L;
     private static final double TITLE_DOUBLE_CLICK_MAX_DIST = 12.0;
+
+    private static void clearTitleBarDoubleClickState() {
+        titleBarAwaitingSecondClick = false;
+    }
+
+    private static boolean isResizeDragMode(DragMode m) {
+        return m != DragMode.NONE && m != DragMode.MOVE;
+    }
 
     private enum DragMode {
         NONE,
@@ -155,8 +170,12 @@ public final class XosViewportOverlay {
             applyGlfwCursor(mc, c);
             return;
         }
-        if (!panelContains(mx, my)) {
+        if (!panelContains(mx, my, mc)) {
             applyGlfwCursor(mc, 0L);
+            return;
+        }
+        if (minimized) {
+            applyGlfwCursor(mc, cursorHand);
             return;
         }
         if (inMinimizeBtn(mx, my) || inMaximizeBtn(mx, my)) {
@@ -235,7 +254,7 @@ public final class XosViewportOverlay {
 
     /**
      * Allow most of the panel off-screen, but keep at least {@value #MIN_VISIBLE_FRAC} of width and
-     * height intersecting the GUI viewport. When minimized, the title strip must stay fully on-screen.
+     * height intersecting the GUI viewport. When minimized, only stored geometry is validated (panel is hidden).
      */
     private static void clampPartialOnScreen(int sw, int sh) {
         panelW = Math.max(MIN_PANEL_W, panelW);
@@ -243,8 +262,6 @@ public final class XosViewportOverlay {
         int th = totalPanelH();
 
         if (minimized) {
-            panelX = Mth.clamp(panelX, 0, Math.max(0, sw - panelW));
-            panelY = Mth.clamp(panelY, 0, Math.max(0, sh - th));
             return;
         }
 
@@ -261,6 +278,7 @@ public final class XosViewportOverlay {
     }
 
     private static void toggleMaximizedLayout(int sw, int sh) {
+        clearTitleBarDoubleClickState();
         if (!maximized) {
             restorePanelX = panelX;
             restorePanelY = panelY;
@@ -320,37 +338,18 @@ public final class XosViewportOverlay {
     }
 
     private static DragMode hitTestResize(double mx, double my) {
+        if (minimized) {
+            return DragMode.NONE;
+        }
         int px = panelX;
         int py = panelY;
         int pw = panelW;
-        int ph = minimized ? TITLE_BAR_H : totalPanelH();
+        int ph = totalPanelH();
 
         boolean onN = my >= py && my < py + HANDLE_EDGE;
         boolean onS = my >= py + ph - HANDLE_EDGE && my < py + ph;
         boolean onW = mx >= px && mx < px + HANDLE_EDGE;
         boolean onE = mx >= px + pw - HANDLE_EDGE && mx < px + pw;
-
-        if (minimized) {
-            if (onW && onN) {
-                return DragMode.RESIZE_NW;
-            }
-            if (onE && onN) {
-                return DragMode.RESIZE_NE;
-            }
-            if (onW && onS) {
-                return DragMode.RESIZE_SW;
-            }
-            if (onE && onS) {
-                return DragMode.RESIZE_SE;
-            }
-            if (onW) {
-                return DragMode.RESIZE_W;
-            }
-            if (onE) {
-                return DragMode.RESIZE_E;
-            }
-            return DragMode.NONE;
-        }
 
         if (onN && onW && mx < px + HANDLE_CORNER && my < py + HANDLE_CORNER) {
             return DragMode.RESIZE_NW;
@@ -379,7 +378,26 @@ public final class XosViewportOverlay {
         return DragMode.NONE;
     }
 
-    private static boolean panelContains(double mx, double my) {
+    private static int minimizedRestoreBtnW(Minecraft mc) {
+        return mc.font.width(MINIMIZED_RESTORE_LABEL) + 2 * MINIMIZED_BTN_PAD_X;
+    }
+
+    private static int minimizedRestoreBtnH(Minecraft mc) {
+        return mc.font.lineHeight + 2 * MINIMIZED_BTN_PAD_Y;
+    }
+
+    private static boolean inMinimizedRestoreBtn(double mx, double my, Minecraft mc) {
+        int x = MINIMIZED_BTN_MARGIN;
+        int y = MINIMIZED_BTN_MARGIN;
+        int w = minimizedRestoreBtnW(mc);
+        int h = minimizedRestoreBtnH(mc);
+        return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
+
+    private static boolean panelContains(double mx, double my, Minecraft mc) {
+        if (minimized) {
+            return inMinimizedRestoreBtn(mx, my, mc);
+        }
         int h = totalPanelH();
         return mx >= panelX && mx < panelX + panelW && my >= panelY && my < panelY + h;
     }
@@ -405,7 +423,6 @@ public final class XosViewportOverlay {
 
         double mx = scaledMouseX(mc, sw);
         double my = scaledMouseY(mc, sh);
-        boolean wasMin = minimized;
 
         switch (dragMode) {
             case MOVE -> {
@@ -413,20 +430,16 @@ public final class XosViewportOverlay {
                 panelY = (int) Math.round(moveGrabPanelY + (my - moveGrabMouseY));
             }
             case RESIZE_N -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    panelY = newY;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                }
+                int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                panelY = newY;
+                contentH = bottom - TITLE_BAR_H - panelY;
             }
             case RESIZE_S -> {
-                if (!wasMin) {
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                }
+                contentH = (int) Math.round(Mth.clamp(
+                        my - anchorPanelY - TITLE_BAR_H,
+                        MIN_CONTENT_H,
+                        sh));
             }
             case RESIZE_E -> {
                 panelW = (int) Math.round(Mth.clamp(
@@ -441,60 +454,38 @@ public final class XosViewportOverlay {
                 panelW = right - newX;
             }
             case RESIZE_NE -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    panelY = newY;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
-                } else {
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
-                }
+                int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                panelY = newY;
+                contentH = bottom - TITLE_BAR_H - panelY;
+                panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
             }
             case RESIZE_NW -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int right = anchorPanelX + anchorPanelW;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
-                    panelY = newY;
-                    panelX = newX;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                    panelW = right - newX;
-                } else {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                }
+                int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                int right = anchorPanelX + anchorPanelW;
+                int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                panelY = newY;
+                panelX = newX;
+                contentH = bottom - TITLE_BAR_H - panelY;
+                panelW = right - newX;
             }
             case RESIZE_SE -> {
-                if (!wasMin) {
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                } else {
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
-                }
+                panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
+                contentH = (int) Math.round(Mth.clamp(
+                        my - anchorPanelY - TITLE_BAR_H,
+                        MIN_CONTENT_H,
+                        sh));
             }
             case RESIZE_SW -> {
-                if (!wasMin) {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                } else {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                }
+                int right = anchorPanelX + anchorPanelW;
+                int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                panelX = newX;
+                panelW = right - newX;
+                contentH = (int) Math.round(Mth.clamp(
+                        my - anchorPanelY - TITLE_BAR_H,
+                        MIN_CONTENT_H,
+                        sh));
             }
             default -> {
             }
@@ -519,11 +510,11 @@ public final class XosViewportOverlay {
         double mx = scaledMouseX(mc, sw);
         double my = scaledMouseY(mc, sh);
 
-        boolean hover = panelContains(mx, my);
+        boolean hover = panelContains(mx, my, mc);
         float target = hover ? ALPHA_HOVER : ALPHA_IDLE;
         smoothedAlpha += (target - smoothedAlpha) * SMOOTH;
 
-        float drawA = minimized ? 1.0f : smoothedAlpha;
+        float drawA = smoothedAlpha;
         int neon = neonArgb(drawA);
         int neonBorder = neonBorderArgb(drawA);
         int blk = blackArgb(drawA);
@@ -531,6 +522,36 @@ public final class XosViewportOverlay {
                 (Math.min(255, Math.max(0, Math.round(drawA * 255.0f))) << 24) | 0x00202020;
 
         GuiGraphics g = event.getGuiGraphics();
+
+        if (minimized) {
+            int bx = MINIMIZED_BTN_MARGIN;
+            int by = MINIMIZED_BTN_MARGIN;
+            int bw = minimizedRestoreBtnW(mc);
+            int bh = minimizedRestoreBtnH(mc);
+
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+
+            g.fill(bx, by, bx + bw, by + bh, neon);
+            if (hover) {
+                int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
+                g.fill(bx, by, bx + bw, by + bh, (hoverA << 24));
+            }
+            int tx = bx + MINIMIZED_BTN_PAD_X;
+            int ty = by + MINIMIZED_BTN_PAD_Y;
+            g.drawString(mc.font, MINIMIZED_RESTORE_LABEL, tx, ty, titleTextColor, false);
+
+            g.fill(bx, by, bx + bw, by + BORDER_PX, neonBorder);
+            g.fill(bx, by + bh - BORDER_PX, bx + bw, by + bh, neonBorder);
+            g.fill(bx, by, bx + BORDER_PX, by + bh, neonBorder);
+            g.fill(bx + bw - BORDER_PX, by, bx + bw, by + bh, neonBorder);
+
+            RenderSystem.disableBlend();
+
+            updateResizeCursor(mc, sw, sh, mx, my);
+            return;
+        }
+
         int ox = panelX;
         int oy = panelY;
         int ow = panelW;
@@ -598,8 +619,20 @@ public final class XosViewportOverlay {
 
         double mx = event.getMouseX();
         double my = event.getMouseY();
+        Minecraft mc = Minecraft.getInstance();
 
-        if (!panelContains(mx, my)) {
+        if (minimized) {
+            if (inMinimizedRestoreBtn(mx, my, mc)) {
+                minimized = false;
+                clampPartialOnScreen(sw, sh);
+                dragMode = DragMode.NONE;
+                clearTitleBarDoubleClickState();
+                event.setCanceled(true);
+            }
+            return;
+        }
+
+        if (!panelContains(mx, my, mc)) {
             return;
         }
 
@@ -607,7 +640,7 @@ public final class XosViewportOverlay {
             minimized = !minimized;
             clampPartialOnScreen(sw, sh);
             dragMode = DragMode.NONE;
-            titleBarAwaitingSecondClick = false;
+            clearTitleBarDoubleClickState();
             event.setCanceled(true);
             return;
         }
@@ -615,14 +648,13 @@ public final class XosViewportOverlay {
         if (inMaximizeBtn(mx, my)) {
             toggleMaximizedLayout(sw, sh);
             dragMode = DragMode.NONE;
-            titleBarAwaitingSecondClick = false;
             event.setCanceled(true);
             return;
         }
 
         DragMode r = hitTestResize(mx, my);
         if (r != DragMode.NONE) {
-            titleBarAwaitingSecondClick = false;
+            clearTitleBarDoubleClickState();
             dragMode = r;
             anchorPanelX = panelX;
             anchorPanelY = panelY;
@@ -640,14 +672,13 @@ public final class XosViewportOverlay {
                 double dist = Math.hypot(mx - titleBarFirstClickMx, my - titleBarFirstClickMy);
                 if (dist <= TITLE_DOUBLE_CLICK_MAX_DIST) {
                     toggleMaximizedLayout(sw, sh);
-                    titleBarAwaitingSecondClick = false;
                     dragMode = DragMode.NONE;
                     event.setCanceled(true);
                     return;
                 }
             }
             if (titleBarAwaitingSecondClick && (now - titleBarFirstClickNs) > TITLE_DOUBLE_CLICK_NS) {
-                titleBarAwaitingSecondClick = false;
+                clearTitleBarDoubleClickState();
             }
             titleBarAwaitingSecondClick = true;
             titleBarFirstClickNs = now;
@@ -668,6 +699,34 @@ public final class XosViewportOverlay {
         if (!(event.getScreen() instanceof ChatScreen) || event.getButton() != 0) {
             return;
         }
+        DragMode prev = dragMode;
+        if (maximized) {
+            if (prev == DragMode.MOVE) {
+                if (panelX != moveGrabPanelX || panelY != moveGrabPanelY) {
+                    restorePanelX = panelX;
+                    restorePanelY = panelY;
+                    restorePanelW = panelW;
+                    restoreContentH = contentH;
+                    restoreMinimized = minimized;
+                    clearTitleBarDoubleClickState();
+                }
+            } else if (isResizeDragMode(prev)) {
+                restorePanelX = panelX;
+                restorePanelY = panelY;
+                restorePanelW = panelW;
+                restoreContentH = contentH;
+                restoreMinimized = minimized;
+                clearTitleBarDoubleClickState();
+            }
+        } else {
+            if (prev == DragMode.MOVE) {
+                if (panelX != moveGrabPanelX || panelY != moveGrabPanelY) {
+                    clearTitleBarDoubleClickState();
+                }
+            } else if (isResizeDragMode(prev)) {
+                clearTitleBarDoubleClickState();
+            }
+        }
         dragMode = DragMode.NONE;
     }
 
@@ -680,7 +739,7 @@ public final class XosViewportOverlay {
         if (!(mc.screen instanceof ChatScreen)) {
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
-            titleBarAwaitingSecondClick = false;
+            clearTitleBarDoubleClickState();
             applyGlfwCursor(mc, 0L);
         }
     }
