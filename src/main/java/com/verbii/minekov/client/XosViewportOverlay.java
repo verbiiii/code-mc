@@ -14,8 +14,9 @@ import net.minecraftforge.fml.common.Mod;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * xos viewport on {@link ChatScreen}: draggable neon title bar, resizable body, framebuffer from JNI
- * (ball app) drawn in the content area; minimize hides the panel and shows a top-left restore button.
+ * xos viewport on {@link ChatScreen}: launcher starts minimized — JNI does not run until Run; draggable
+ * title bar with minimize / maximize / close; close stops the engine. While running and minimized, a
+ * green status dot appears bottom-right.
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -24,6 +25,13 @@ public final class XosViewportOverlay {
 
     /** Softer mint / light neon — title bar, minus sign (border uses same hue, lower alpha). */
     private static final int NEON_RGB = 0x7DD87A;
+    private static final int CLOSE_BTN_RGB = 0xE04040;
+    private static final int STATUS_GREEN_RGB = 0x22CC44;
+    private static final int INACTIVE_DOT_RGB = 0x888888;
+    /** Muted bar when engine is running but panel is minimized */
+    private static final int MUTED_LAUNCH_RGB = 0x6A7A6A;
+    /** Bar when engine is stopped */
+    private static final int INACTIVE_LAUNCH_RGB = 0x505050;
 
     /** Title chrome height (+10% vs prior 7px). */
     private static final int TITLE_BAR_H = 8;
@@ -66,7 +74,8 @@ public final class XosViewportOverlay {
     /** Black viewport height (not including title bar). */
     private static int contentH;
     private static boolean layoutReady;
-    private static boolean minimized;
+    /** Start with the panel collapsed so xos does not run until the user clicks Run. */
+    private static boolean minimized = true;
 
     /** Double-click title bar: nearly full screen with 10% inset; double-click again restores. */
     private static boolean maximized;
@@ -178,7 +187,7 @@ public final class XosViewportOverlay {
             applyGlfwCursor(mc, cursorHand);
             return;
         }
-        if (inMinimizeBtn(mx, my) || inMaximizeBtn(mx, my)) {
+        if (inMinimizeBtn(mx, my) || inMaximizeBtn(mx, my) || inCloseBtn(mx, my)) {
             applyGlfwCursor(mc, cursorHand);
             return;
         }
@@ -234,6 +243,26 @@ public final class XosViewportOverlay {
         g.fill(bx, by + 2, bx + 3, by + 3, color);
         g.fill(bx, by + 1, bx + 1, by + 2, color);
         g.fill(bx + 2, by + 1, bx + 3, by + 2, color);
+    }
+
+    /** Simple 5×5-ish disk for status dots (GUI pixels). */
+    private static void fillDisk5(GuiGraphics g, int cx, int cy, int argb) {
+        g.fill(cx - 2, cy - 1, cx + 3, cy + 2, argb);
+        g.fill(cx - 1, cy - 2, cx + 2, cy + 3, argb);
+    }
+
+    private static int rgbWithAlpha(float panelAlpha, int rgb) {
+        int a = Math.min(255, Math.max(0, Math.round(panelAlpha * 255.0f)));
+        return (a << 24) | (rgb & 0x00FFFFFF);
+    }
+
+    /** Two-stroke red X for the close button */
+    private static void drawCloseGlyph(GuiGraphics g, int bx, int by, int argb) {
+        int o = 1;
+        for (int i = 0; i < 4; i++) {
+            g.fill(bx + o + i, by + o + i, bx + o + i + 1, by + o + i + 1, argb);
+            g.fill(bx + o + 3 - i, by + o + i, bx + o + 4 - i, by + o + i + 1, argb);
+        }
     }
 
     private static void ensureLayout(int sw, int sh) {
@@ -305,13 +334,17 @@ public final class XosViewportOverlay {
         clampPartialOnScreen(sw, sh);
     }
 
-    /** Rightmost = maximize; next left = minimize */
-    private static int maximizeBtnX() {
+    /** Rightmost = close; then maximize; then minimize */
+    private static int closeBtnX() {
         return panelX + panelW - TITLE_BAR_PAD - TITLE_BAR_BTN;
     }
 
+    private static int maximizeBtnX() {
+        return closeBtnX() - TITLE_BAR_BTN_GAP - TITLE_BAR_BTN;
+    }
+
     private static int minimizeBtnX() {
-        return panelX + panelW - TITLE_BAR_PAD - 2 * TITLE_BAR_BTN - TITLE_BAR_BTN_GAP;
+        return maximizeBtnX() - TITLE_BAR_BTN_GAP - TITLE_BAR_BTN;
     }
 
     private static int titleBarBtnY() {
@@ -330,11 +363,17 @@ public final class XosViewportOverlay {
         return mx >= bx && mx < bx + TITLE_BAR_BTN && my >= by && my < by + TITLE_BAR_BTN;
     }
 
+    private static boolean inCloseBtn(double mx, double my) {
+        int bx = closeBtnX();
+        int by = titleBarBtnY();
+        return mx >= bx && mx < bx + TITLE_BAR_BTN && my >= by && my < by + TITLE_BAR_BTN;
+    }
+
     private static boolean inTitleBarDragRegion(double mx, double my) {
         if (mx < panelX || mx >= panelX + panelW || my < panelY || my >= panelY + TITLE_BAR_H) {
             return false;
         }
-        return !inMinimizeBtn(mx, my) && !inMaximizeBtn(mx, my);
+        return !inMinimizeBtn(mx, my) && !inMaximizeBtn(mx, my) && !inCloseBtn(mx, my);
     }
 
     private static DragMode hitTestResize(double mx, double my) {
@@ -518,6 +557,8 @@ public final class XosViewportOverlay {
 
         applyDragOrResize(mc, sw, sh);
 
+        XosViewportRuntime.pumpFrame(mc, panelW, contentH);
+
         double mx = scaledMouseX(mc, sw);
         double my = scaledMouseY(mc, sh);
 
@@ -540,22 +581,39 @@ public final class XosViewportOverlay {
             int bw = minimizedRestoreBtnW(mc);
             int bh = minimizedRestoreBtnH(mc);
 
+            boolean session = XosViewportRuntime.isRunSession();
+            int launchRgb = session ? MUTED_LAUNCH_RGB : INACTIVE_LAUNCH_RGB;
+            int launchFill = rgbWithAlpha(drawA, launchRgb);
+
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
 
-            g.fill(bx, by, bx + bw, by + bh, neon);
+            g.fill(bx, by, bx + bw, by + bh, launchFill);
             if (hover) {
                 int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
                 g.fill(bx, by, bx + bw, by + bh, (hoverA << 24));
+            }
+            int dotCx = bx + MINIMIZED_BTN_PAD_X - 6;
+            int dotCy = by + bh / 2;
+            int inactiveDot = rgbWithAlpha(drawA, INACTIVE_DOT_RGB);
+            if (!session) {
+                fillDisk5(g, dotCx, dotCy, inactiveDot);
             }
             int tx = bx + MINIMIZED_BTN_PAD_X;
             int ty = by + MINIMIZED_BTN_PAD_Y;
             g.drawString(mc.font, MINIMIZED_RESTORE_LABEL, tx, ty, titleTextColor, false);
 
-            g.fill(bx, by, bx + bw, by + BORDER_PX, neonBorder);
-            g.fill(bx, by + bh - BORDER_PX, bx + bw, by + bh, neonBorder);
-            g.fill(bx, by, bx + BORDER_PX, by + bh, neonBorder);
-            g.fill(bx + bw - BORDER_PX, by, bx + bw, by + bh, neonBorder);
+            int borderCol = session ? neonBorderArgb(drawA * 0.75f) : neonBorderArgb(drawA * 0.5f);
+            g.fill(bx, by, bx + bw, by + BORDER_PX, borderCol);
+            g.fill(bx, by + bh - BORDER_PX, bx + bw, by + bh, borderCol);
+            g.fill(bx, by, bx + BORDER_PX, by + bh, borderCol);
+            g.fill(bx + bw - BORDER_PX, by, bx + bw, by + bh, borderCol);
+
+            if (session) {
+                int gx = sw - 12;
+                int gy = sh - 12;
+                fillDisk5(g, gx, gy, rgbWithAlpha(drawA, STATUS_GREEN_RGB));
+            }
 
             RenderSystem.disableBlend();
 
@@ -583,8 +641,10 @@ public final class XosViewportOverlay {
         int btnY = titleBarBtnY();
         int minBx = minimizeBtnX();
         int maxBx = maximizeBtnX();
+        int clsBx = closeBtnX();
         boolean hovMin = inMinimizeBtn(mx, my);
         boolean hovMax = inMaximizeBtn(mx, my);
+        boolean hovCls = inCloseBtn(mx, my);
 
         // Minimize: optional faded hover, then a thin black dash (no square)
         if (hovMin) {
@@ -603,10 +663,16 @@ public final class XosViewportOverlay {
         }
         drawMaximizeGlyph(g, maxBx, btnY, maximized, blackArgb(drawA));
 
+        if (hovCls) {
+            int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
+            g.fill(clsBx, btnY, clsBx + TITLE_BAR_BTN, btnY + TITLE_BAR_BTN, (hoverA << 24));
+        }
+        drawCloseGlyph(g, clsBx, btnY, rgbWithAlpha(drawA, CLOSE_BTN_RGB));
+
         int bodyTop = oy + th;
         if (bodyH > 0) {
             XosViewportRuntime.syncPointer(mc, mx, my, ox, bodyTop, ow, bodyH);
-            if (!XosViewportRuntime.renderIntoViewport(g, ox, bodyTop, ow, bodyH)) {
+            if (!XosViewportRuntime.blitViewport(g, ox, bodyTop, ow, bodyH)) {
                 g.fill(ox, bodyTop, ox + ow, bodyTop + bodyH, blk);
             }
         }
@@ -637,6 +703,9 @@ public final class XosViewportOverlay {
 
         if (minimized) {
             if (inMinimizedRestoreBtn(mx, my, mc)) {
+                if (!XosViewportRuntime.isRunSession()) {
+                    XosViewportRuntime.setRunSession(true);
+                }
                 minimized = false;
                 clampPartialOnScreen(sw, sh);
                 dragMode = DragMode.NONE;
@@ -647,6 +716,16 @@ public final class XosViewportOverlay {
         }
 
         if (!panelContains(mx, my, mc)) {
+            return;
+        }
+
+        if (inCloseBtn(mx, my)) {
+            XosViewportRuntime.setRunSession(false);
+            minimized = true;
+            clampPartialOnScreen(sw, sh);
+            dragMode = DragMode.NONE;
+            clearTitleBarDoubleClickState();
+            event.setCanceled(true);
             return;
         }
 

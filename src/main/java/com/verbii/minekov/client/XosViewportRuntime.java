@@ -18,12 +18,9 @@ import org.slf4j.Logger;
 import java.nio.ByteBuffer;
 
 /**
- * Runs the xos engine (ball app via JNI) and copies each frame into a {@link DynamicTexture}.
- * <p>
- * Resolution is kept in lockstep with the on-screen viewport: {@code init}/{@code resize} and the
- * texture are exactly {@code w}×{@code h} GUI pixels — the same {@code w} and {@code h} passed to
- * {@link #renderIntoViewport}. Pointer coordinates from {@link #syncPointer} use the same space
- * (0…w, 0…h inside the body rectangle).
+ * Runs the xos engine (ball app via JNI) when {@link #setRunSession(boolean) run session} is on;
+ * copies each frame into a {@link DynamicTexture}. Pump the engine every frame with
+ * {@link #pumpFrame}; blit into the panel with {@link #blitViewport} when the body is visible.
  */
 @OnlyIn(Dist.CLIENT)
 public final class XosViewportRuntime {
@@ -37,6 +34,9 @@ public final class XosViewportRuntime {
     private static boolean libraryOk;
     private static boolean engineRunning;
 
+    /** User chose Run; cleared on Close or when leaving chat. */
+    private static boolean runSession;
+
     private static int texW = -1;
     private static int texH = -1;
 
@@ -44,6 +44,21 @@ public final class XosViewportRuntime {
     private static DynamicTexture dynamicTexture;
 
     private XosViewportRuntime() {}
+
+    public static boolean isRunSession() {
+        return runSession;
+    }
+
+    /**
+     * Starts or stops the JNI session. Stopping calls {@link #disposeEngine()} to release native
+     * state and the GPU texture.
+     */
+    public static void setRunSession(boolean active) {
+        runSession = active;
+        if (!active) {
+            disposeEngine();
+        }
+    }
 
     private static void tryLoadLibrary() {
         if (libraryTried) {
@@ -60,55 +75,70 @@ public final class XosViewportRuntime {
     }
 
     /**
-     * @param w viewport width in GUI pixels (engine framebuffer width)
-     * @param h viewport height in GUI pixels (engine framebuffer height)
-     * @return true if the framebuffer was drawn (caller should skip solid black fill)
+     * Advance the native engine and upload the framebuffer (call every frame while chat is open and
+     * {@link #isRunSession()}).
      */
-    public static boolean renderIntoViewport(GuiGraphics g, int x, int y, int w, int h) {
+    public static void pumpFrame(Minecraft mc, int guiBodyW, int guiBodyH) {
+        if (!runSession) {
+            return;
+        }
         tryLoadLibrary();
-        if (!libraryOk || w < 1 || h < 1) {
-            return false;
+        if (!libraryOk || guiBodyW < 1 || guiBodyH < 1) {
+            return;
         }
 
-        Minecraft mc = Minecraft.getInstance();
-        ensureEngineAndTexture(mc, w, h);
+        int fbW = framebufferWidth(mc, guiBodyW);
+        int fbH = framebufferHeight(mc, guiBodyH);
+        ensureEngineAndTexture(mc, fbW, fbH);
 
         XosNative.tick();
 
         ByteBuffer buf = XosNative.getFrameBuffer();
         if (buf == null || nativeImage == null) {
-            return false;
+            return;
         }
 
-        int need = w * h * 4;
+        int need = fbW * fbH * 4;
         if (buf.capacity() < need) {
-            return false;
+            return;
         }
 
-        copyRgbaToImage(buf, w, h);
+        copyRgbaToImage(buf, fbW, fbH);
         dynamicTexture.upload();
+    }
 
-        g.blit(TEX_LOC, x, y, 0, 0f, 0f, w, h, w, h);
+    /**
+     * Blits the last uploaded frame into the panel body. Call after {@link #pumpFrame} the same
+     * frame.
+     */
+    public static boolean blitViewport(GuiGraphics g, int x, int y, int guiW, int guiH) {
+        if (!runSession || !libraryOk || nativeImage == null || guiW < 1 || guiH < 1) {
+            return false;
+        }
+        int tw = nativeImage.getWidth();
+        int th = nativeImage.getHeight();
+        g.blit(TEX_LOC, x, y, 0, 0f, 0f, guiW, guiH, tw, th);
         return true;
     }
 
     public static void syncPointer(
             Minecraft mc, double mouseX, double mouseY, int bodyLeft, int bodyTop, int bodyW, int bodyH) {
-        if (!libraryOk || !engineRunning || bodyW < 1 || bodyH < 1) {
+        if (!libraryOk || !engineRunning || !runSession || bodyW < 1 || bodyH < 1) {
             return;
         }
         if (mouseX >= bodyLeft
                 && mouseX < bodyLeft + bodyW
                 && mouseY >= bodyTop
                 && mouseY < bodyTop + bodyH) {
-            float lx = (float) (mouseX - bodyLeft);
-            float ly = (float) (mouseY - bodyTop);
+            float s = (float) effectiveGuiScale(mc);
+            float lx = (float) (mouseX - bodyLeft) * s;
+            float ly = (float) (mouseY - bodyTop) * s;
             XosNative.onMouseMove(lx, ly);
         }
     }
 
     public static void onMouseDownInBody() {
-        if (!libraryOk || !engineRunning) {
+        if (!libraryOk || !engineRunning || !runSession) {
             return;
         }
         XosNative.onMouseDown(0);
@@ -123,6 +153,7 @@ public final class XosViewportRuntime {
 
     /** Call when chat closes so the native engine and GPU texture can be released. */
     public static void disposeEngine() {
+        runSession = false;
         if (!libraryOk || !engineRunning) {
             return;
         }
@@ -141,21 +172,37 @@ public final class XosViewportRuntime {
         }
     }
 
-    private static void ensureEngineAndTexture(Minecraft mc, int w, int h) {
+    private static void ensureEngineAndTexture(Minecraft mc, int fbW, int fbH) {
         if (!engineRunning) {
-            XosNative.init(w, h);
+            XosNative.init(fbW, fbH);
             engineRunning = true;
-            texW = w;
-            texH = h;
-            rebuildTexture(mc, w, h);
+            texW = fbW;
+            texH = fbH;
+            rebuildTexture(mc, fbW, fbH);
             return;
         }
-        if (w != texW || h != texH) {
-            XosNative.resize(w, h);
-            texW = w;
-            texH = h;
-            rebuildTexture(mc, w, h);
+        if (fbW != texW || fbH != texH) {
+            XosNative.resize(fbW, fbH);
+            texW = fbW;
+            texH = fbH;
+            rebuildTexture(mc, fbW, fbH);
         }
+    }
+
+    private static double effectiveGuiScale(Minecraft mc) {
+        double s = mc.getWindow().getGuiScale();
+        if (s <= 0.0 || Double.isNaN(s)) {
+            return 1.0;
+        }
+        return s;
+    }
+
+    private static int framebufferWidth(Minecraft mc, int guiW) {
+        return Math.max(1, (int) Math.round(guiW * effectiveGuiScale(mc)));
+    }
+
+    private static int framebufferHeight(Minecraft mc, int guiH) {
+        return Math.max(1, (int) Math.round(guiH * effectiveGuiScale(mc)));
     }
 
     private static void rebuildTexture(Minecraft mc, int w, int h) {
