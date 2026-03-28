@@ -48,9 +48,8 @@ public final class XosViewportOverlay {
 
     private static final String MINIMIZED_RESTORE_LABEL = "xos viewport";
 
-    /** 1 logical px; drawn with reduced alpha so it reads ~30% thinner */
+    /** 1 logical px; opacity matches {@link XosViewportRuntime} viewport α (60% / 80%). */
     private static final int BORDER_PX = 1;
-    private static final float BORDER_ALPHA_MUL = 0.65f;
     /** Resize hit zones (~50% thinner than original 6/4 for easier corner vs edge grabs). */
     private static final int HANDLE_CORNER = 3;
     private static final int HANDLE_EDGE = 2;
@@ -64,11 +63,9 @@ public final class XosViewportOverlay {
     /** At least this fraction of the panel must stay on-screen (10%). */
     private static final double MIN_VISIBLE_FRAC = 0.10;
 
+    /** Must match {@link XosViewportRuntime} panel opacity (texture α 153 / 204). */
     private static final float ALPHA_IDLE = 0.6f;
     private static final float ALPHA_HOVER = 0.8f;
-    private static final float SMOOTH = 0.18f;
-
-    private static float smoothedAlpha = ALPHA_IDLE;
 
     private static int panelX;
     private static int panelY;
@@ -210,11 +207,9 @@ public final class XosViewportOverlay {
         return (a << 24) | (NEON_RGB & 0x00FFFFFF);
     }
 
-    /** Border stroke: same hue, lower alpha so the frame looks thinner / less loud */
+    /** Border stroke: same α as title bar / viewport (no extra dimming). */
     private static int neonBorderArgb(float panelAlpha) {
-        float a = Mth.clamp(panelAlpha * BORDER_ALPHA_MUL, 0.0f, 1.0f);
-        int ai = Math.min(255, Math.max(0, Math.round(a * 255.0f)));
-        return (ai << 24) | (NEON_RGB & 0x00FFFFFF);
+        return neonArgb(panelAlpha);
     }
 
     private static int blackArgb(float alpha) {
@@ -500,7 +495,6 @@ public final class XosViewportOverlay {
             case GLFW.GLFW_KEY_DELETE -> 0x7F;
             case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> '\n';
             case GLFW.GLFW_KEY_TAB -> '\t';
-            case GLFW.GLFW_KEY_ESCAPE -> 0x1B;
             case GLFW.GLFW_KEY_LEFT -> 0x2190;
             case GLFW.GLFW_KEY_RIGHT -> 0x2192;
             case GLFW.GLFW_KEY_UP -> 0x2191;
@@ -611,6 +605,9 @@ public final class XosViewportOverlay {
             return;
         }
         int key = event.getKeyCode();
+        if (key == GLFW.GLFW_KEY_ESCAPE) {
+            return;
+        }
         if (isModifierOrToggleKey(key)) {
             event.setCanceled(true);
             return;
@@ -661,10 +658,7 @@ public final class XosViewportOverlay {
         boolean hover = panelContains(mx, my, mc);
         XosViewportRuntime.setPanelHovered(hover);
         XosViewportRuntime.pumpFrame(mc, panelW, contentH);
-        float target = hover ? ALPHA_HOVER : ALPHA_IDLE;
-        smoothedAlpha += (target - smoothedAlpha) * SMOOTH;
-
-        float drawA = smoothedAlpha;
+        float drawA = hover ? ALPHA_HOVER : ALPHA_IDLE;
         int neon = neonArgb(drawA);
         int neonBorder = neonBorderArgb(drawA);
         int blk = blackArgb(drawA);
@@ -701,7 +695,7 @@ public final class XosViewportOverlay {
             int ty = by + MINIMIZED_BTN_PAD_Y;
             g.drawString(mc.font, MINIMIZED_RESTORE_LABEL, tx, ty, titleTextColor, false);
 
-            int borderCol = session ? neonBorderArgb(drawA * 0.75f) : neonBorderArgb(drawA * 0.5f);
+            int borderCol = neonBorderArgb(drawA);
             g.fill(bx, by, bx + bw, by + BORDER_PX, borderCol);
             g.fill(bx, by + bh - BORDER_PX, bx + bw, by + bh, borderCol);
             g.fill(bx, by, bx + BORDER_PX, by + bh, borderCol);
@@ -709,7 +703,7 @@ public final class XosViewportOverlay {
 
             // Session “online” indicator on the pill (screen corner was clipped by chat scissor).
             if (session) {
-                fillDisk5(g, statusDotCx, statusDotCy, 0xFF000000 | (STATUS_GREEN_RGB & 0x00FFFFFF));
+                fillDisk5(g, statusDotCx, statusDotCy, rgbWithAlpha(drawA, STATUS_GREEN_RGB));
             }
 
             RenderSystem.disableBlend();
@@ -938,7 +932,6 @@ public final class XosViewportOverlay {
         boolean chatOpen = mc.screen instanceof ChatScreen;
 
         if (!chatOpen) {
-            smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
             clearTitleBarDoubleClickState();
             applyGlfwCursor(mc, 0L);
