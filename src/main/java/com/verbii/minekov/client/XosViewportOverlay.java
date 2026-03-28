@@ -16,8 +16,9 @@ import org.lwjgl.glfw.GLFW;
 /**
  * xos viewport on {@link ChatScreen}: launcher starts minimized — JNI does not run until Run; draggable
  * title bar with minimize / maximize / close; close stops the engine. Closing chat does not stop the
- * engine; it keeps simulating until close. While running and minimized, a green status dot appears
- * bottom-right.
+ * engine; it keeps simulating until close. While running and minimized, a green status dot appears on
+ * the right (gray when offline). With a run session, keyboard goes to xos while the pointer is over the
+ * panel; otherwise chat behaves normally (including Escape to close).
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -454,6 +455,60 @@ public final class XosViewportOverlay {
         return mx >= panelX && mx < panelX + panelW && my >= panelY && my < panelY + h;
     }
 
+    /** Horizontal inset from the pill’s right edge for the online (green) / offline (gray) status dot. */
+    private static final int MINIMIZED_STATUS_DOT_INSET = 10;
+
+    private static boolean shouldRouteKeyboardToXos(Minecraft mc) {
+        if (!(mc.screen instanceof ChatScreen)) {
+            return false;
+        }
+        if (!XosViewportRuntime.isRunSession() || !layoutReady) {
+            return false;
+        }
+        ChatScreen cs = (ChatScreen) mc.screen;
+        ensureLayout(cs.width, cs.height);
+        double mx = scaledMouseX(mc, cs.width);
+        double my = scaledMouseY(mc, cs.height);
+        return panelContains(mx, my, mc);
+    }
+
+    private static boolean isModifierOrToggleKey(int key) {
+        return switch (key) {
+            case GLFW.GLFW_KEY_LEFT_SHIFT,
+                    GLFW.GLFW_KEY_RIGHT_SHIFT,
+                    GLFW.GLFW_KEY_LEFT_CONTROL,
+                    GLFW.GLFW_KEY_RIGHT_CONTROL,
+                    GLFW.GLFW_KEY_LEFT_ALT,
+                    GLFW.GLFW_KEY_RIGHT_ALT,
+                    GLFW.GLFW_KEY_LEFT_SUPER,
+                    GLFW.GLFW_KEY_RIGHT_SUPER,
+                    GLFW.GLFW_KEY_CAPS_LOCK,
+                    GLFW.GLFW_KEY_NUM_LOCK,
+                    GLFW.GLFW_KEY_SCROLL_LOCK -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Keys handled in {@link ScreenEvent.KeyPressed.Pre} so they reach xos without duplicating
+     * {@link ScreenEvent.CharacterTyped.Pre}. Returns -1 for keys that should only come through character
+     * events.
+     */
+    private static int navigationKeyToCodePoint(int key) {
+        return switch (key) {
+            case GLFW.GLFW_KEY_BACKSPACE -> '\b';
+            case GLFW.GLFW_KEY_DELETE -> 0x7F;
+            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> '\n';
+            case GLFW.GLFW_KEY_TAB -> '\t';
+            case GLFW.GLFW_KEY_ESCAPE -> 0x1B;
+            case GLFW.GLFW_KEY_LEFT -> 0x2190;
+            case GLFW.GLFW_KEY_RIGHT -> 0x2192;
+            case GLFW.GLFW_KEY_UP -> 0x2191;
+            case GLFW.GLFW_KEY_DOWN -> 0x2193;
+            default -> -1;
+        };
+    }
+
     private static double scaledMouseX(Minecraft mc, int sw) {
         return mc.mouseHandler.xpos() * (double) sw / (double) mc.getWindow().getScreenWidth();
     }
@@ -547,6 +602,47 @@ public final class XosViewportOverlay {
     }
 
     @SubscribeEvent
+    public static void onScreenKeyPressed(ScreenEvent.KeyPressed.Pre event) {
+        if (!(event.getScreen() instanceof ChatScreen)) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (!shouldRouteKeyboardToXos(mc)) {
+            return;
+        }
+        int key = event.getKeyCode();
+        if (isModifierOrToggleKey(key)) {
+            event.setCanceled(true);
+            return;
+        }
+        int nav = navigationKeyToCodePoint(key);
+        if (nav != -1) {
+            XosViewportRuntime.sendKeyCharToEngine(nav);
+            event.setCanceled(true);
+            return;
+        }
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent
+    public static void onScreenCharTyped(ScreenEvent.CharacterTyped.Pre event) {
+        if (!(event.getScreen() instanceof ChatScreen)) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (!shouldRouteKeyboardToXos(mc)) {
+            return;
+        }
+        int cp = event.getCodePoint();
+        if (cp == '\t' || cp == '\n' || cp == '\r') {
+            event.setCanceled(true);
+            return;
+        }
+        XosViewportRuntime.sendKeyCharToEngine(cp);
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent
     public static void onScreenRenderPost(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof ChatScreen)) {
             return;
@@ -595,11 +691,11 @@ public final class XosViewportOverlay {
                 int hoverA = Math.min(255, Math.round(drawA * 0.22f * 255.0f));
                 g.fill(bx, by, bx + bw, by + bh, (hoverA << 24));
             }
-            int dotCx = bx + MINIMIZED_BTN_PAD_X - 6;
-            int dotCy = by + bh / 2;
+            int statusDotCx = bx + bw - MINIMIZED_STATUS_DOT_INSET;
+            int statusDotCy = by + bh / 2;
             int inactiveDot = rgbWithAlpha(drawA, INACTIVE_DOT_RGB);
             if (!session) {
-                fillDisk5(g, dotCx, dotCy, inactiveDot);
+                fillDisk5(g, statusDotCx, statusDotCy, inactiveDot);
             }
             int tx = bx + MINIMIZED_BTN_PAD_X;
             int ty = by + MINIMIZED_BTN_PAD_Y;
@@ -613,9 +709,7 @@ public final class XosViewportOverlay {
 
             // Session “online” indicator on the pill (screen corner was clipped by chat scissor).
             if (session) {
-                int grx = bx + bw - 10;
-                int gry = by + bh / 2;
-                fillDisk5(g, grx, gry, 0xFF000000 | (STATUS_GREEN_RGB & 0x00FFFFFF));
+                fillDisk5(g, statusDotCx, statusDotCy, 0xFF000000 | (STATUS_GREEN_RGB & 0x00FFFFFF));
             }
 
             RenderSystem.disableBlend();

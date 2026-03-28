@@ -167,6 +167,20 @@ public final class XosViewportRuntime {
         XosNative.onMouseUp(0);
     }
 
+    /**
+     * Forward Unicode input to the native app when chat is routing keys to xos (hover + run session).
+     */
+    public static void sendKeyCharToEngine(int codepoint) {
+        if (!runSession) {
+            return;
+        }
+        tryLoadLibrary();
+        if (!libraryOk || !engineRunning) {
+            return;
+        }
+        XosNative.onKeyChar(codepoint);
+    }
+
     /** Call when chat closes so the native engine and GPU texture can be released. */
     public static void disposeEngine() {
         runSession = false;
