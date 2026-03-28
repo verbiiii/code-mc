@@ -22,13 +22,16 @@ public final class XosViewportOverlay {
 
     private XosViewportOverlay() {}
 
-    /** Electric lime — border, title bar, minimize glyph */
-    private static final int NEON_RGB = 0x39FF14;
+    /** Softer mint / light neon — title bar, minus sign (border uses same hue, lower alpha). */
+    private static final int NEON_RGB = 0x7DD87A;
 
-    private static final int TITLE_BAR_H = 8;
-    private static final int MINIMIZE_BTN = 7;
+    /** ~5% shorter than prior 8px */
+    private static final int TITLE_BAR_H = 7;
+    private static final int MINIMIZE_BTN = 6;
     private static final int MINIMIZE_PAD = 1;
+    /** 1 logical px; drawn with reduced alpha so it reads ~30% thinner */
     private static final int BORDER_PX = 1;
+    private static final float BORDER_ALPHA_MUL = 0.65f;
     private static final int HANDLE_CORNER = 6;
     private static final int HANDLE_EDGE = 4;
 
@@ -54,6 +57,21 @@ public final class XosViewportOverlay {
     private static int contentH;
     private static boolean layoutReady;
     private static boolean minimized;
+
+    /** Double-click title bar: nearly full screen with 10% inset; double-click again restores. */
+    private static boolean maximized;
+    private static int restorePanelX;
+    private static int restorePanelY;
+    private static int restorePanelW;
+    private static int restoreContentH;
+    private static boolean restoreMinimized;
+
+    private static boolean titleBarAwaitingSecondClick;
+    private static long titleBarFirstClickNs;
+    private static double titleBarFirstClickMx;
+    private static double titleBarFirstClickMy;
+    private static final long TITLE_DOUBLE_CLICK_NS = 400_000_000L;
+    private static final double TITLE_DOUBLE_CLICK_MAX_DIST = 12.0;
 
     private enum DragMode {
         NONE,
@@ -159,6 +177,13 @@ public final class XosViewportOverlay {
         return (a << 24) | (NEON_RGB & 0x00FFFFFF);
     }
 
+    /** Border stroke: same hue, lower alpha so the frame looks thinner / less loud */
+    private static int neonBorderArgb(float panelAlpha) {
+        float a = Mth.clamp(panelAlpha * BORDER_ALPHA_MUL, 0.0f, 1.0f);
+        int ai = Math.min(255, Math.max(0, Math.round(a * 255.0f)));
+        return (ai << 24) | (NEON_RGB & 0x00FFFFFF);
+    }
+
     private static int blackArgb(float alpha) {
         int a = Math.min(255, Math.max(0, Math.round(alpha * 255.0f)));
         return (a << 24);
@@ -199,6 +224,33 @@ public final class XosViewportOverlay {
 
         panelX = Mth.clamp(panelX, minX, maxX);
         panelY = Mth.clamp(panelY, minY, maxY);
+    }
+
+    private static void toggleMaximizedLayout(int sw, int sh) {
+        if (!maximized) {
+            restorePanelX = panelX;
+            restorePanelY = panelY;
+            restorePanelW = panelW;
+            restoreContentH = contentH;
+            restoreMinimized = minimized;
+            minimized = false;
+            int insetX = Math.max(1, (int) Math.round(sw * 0.10));
+            int insetY = Math.max(1, (int) Math.round(sh * 0.10));
+            panelX = insetX;
+            panelY = insetY;
+            panelW = Math.max(MIN_PANEL_W, sw - 2 * insetX);
+            int innerH = Math.max(TITLE_BAR_H + MIN_CONTENT_H, (int) Math.round(sh * 0.80));
+            contentH = Math.max(MIN_CONTENT_H, innerH - TITLE_BAR_H);
+            maximized = true;
+        } else {
+            panelX = restorePanelX;
+            panelY = restorePanelY;
+            panelW = restorePanelW;
+            contentH = restoreContentH;
+            minimized = restoreMinimized;
+            maximized = false;
+        }
+        clampPartialOnScreen(sw, sh);
     }
 
     private static int minimizeBtnX() {
@@ -428,6 +480,7 @@ public final class XosViewportOverlay {
 
         float a = smoothedAlpha;
         int neon = neonArgb(a);
+        int neonBorder = neonBorderArgb(a);
         int blk = blackArgb(a);
 
         GuiGraphics g = event.getGuiGraphics();
@@ -460,11 +513,11 @@ public final class XosViewportOverlay {
             g.fill(ox, oy + th, ox + ow, oy + th + bodyH, blk);
         }
 
-        // Thin neon border, same alpha as chrome
-        g.fill(ox, oy, ox + ow, oy + BORDER_PX, neon);
-        g.fill(ox, oy + oh - BORDER_PX, ox + ow, oy + oh, neon);
-        g.fill(ox, oy, ox + BORDER_PX, oy + oh, neon);
-        g.fill(ox + ow - BORDER_PX, oy, ox + ow, oy + oh, neon);
+        // Neon border (lighter weight than title bar)
+        g.fill(ox, oy, ox + ow, oy + BORDER_PX, neonBorder);
+        g.fill(ox, oy + oh - BORDER_PX, ox + ow, oy + oh, neonBorder);
+        g.fill(ox, oy, ox + BORDER_PX, oy + oh, neonBorder);
+        g.fill(ox + ow - BORDER_PX, oy, ox + ow, oy + oh, neonBorder);
 
         RenderSystem.disableBlend();
 
@@ -490,12 +543,14 @@ public final class XosViewportOverlay {
         if (inMinimizeBtn(mx, my)) {
             minimized = !minimized;
             dragMode = DragMode.NONE;
+            titleBarAwaitingSecondClick = false;
             event.setCanceled(true);
             return;
         }
 
         DragMode r = hitTestResize(mx, my);
         if (r != DragMode.NONE) {
+            titleBarAwaitingSecondClick = false;
             dragMode = r;
             anchorPanelX = panelX;
             anchorPanelY = panelY;
@@ -508,6 +563,25 @@ public final class XosViewportOverlay {
         }
 
         if (inTitleBarDragRegion(mx, my)) {
+            long now = System.nanoTime();
+            if (titleBarAwaitingSecondClick && (now - titleBarFirstClickNs) <= TITLE_DOUBLE_CLICK_NS) {
+                double dist = Math.hypot(mx - titleBarFirstClickMx, my - titleBarFirstClickMy);
+                if (dist <= TITLE_DOUBLE_CLICK_MAX_DIST) {
+                    toggleMaximizedLayout(sw, sh);
+                    titleBarAwaitingSecondClick = false;
+                    dragMode = DragMode.NONE;
+                    event.setCanceled(true);
+                    return;
+                }
+            }
+            if (titleBarAwaitingSecondClick && (now - titleBarFirstClickNs) > TITLE_DOUBLE_CLICK_NS) {
+                titleBarAwaitingSecondClick = false;
+            }
+            titleBarAwaitingSecondClick = true;
+            titleBarFirstClickNs = now;
+            titleBarFirstClickMx = mx;
+            titleBarFirstClickMy = my;
+
             dragMode = DragMode.MOVE;
             moveGrabPanelX = panelX;
             moveGrabPanelY = panelY;
@@ -534,6 +608,7 @@ public final class XosViewportOverlay {
         if (!(mc.screen instanceof ChatScreen)) {
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
+            titleBarAwaitingSecondClick = false;
             applyGlfwCursor(mc, 0L);
         }
     }
