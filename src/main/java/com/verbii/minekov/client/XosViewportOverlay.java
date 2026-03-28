@@ -418,8 +418,9 @@ public final class XosViewportOverlay {
         return DragMode.NONE;
     }
 
+    /** Includes space for the session “online” green dot on the right. */
     private static int minimizedRestoreBtnW(Minecraft mc) {
-        return mc.font.width(MINIMIZED_RESTORE_LABEL) + 2 * MINIMIZED_BTN_PAD_X;
+        return mc.font.width(MINIMIZED_RESTORE_LABEL) + 2 * MINIMIZED_BTN_PAD_X + 14;
     }
 
     private static int minimizedRestoreBtnH(Minecraft mc) {
@@ -558,12 +559,12 @@ public final class XosViewportOverlay {
 
         applyDragOrResize(mc, sw, sh);
 
-        XosViewportRuntime.pumpFrame(mc, panelW, contentH);
-
         double mx = scaledMouseX(mc, sw);
         double my = scaledMouseY(mc, sh);
 
         boolean hover = panelContains(mx, my, mc);
+        XosViewportRuntime.setPanelHovered(hover);
+        XosViewportRuntime.pumpFrame(mc, panelW, contentH);
         float target = hover ? ALPHA_HOVER : ALPHA_IDLE;
         smoothedAlpha += (target - smoothedAlpha) * SMOOTH;
 
@@ -610,10 +611,11 @@ public final class XosViewportOverlay {
             g.fill(bx, by, bx + BORDER_PX, by + bh, borderCol);
             g.fill(bx + bw - BORDER_PX, by, bx + bw, by + bh, borderCol);
 
+            // Session “online” indicator on the pill (screen corner was clipped by chat scissor).
             if (session) {
-                int gx = sw - 12;
-                int gy = sh - 12;
-                fillDisk5(g, gx, gy, rgbWithAlpha(drawA, STATUS_GREEN_RGB));
+                int grx = bx + bw - 10;
+                int gry = by + bh / 2;
+                fillDisk5(g, grx, gry, 0xFF000000 | (STATUS_GREEN_RGB & 0x00FFFFFF));
             }
 
             RenderSystem.disableBlend();
@@ -865,6 +867,7 @@ public final class XosViewportOverlay {
         if (!XosViewportRuntime.isRunSession() || !layoutReady || panelW < 1 || contentH < 1) {
             return;
         }
+        XosViewportRuntime.setPanelHovered(false);
         XosViewportRuntime.pumpFrame(mc, panelW, contentH);
     }
 }

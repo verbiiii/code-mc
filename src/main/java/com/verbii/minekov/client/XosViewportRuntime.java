@@ -8,7 +8,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.FastColor;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
@@ -30,6 +29,11 @@ public final class XosViewportRuntime {
     private static final ResourceLocation TEX_LOC =
             ResourceLocation.fromNamespaceAndPath(Minekov.MODID, "dynamic/xos_viewport");
 
+    /** Viewport texture opacity when the xos panel is not hovered (ignore xos per-pixel alpha for this). */
+    private static final int VIEWPORT_ALPHA_IDLE = Math.round(255 * 0.6f);
+    /** Viewport texture opacity when the xos panel is hovered. */
+    private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
+
     private static boolean libraryTried;
     private static boolean libraryOk;
     private static boolean engineRunning;
@@ -43,7 +47,15 @@ public final class XosViewportRuntime {
     private static NativeImage nativeImage;
     private static DynamicTexture dynamicTexture;
 
+    /** Set each frame before {@link #pumpFrame} (chat) or background pump (not hovered). */
+    private static boolean panelHovered;
+
     private XosViewportRuntime() {}
+
+    /** Whether the mouse is over the xos panel (minimized strip or full window). Drives viewport α 60%/80%. */
+    public static void setPanelHovered(boolean hovered) {
+        panelHovered = hovered;
+    }
 
     public static boolean isRunSession() {
         return runSession;
@@ -174,6 +186,7 @@ public final class XosViewportRuntime {
             XosNative.shutdown();
         } catch (Throwable ignored) {
         }
+        panelHovered = false;
     }
 
     private static void ensureEngineAndTexture(Minecraft mc, int fbW, int fbH) {
@@ -219,15 +232,31 @@ public final class XosViewportRuntime {
         mc.getTextureManager().register(TEX_LOC, dynamicTexture);
     }
 
+    /**
+     * {@link NativeImage#setPixelRGBA} expects <strong>ABGR</strong> (Minecraft’s convention).
+     */
+    private static int packAbgr(int a, int r, int g, int b) {
+        return ((a & 0xFF) << 24) | (b << 16) | (g << 8) | r;
+    }
+
+    /**
+     * Ignore xos alpha for <em>window</em> opacity — only {@link #VIEWPORT_ALPHA_IDLE} /
+     * {@link #VIEWPORT_ALPHA_HOVER} apply. Use xos alpha only to composite RGB onto black (glyph edges +
+     * “empty” = black), then store that RGB with uniform output alpha.
+     */
     private static void copyRgbaToImage(ByteBuffer buf, int w, int h) {
+        int aOut = panelHovered ? VIEWPORT_ALPHA_HOVER : VIEWPORT_ALPHA_IDLE;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 int base = (y * w + x) * 4;
                 int r = buf.get(base) & 0xFF;
                 int g = buf.get(base + 1) & 0xFF;
                 int b = buf.get(base + 2) & 0xFF;
-                // Ignore xos alpha; Minecraft blending + panel chrome handle visibility — always opaque.
-                nativeImage.setPixelRGBA(x, y, FastColor.ARGB32.color(255, r, g, b));
+                int aIn = buf.get(base + 3) & 0xFF;
+                int rp = (r * aIn + 127) / 255;
+                int gp = (g * aIn + 127) / 255;
+                int bp = (b * aIn + 127) / 255;
+                nativeImage.setPixelRGBA(x, y, packAbgr(aOut, rp, gp, bp));
             }
         }
     }
