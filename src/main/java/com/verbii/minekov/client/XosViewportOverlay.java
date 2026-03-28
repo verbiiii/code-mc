@@ -15,8 +15,9 @@ import org.lwjgl.glfw.GLFW;
 
 /**
  * xos viewport on {@link ChatScreen}: launcher starts minimized — JNI does not run until Run; draggable
- * title bar with minimize / maximize / close; close stops the engine. While running and minimized, a
- * green status dot appears bottom-right.
+ * title bar with minimize / maximize / close; close stops the engine. Closing chat does not stop the
+ * engine; it keeps simulating until close. While running and minimized, a green status dot appears
+ * bottom-right.
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -838,12 +839,32 @@ public final class XosViewportOverlay {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (!(mc.screen instanceof ChatScreen)) {
-            XosViewportRuntime.disposeEngine();
+        boolean chatOpen = mc.screen instanceof ChatScreen;
+
+        if (!chatOpen) {
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
             clearTitleBarDoubleClickState();
             applyGlfwCursor(mc, 0L);
         }
+    }
+
+    /**
+     * While chat is closed, advance the JNI engine every frame so the simulation matches in-game
+     * framerate (chat open uses {@link ScreenEvent.Render.Post} instead).
+     */
+    @SubscribeEvent
+    public static void onRenderTickBackgroundPump(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen instanceof ChatScreen) {
+            return;
+        }
+        if (!XosViewportRuntime.isRunSession() || !layoutReady || panelW < 1 || contentH < 1) {
+            return;
+        }
+        XosViewportRuntime.pumpFrame(mc, panelW, contentH);
     }
 }

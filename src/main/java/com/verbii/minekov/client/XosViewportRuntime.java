@@ -110,6 +110,10 @@ public final class XosViewportRuntime {
     /**
      * Blits the last uploaded frame into the panel body. Call after {@link #pumpFrame} the same
      * frame.
+     * <p>
+     * Uses the overload where {@code guiW}/{@code guiH} are the <em>destination</em> size and
+     * {@code tw}/{@code th} define the full texture region to sample — otherwise Minecraft would only
+     * draw the top-left {@code guiW}×{@code guiH} texels of a larger framebuffer.
      */
     public static boolean blitViewport(GuiGraphics g, int x, int y, int guiW, int guiH) {
         if (!runSession || !libraryOk || nativeImage == null || guiW < 1 || guiH < 1) {
@@ -117,7 +121,7 @@ public final class XosViewportRuntime {
         }
         int tw = nativeImage.getWidth();
         int th = nativeImage.getHeight();
-        g.blit(TEX_LOC, x, y, 0, 0f, 0f, guiW, guiH, tw, th);
+        g.blit(TEX_LOC, x, y, guiW, guiH, 0f, 0f, tw, th, tw, th);
         return true;
     }
 
