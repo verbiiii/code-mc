@@ -50,11 +50,14 @@ class BinaryTransport:
             self.expected_next_incoming_tick = obs.tick + 1
         self.total_skipped_steps += steps_behind
 
-        movement_theta, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.tick(obs)
+        move_w_actions, move_a_actions, move_s_actions, move_d_actions, shoot_actions, jump_actions, sneak_actions, pitch_actions, yaw_actions = self.trainer.tick(obs)
         self.tick_count += 1
 
-        # Convert actions and encode response
-        angles = (movement_theta.float() / 8.0) * 360.0
+        # Convert WASD to angle+walk for wire compatibility with current Java decoder.
+        forward = move_w_actions.float() - move_s_actions.float()
+        strafe = move_d_actions.float() - move_a_actions.float()
+        walk_actions = (forward != 0.0) | (strafe != 0.0)
+        angles = torch.rad2deg(torch.atan2(strafe, forward))
         pitch_degrees = (pitch_actions.float() / 8.0) * 180.0 - 90.0  # Map 0-7 to -90 to +90 degrees
         yaw_degrees = (yaw_actions.float() / 8.0) * 360.0  # Map 0-7 to 0 to 360 degrees
         actions_binary = self._encode_actions(obs.agent_indices, angles, walk_actions, shoot_actions, jump_actions, sneak_actions, pitch_degrees, yaw_degrees)

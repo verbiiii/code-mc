@@ -4,9 +4,11 @@ import numpy as np
 import time
 import sys
 from typing import Dict, Tuple
+from pathlib import Path
 
 from observations import VectorizedObservations
 from rl_operator import RLOperators
+from metrics import get_random_experiment_name
 
 USE_WANDB = True
 
@@ -178,8 +180,12 @@ class VectorizedTrainer:
         self.status_display = LiveStatusDisplay(total_agents=num_agents)
         self.status_display.install_stream_interceptor()
 
+        self.experiment_name = get_random_experiment_name()
         self.wandb_url = None
         self._init_wandb()
+        self.checkpoint_root = Path("./checkpoints")
+        self.checkpoint_run_name = self.experiment_name
+        self.checkpoint_dir = self.checkpoint_root / self.checkpoint_run_name
 
         print(f"🚀 RLAgents: {sum(p.numel() for p in self.operators.parameters()):,} params on {self.operators.device}")
 
@@ -189,7 +195,11 @@ class VectorizedTrainer:
         try:
             import wandb
 
-            run = wandb.init(project="minekov-rl", config={"num_agents": self.num_agents})
+            run = wandb.init(
+                project="minekov-rl",
+                name=self.experiment_name,
+                config={"num_agents": self.num_agents},
+            )
             self.wandb_url = getattr(run, "url", None)
         except Exception as e:
             print(f"W&B init failed (training continues): {e}")
@@ -208,7 +218,7 @@ class VectorizedTrainer:
 
             if wandb.run is None:
                 return
-            # One value per agent: mean entropy across policy components (movement, walk, …).
+            # One value per agent: mean entropy across policy components.
             stacked = torch.stack([t.float() for t in entropy_by_component.values()], dim=0)
             per_agent = stacked.mean(dim=0)
             wandb.log(
@@ -232,8 +242,10 @@ class VectorizedTrainer:
         self._wandb_log_entropy(sample.entropy_by_component)
 
         return (
-            sample.movement_theta,
-            sample.walk_actions,
+            sample.move_w_actions,
+            sample.move_a_actions,
+            sample.move_s_actions,
+            sample.move_d_actions,
             sample.shoot_actions,
             sample.jump_actions,
             sample.sneak_actions,
@@ -359,6 +371,12 @@ class VectorizedTrainer:
             "top_rewards": [round(float(x), 2) for x in top_k_rewards.tolist()],
             "top_lifetimes": [round(float(x), 2) for x in top_k_lifetime_rewards.tolist()],
         }
+
+        checkpoint_path = self.operators.save_checkpoint(
+            checkpoint_dir=str(self.checkpoint_dir),
+            fmc_update=self.fmc_update_count,
+        )
+        print(f"💾 Saved FMC checkpoint: {checkpoint_path}")
 
     def update_runtime_status(self, processing_time_ms: float, active_agents: int, steps_behind: int = 0, total_skipped_steps: int = 0):
         self.processing_times_ms.append(float(processing_time_ms))

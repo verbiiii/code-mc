@@ -1,6 +1,7 @@
 package com.verbii.minekov.training;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -286,75 +287,57 @@ public class TrainingState {
     }
 
     private void setupRound() {
-        // sanity check: guarantee all values within the operators array are null (raise an error if not)
-        for (int i = 0; i < operatorsArray.length; i++) {
-            if (operatorsArray[i] != null) {
-                throw new IllegalStateException("Operator array not cleared properly before new round setup!");
-            }
-        }
-
         System.out.println("🚀 Setting up round " + (currentRound + 1));
 
         groups.clear();
         roundActive = true;
 
-        List<AIOperator> initialized = setupOperators();
-
-        if (initialized.size() != operatorsArray.length) {
-            throw new IllegalStateException("Number of initialized operators does not match expected size!");
+        boolean firstRoundSpawn = operatorsArray[0] == null;
+        if (firstRoundSpawn) {
+            List<AIOperator> initialized = spawnNewOperators();
+            if (initialized.size() != operatorsArray.length) {
+                throw new IllegalStateException("Number of initialized operators does not match expected size!");
+            }
+            Collections.shuffle(initialized, new Random());
+            for (int i = 0; i < initialized.size(); i++) {
+                operatorsArray[i] = initialized.get(i);
+            }
+        } else {
+            List<AIOperator> ordered = new ArrayList<>(Arrays.asList(operatorsArray));
+            Collections.shuffle(ordered, new Random());
+            for (int i = 0; i < ordered.size(); i++) {
+                operatorsArray[i] = ordered.get(i);
+            }
         }
 
-        Collections.shuffle(initialized, new Random());
-        for (int i = 0; i < initialized.size(); i++) {
-            operatorsArray[i] = initialized.get(i);
-        }
+        // First round: spawns already placed operators; later rounds: teleport to fresh spawns.
+        buildGroupsFromOperatorsArrayAndTeleport(!firstRoundSpawn);
 
         broadcastToPlayers("§eRound " + (currentRound + 1) + " started!");
     }
 
-    private List<AIOperator> setupOperators() {
+    /** First session only: create entities in the world. */
+    private List<AIOperator> spawnNewOperators() {
         List<AIOperator> allOperators = new ArrayList<>();
-
-        int maxTicks = maxSecondsPerRound * 20;
 
         if (mode == TrainingGameMode.ONE_VS_ONE) {
             for (int i = 0; i < totalOperatorSlots / 2; i++) {
-
-                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
-
                 RLOperator rl1 = operatorSpawningHandler.spawnRLOperator(0);
                 allOperators.add(rl1);
-                Team team1 = new Team();
-                team1.addOperator(rl1);
-
-                AIOperator opponent;
                 if (selfPlay) {
                     RLOperator rl2 = operatorSpawningHandler.spawnRLOperator(0);
                     allOperators.add(rl2);
-                    opponent = rl2;
                 } else {
                     DumbOperator dumb = operatorSpawningHandler.spawnDumbOperator();
                     allOperators.add(dumb);
-                    opponent = dumb;
                 }
-                Team team2 = new Team();
-                team2.addOperator(opponent);
-
-                group.addTeam(team1);
-                group.addTeam(team2);
-                groups.add(group);
             }
         } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
             for (int g = 0; g < ffaNumGroups; g++) {
-                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
                 for (int i = 0; i < ffaAgentsPerGroup; i++) {
                     RLOperator rl = operatorSpawningHandler.spawnRLOperator(g);
                     allOperators.add(rl);
-                    Team team = new Team();
-                    team.addOperator(rl);
-                    group.addTeam(team);
                 }
-                groups.add(group);
             }
         } else {
             throw new IllegalStateException("Unsupported game mode: " + mode);
@@ -363,26 +346,74 @@ public class TrainingState {
         return allOperators;
     }
 
+    /** Rebuild teams/groups from {@link #operatorsArray}; optionally teleport (between rounds). */
+    private void buildGroupsFromOperatorsArrayAndTeleport(boolean teleport) {
+        int maxTicks = maxSecondsPerRound * 20;
+
+        if (mode == TrainingGameMode.ONE_VS_ONE) {
+            for (int i = 0; i < totalOperatorSlots / 2; i++) {
+                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
+                AIOperator op0 = operatorsArray[2 * i];
+                AIOperator op1 = operatorsArray[2 * i + 1];
+                Team team1 = new Team();
+                team1.addOperator(op0);
+                Team team2 = new Team();
+                team2.addOperator(op1);
+                group.addTeam(team1);
+                group.addTeam(team2);
+                groups.add(group);
+                if (teleport) {
+                    teleportOperatorForRound(op0, 0);
+                    teleportOperatorForRound(op1, 0);
+                }
+            }
+        } else if (mode == TrainingGameMode.FREE_FOR_ALL) {
+            for (int g = 0; g < ffaNumGroups; g++) {
+                TrainingGroup group = new TrainingGroup(maxTicks, allowRespawns);
+                for (int i = 0; i < ffaAgentsPerGroup; i++) {
+                    int slot = g * ffaAgentsPerGroup + i;
+                    RLOperator rl = (RLOperator) operatorsArray[slot];
+                    Team team = new Team();
+                    team.addOperator(rl);
+                    group.addTeam(team);
+                    if (teleport) {
+                        operatorSpawningHandler.teleportRLOperatorForRound(rl, g);
+                    }
+                }
+                groups.add(group);
+            }
+            if (!teleport) {
+                for (int g = 0; g < ffaNumGroups; g++) {
+                    for (int i = 0; i < ffaAgentsPerGroup; i++) {
+                        int slot = g * ffaAgentsPerGroup + i;
+                        ((RLOperator) operatorsArray[slot]).setTrainingGroupId(g);
+                    }
+                }
+            }
+        } else {
+            throw new IllegalStateException("Unsupported game mode: " + mode);
+        }
+    }
+
+    private void teleportOperatorForRound(AIOperator op, int trainingGroupId) {
+        if (op instanceof RLOperator rl) {
+            operatorSpawningHandler.teleportRLOperatorForRound(rl, trainingGroupId);
+        } else if (op instanceof DumbOperator dumb) {
+            operatorSpawningHandler.teleportDumbOperatorForRound(dumb);
+        } else {
+            throw new IllegalStateException("Unexpected operator type: " + op.getClass());
+        }
+    }
+
     private void cleanupRound() {
         this.cleaningUp = true;
 
         System.out.println("🧹 Cleaning up round " + (currentRound + 1) + " with " + groups.size() + " groups");
-        
-        roundActive = false;
-        int totalEntitiesKilled = 0;
-        
-        // loop through our array and kill them all, making sure to null their positions
-        for (int i = 0; i < operatorsArray.length; i++) {
-            AIOperator operator = operatorsArray[i];
-            if (operator != null) {
-                operator.kill(); // Remove from world without triggering death mechanics
-                totalEntitiesKilled++;
-                operatorsArray[i] = null;
-            }
-        }
 
-        groups.clear(); // Clear groups after cleanup
-        System.out.println("✅ Round cleanup complete - killed " + totalEntitiesKilled + " entities");
+        roundActive = false;
+        groups.clear();
+
+        System.out.println("✅ Round cleanup complete — preserving " + operatorsArray.length + " operator entities (teleport next round)");
 
         // Send round end signal to Python with training update flag
         com.verbii.minekov.Minekov.sendRoundEnd(true); // Training mode - update parameters
@@ -392,7 +423,20 @@ public class TrainingState {
         this.cleaningUp = false;
     }
 
+    /** Remove all session operators from the world (session stop or natural end). */
+    private void destroySessionOperators() {
+        for (int i = 0; i < operatorsArray.length; i++) {
+            AIOperator operator = operatorsArray[i];
+            if (operator != null) {
+                operator.kill();
+                operatorsArray[i] = null;
+            }
+        }
+        groups.clear();
+    }
+
     private void endSession() {
+        destroySessionOperators();
         // No JSON messages - only binary protocol
         broadcastToPlayers("§aTraining session complete!");
     }
@@ -412,8 +456,8 @@ public class TrainingState {
             cleanupRound();
             roundActive = false;
         }
+        destroySessionOperators();
         currentRound = 0;
-        groups.clear();
         // No JSON messages - only binary protocol
         broadcastToPlayers("§cTraining session forcefully stopped.");
     }
@@ -432,7 +476,6 @@ public class TrainingState {
         // now, let's create a new operator in-place of them if respawns are enabled
         if (allowRespawns && !stopped) {
             if (!this.cleaningUp) {
-                // if we're cleaning up- we want to use fresh entities for the next round, so don't respawn
                 operatorSpawningHandler.respawnRLOperator(operator);
             }
         } else {
