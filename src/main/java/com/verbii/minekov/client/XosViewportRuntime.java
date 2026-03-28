@@ -73,7 +73,7 @@ public final class XosViewportRuntime {
             libraryOk = true;
         } catch (Throwable t) {
             libraryOk = false;
-            LOGGER.warn("xos_jni not loaded (java.library.path); viewport stays black", t);
+            LOGGER.warn("xos_java not loaded (java.library.path); viewport stays black", t);
         }
     }
 

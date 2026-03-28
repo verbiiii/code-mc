@@ -270,7 +270,7 @@ public class Minekov {
                             return 1;
                         } catch (Throwable t) {
                             ctx.getSource().sendFailure(Component.literal(
-                                "xos-jni failed: " + t));
+                                "xos-java failed: " + t));
                             return 0;
                         }
                     })
