@@ -14,8 +14,8 @@ import net.minecraftforge.fml.common.Mod;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * xos viewport placeholder on {@link ChatScreen}: draggable neon title bar, resizable body,
- * minimize hides the panel and shows a top-left restore button, synced 60%→80% opacity on hover when expanded.
+ * xos viewport on {@link ChatScreen}: draggable neon title bar, resizable body, framebuffer from JNI
+ * (ball app) drawn in the content area; minimize hides the panel and shows a top-left restore button.
  */
 @Mod.EventBusSubscriber(modid = Minekov.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class XosViewportOverlay {
@@ -394,6 +394,17 @@ public final class XosViewportOverlay {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
+    /** Content area below the title bar (xos framebuffer). */
+    private static boolean inViewportBody(double mx, double my) {
+        if (minimized) {
+            return false;
+        }
+        return mx >= panelX
+                && mx < panelX + panelW
+                && my >= panelY + TITLE_BAR_H
+                && my < panelY + TITLE_BAR_H + contentH;
+    }
+
     private static boolean panelContains(double mx, double my, Minecraft mc) {
         if (minimized) {
             return inMinimizedRestoreBtn(mx, my, mc);
@@ -592,9 +603,12 @@ public final class XosViewportOverlay {
         }
         drawMaximizeGlyph(g, maxBx, btnY, maximized, blackArgb(drawA));
 
-        // Black viewport
-        if (!minimized && bodyH > 0) {
-            g.fill(ox, oy + th, ox + ow, oy + th + bodyH, blk);
+        int bodyTop = oy + th;
+        if (bodyH > 0) {
+            XosViewportRuntime.syncPointer(mc, mx, my, ox, bodyTop, ow, bodyH);
+            if (!XosViewportRuntime.renderIntoViewport(g, ox, bodyTop, ow, bodyH)) {
+                g.fill(ox, bodyTop, ox + ow, bodyTop + bodyH, blk);
+            }
         }
 
         // Neon border (lighter weight than title bar)
@@ -666,6 +680,12 @@ public final class XosViewportOverlay {
             return;
         }
 
+        if (inViewportBody(mx, my)) {
+            XosViewportRuntime.onMouseDownInBody();
+            event.setCanceled(true);
+            return;
+        }
+
         if (inTitleBarDragRegion(mx, my)) {
             long now = System.nanoTime();
             if (titleBarAwaitingSecondClick && (now - titleBarFirstClickNs) <= TITLE_DOUBLE_CLICK_NS) {
@@ -699,6 +719,7 @@ public final class XosViewportOverlay {
         if (!(event.getScreen() instanceof ChatScreen) || event.getButton() != 0) {
             return;
         }
+        XosViewportRuntime.onMouseUpLeft();
         DragMode prev = dragMode;
         if (maximized) {
             if (prev == DragMode.MOVE) {
@@ -737,6 +758,7 @@ public final class XosViewportOverlay {
         }
         Minecraft mc = Minecraft.getInstance();
         if (!(mc.screen instanceof ChatScreen)) {
+            XosViewportRuntime.disposeEngine();
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
             clearTitleBarDoubleClickState();
