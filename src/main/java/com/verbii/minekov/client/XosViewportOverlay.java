@@ -22,21 +22,24 @@ public final class XosViewportOverlay {
 
     private XosViewportOverlay() {}
 
-    /** Electric lime — border + title bar */
+    /** Electric lime — border, title bar, minimize glyph */
     private static final int NEON_RGB = 0x39FF14;
 
-    private static final int TITLE_BAR_H = 16;
-    private static final int MINIMIZE_BTN = 14;
-    private static final int MINIMIZE_PAD = 2;
-    private static final int BORDER_PX = 2;
-    private static final int HANDLE_CORNER = 8;
-    private static final int HANDLE_EDGE = 6;
+    private static final int TITLE_BAR_H = 8;
+    private static final int MINIMIZE_BTN = 7;
+    private static final int MINIMIZE_PAD = 1;
+    private static final int BORDER_PX = 1;
+    private static final int HANDLE_CORNER = 6;
+    private static final int HANDLE_EDGE = 4;
 
-    /** Default body ~26% of screen (20% + 30%). */
-    private static final float DEFAULT_BODY_FRAC = 0.26f;
+    /** Default body size; ~20% larger than prior 0.26 → 0.312 */
+    private static final float DEFAULT_BODY_FRAC = 0.312f;
 
     private static final int MIN_PANEL_W = 120;
     private static final int MIN_CONTENT_H = 72;
+
+    /** At least this fraction of the panel must stay on-screen (10%). */
+    private static final double MIN_VISIBLE_FRAC = 0.10;
 
     private static final float ALPHA_IDLE = 0.6f;
     private static final float ALPHA_HOVER = 1.0f;
@@ -107,12 +110,25 @@ public final class XosViewportOverlay {
         return TITLE_BAR_H + (minimized ? 0 : contentH);
     }
 
-    private static void clampToScreen(int sw, int sh) {
+    /**
+     * Allow most of the panel off-screen, but keep at least {@value #MIN_VISIBLE_FRAC} of width and
+     * height intersecting the GUI viewport.
+     */
+    private static void clampPartialOnScreen(int sw, int sh) {
         panelW = Math.max(MIN_PANEL_W, panelW);
         contentH = Math.max(MIN_CONTENT_H, contentH);
         int th = totalPanelH();
-        panelX = Mth.clamp(panelX, 0, Math.max(0, sw - panelW));
-        panelY = Mth.clamp(panelY, 0, Math.max(0, sh - th));
+
+        int minVisW = Math.max(1, (int) Math.ceil(panelW * MIN_VISIBLE_FRAC));
+        int minVisH = Math.max(1, (int) Math.ceil(th * MIN_VISIBLE_FRAC));
+
+        int minX = -(panelW - minVisW);
+        int maxX = sw - minVisW;
+        int minY = -(th - minVisH);
+        int maxY = sh - minVisH;
+
+        panelX = Mth.clamp(panelX, minX, maxX);
+        panelY = Mth.clamp(panelY, minY, maxY);
     }
 
     private static int minimizeBtnX() {
@@ -201,6 +217,125 @@ public final class XosViewportOverlay {
         return mx >= panelX && mx < panelX + panelW && my >= panelY && my < panelY + h;
     }
 
+    private static double scaledMouseX(Minecraft mc, int sw) {
+        return mc.mouseHandler.xpos() * (double) sw / (double) mc.getWindow().getScreenWidth();
+    }
+
+    private static double scaledMouseY(Minecraft mc, int sh) {
+        return mc.mouseHandler.ypos() * (double) sh / (double) mc.getWindow().getScreenHeight();
+    }
+
+    /** Drag/resize runs every frame while chat is open — fixes 20Hz tick choppiness. */
+    private static void applyDragOrResize(Minecraft mc, int sw, int sh) {
+        long win = mc.getWindow().getWindow();
+        if (GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS) {
+            dragMode = DragMode.NONE;
+            return;
+        }
+        if (dragMode == DragMode.NONE) {
+            return;
+        }
+
+        double mx = scaledMouseX(mc, sw);
+        double my = scaledMouseY(mc, sh);
+        boolean wasMin = minimized;
+
+        switch (dragMode) {
+            case MOVE -> {
+                panelX = (int) Math.round(moveGrabPanelX + (mx - moveGrabMouseX));
+                panelY = (int) Math.round(moveGrabPanelY + (my - moveGrabMouseY));
+            }
+            case RESIZE_N -> {
+                if (!wasMin) {
+                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                    panelY = newY;
+                    contentH = bottom - TITLE_BAR_H - panelY;
+                }
+            }
+            case RESIZE_S -> {
+                if (!wasMin) {
+                    contentH = (int) Math.round(Mth.clamp(
+                            my - anchorPanelY - TITLE_BAR_H,
+                            MIN_CONTENT_H,
+                            sh));
+                }
+            }
+            case RESIZE_E -> {
+                panelW = (int) Math.round(Mth.clamp(
+                        anchorPanelW + (mx - anchorMouseX),
+                        MIN_PANEL_W,
+                        sw * 2));
+            }
+            case RESIZE_W -> {
+                int right = anchorPanelX + anchorPanelW;
+                int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                panelX = newX;
+                panelW = right - newX;
+            }
+            case RESIZE_NE -> {
+                if (!wasMin) {
+                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                    panelY = newY;
+                    contentH = bottom - TITLE_BAR_H - panelY;
+                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
+                } else {
+                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
+                }
+            }
+            case RESIZE_NW -> {
+                if (!wasMin) {
+                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
+                    int right = anchorPanelX + anchorPanelW;
+                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
+                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                    panelY = newY;
+                    panelX = newX;
+                    contentH = bottom - TITLE_BAR_H - panelY;
+                    panelW = right - newX;
+                } else {
+                    int right = anchorPanelX + anchorPanelW;
+                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                    panelX = newX;
+                    panelW = right - newX;
+                }
+            }
+            case RESIZE_SE -> {
+                if (!wasMin) {
+                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
+                    contentH = (int) Math.round(Mth.clamp(
+                            my - anchorPanelY - TITLE_BAR_H,
+                            MIN_CONTENT_H,
+                            sh));
+                } else {
+                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw * 2));
+                }
+            }
+            case RESIZE_SW -> {
+                if (!wasMin) {
+                    int right = anchorPanelX + anchorPanelW;
+                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                    panelX = newX;
+                    panelW = right - newX;
+                    contentH = (int) Math.round(Mth.clamp(
+                            my - anchorPanelY - TITLE_BAR_H,
+                            MIN_CONTENT_H,
+                            sh));
+                } else {
+                    int right = anchorPanelX + anchorPanelW;
+                    int newX = (int) Math.round(Mth.clamp(mx, -sw, right - MIN_PANEL_W));
+                    panelX = newX;
+                    panelW = right - newX;
+                }
+            }
+            default -> {
+            }
+        }
+
+        clampPartialOnScreen(sw, sh);
+    }
+
     @SubscribeEvent
     public static void onScreenRenderPost(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof ChatScreen)) {
@@ -211,10 +346,11 @@ public final class XosViewportOverlay {
         int sw = event.getScreen().width;
         int sh = event.getScreen().height;
         ensureLayout(sw, sh);
-        clampToScreen(sw, sh);
 
-        double mx = mc.mouseHandler.xpos() * (double) sw / (double) mc.getWindow().getScreenWidth();
-        double my = mc.mouseHandler.ypos() * (double) sh / (double) mc.getWindow().getScreenHeight();
+        applyDragOrResize(mc, sw, sh);
+
+        double mx = scaledMouseX(mc, sw);
+        double my = scaledMouseY(mc, sh);
 
         boolean hover = panelContains(mx, my);
         float target = hover ? ALPHA_HOVER : ALPHA_IDLE;
@@ -238,22 +374,23 @@ public final class XosViewportOverlay {
         // Title bar (neon)
         g.fill(ox, oy, ox + ow, oy + th, neon);
 
-        // Minimize button chip (slightly darker for contrast)
+        // Minimize: black square + neon minus
         int bx = minimizeBtnX();
         int by = minimizeBtnY();
-        int chip = (Math.min(255, Math.round(a * 255)) << 24) | (0x228822 & 0xFFFFFF);
-        g.fill(bx, by, bx + MINIMIZE_BTN, by + MINIMIZE_BTN, chip);
-        int dashA = Math.min(255, Math.round(a * 255));
-        int dash = (dashA << 24) | 0xFFFFFF;
-        int dw = MINIMIZE_BTN - 6;
-        g.fill(bx + 3, by + MINIMIZE_BTN / 2, bx + 3 + dw, by + MINIMIZE_BTN / 2 + 2, dash);
+        int btnA = Math.min(255, Math.round(a * 255));
+        int blackBtn = (btnA << 24);
+        g.fill(bx, by, bx + MINIMIZE_BTN, by + MINIMIZE_BTN, blackBtn);
+        int minus = neonArgb(a);
+        int mw = MINIMIZE_BTN - 4;
+        int mh = Math.max(1, MINIMIZE_BTN / 4);
+        g.fill(bx + 2, by + MINIMIZE_BTN / 2 - mh / 2, bx + 2 + mw, by + MINIMIZE_BTN / 2 - mh / 2 + mh, minus);
 
         // Black viewport
         if (!minimized && bodyH > 0) {
             g.fill(ox, oy + th, ox + ow, oy + th + bodyH, blk);
         }
 
-        // Neon border (2 px), same alpha as chrome
+        // Thin neon border, same alpha as chrome
         g.fill(ox, oy, ox + ow, oy + BORDER_PX, neon);
         g.fill(ox, oy + oh - BORDER_PX, ox + ow, oy + oh, neon);
         g.fill(ox, oy, ox + BORDER_PX, oy + oh, neon);
@@ -325,121 +462,6 @@ public final class XosViewportOverlay {
         if (!(mc.screen instanceof ChatScreen)) {
             smoothedAlpha = ALPHA_IDLE;
             dragMode = DragMode.NONE;
-            return;
         }
-
-        long win = mc.getWindow().getWindow();
-        if (GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS) {
-            dragMode = DragMode.NONE;
-            return;
-        }
-
-        if (dragMode == DragMode.NONE) {
-            return;
-        }
-
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int sh = mc.getWindow().getGuiScaledHeight();
-        double mx = mc.mouseHandler.xpos() * (double) sw / (double) mc.getWindow().getScreenWidth();
-        double my = mc.mouseHandler.ypos() * (double) sh / (double) mc.getWindow().getScreenHeight();
-
-        boolean wasMin = minimized;
-
-        switch (dragMode) {
-            case MOVE -> {
-                panelX = (int) Math.round(moveGrabPanelX + (mx - moveGrabMouseX));
-                panelY = (int) Math.round(moveGrabPanelY + (my - moveGrabMouseY));
-            }
-            case RESIZE_N -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    panelY = newY;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                }
-            }
-            case RESIZE_S -> {
-                if (!wasMin) {
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                }
-            }
-            case RESIZE_E -> {
-                panelW = (int) Math.round(Mth.clamp(
-                        anchorPanelW + (mx - anchorMouseX),
-                        MIN_PANEL_W,
-                        sw - anchorPanelX));
-            }
-            case RESIZE_W -> {
-                int right = anchorPanelX + anchorPanelW;
-                int newX = (int) Math.round(Mth.clamp(mx, 0, right - MIN_PANEL_W));
-                panelX = newX;
-                panelW = right - newX;
-            }
-            case RESIZE_NE -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    panelY = newY;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                    // Left edge fixed at drag start
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw - anchorPanelX));
-                } else {
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw - anchorPanelX));
-                }
-            }
-            case RESIZE_NW -> {
-                if (!wasMin) {
-                    int bottom = anchorPanelY + TITLE_BAR_H + anchorContentH;
-                    int right = anchorPanelX + anchorPanelW;
-                    int newY = (int) Math.round(Mth.clamp(my, 0, bottom - TITLE_BAR_H - MIN_CONTENT_H));
-                    int newX = (int) Math.round(Mth.clamp(mx, 0, right - MIN_PANEL_W));
-                    panelY = newY;
-                    panelX = newX;
-                    contentH = bottom - TITLE_BAR_H - panelY;
-                    panelW = right - newX;
-                } else {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, 0, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                }
-            }
-            case RESIZE_SE -> {
-                if (!wasMin) {
-                    // Top-left fixed
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw - anchorPanelX));
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                } else {
-                    panelW = (int) Math.round(Mth.clamp(mx - anchorPanelX, MIN_PANEL_W, sw - anchorPanelX));
-                }
-            }
-            case RESIZE_SW -> {
-                if (!wasMin) {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, 0, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                    contentH = (int) Math.round(Mth.clamp(
-                            my - anchorPanelY - TITLE_BAR_H,
-                            MIN_CONTENT_H,
-                            sh));
-                } else {
-                    int right = anchorPanelX + anchorPanelW;
-                    int newX = (int) Math.round(Mth.clamp(mx, 0, right - MIN_PANEL_W));
-                    panelX = newX;
-                    panelW = right - newX;
-                }
-            }
-            default -> {
-            }
-        }
-
-        clampToScreen(sw, sh);
     }
 }
