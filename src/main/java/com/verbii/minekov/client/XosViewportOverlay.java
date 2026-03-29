@@ -467,6 +467,21 @@ public final class XosViewportOverlay {
         return panelContains(mx, my, mc);
     }
 
+    /** Scroll goes to the framebuffer only when the cursor is over the body (same idea as click-to-xos). */
+    private static boolean shouldRouteScrollToXosBody(Minecraft mc) {
+        if (!(mc.screen instanceof ChatScreen)) {
+            return false;
+        }
+        if (!XosViewportRuntime.isRunSession() || !layoutReady || minimized) {
+            return false;
+        }
+        ChatScreen cs = (ChatScreen) mc.screen;
+        ensureLayout(cs.width, cs.height);
+        double mx = scaledMouseX(mc, cs.width);
+        double my = scaledMouseY(mc, cs.height);
+        return inViewportBody(mx, my);
+    }
+
     private static boolean isModifierOrToggleKey(int key) {
         return switch (key) {
             case GLFW.GLFW_KEY_LEFT_SHIFT,
@@ -636,6 +651,20 @@ public final class XosViewportOverlay {
             return;
         }
         XosViewportRuntime.sendKeyCharToEngine(cp);
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent
+    public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
+        if (!(event.getScreen() instanceof ChatScreen)) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (!shouldRouteScrollToXosBody(mc)) {
+            return;
+        }
+        // 1.20.1 Forge: single vertical delta (horizontal split APIs are newer).
+        XosViewportRuntime.sendScrollToEngine(mc, 0.0, event.getScrollDelta());
         event.setCanceled(true);
     }
 

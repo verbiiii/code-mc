@@ -181,6 +181,25 @@ public final class XosViewportRuntime {
         XosNative.onKeyChar(codepoint);
     }
 
+    /**
+     * Wheel / trackpad scroll into the native app (matches framebuffer scale like {@link #syncPointer}).
+     * Minecraft typically reports ~±1.0 per notch; we scale into engine space so momentum feels right.
+     */
+    public static void sendScrollToEngine(Minecraft mc, double deltaX, double deltaY) {
+        if (!runSession) {
+            return;
+        }
+        tryLoadLibrary();
+        if (!libraryOk || !engineRunning) {
+            return;
+        }
+        float s = (float) effectiveGuiScale(mc);
+        float notchToEngine = 28f;
+        XosNative.onScroll(
+                (float) (deltaX * s * notchToEngine),
+                (float) (deltaY * s * notchToEngine));
+    }
+
     /** Call when chat closes so the native engine and GPU texture can be released. */
     public static void disposeEngine() {
         runSession = false;
