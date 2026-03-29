@@ -26,6 +26,13 @@ import org.lwjgl.system.MemoryUtil;
  * uploads each packed frame into a {@link DynamicTexture}. Native code premultiplies and packs
  * pixels for {@link NativeImage#setPixelRGBA}; Java does one int per pixel (not four byte gets +
  * premultiply). Pump with {@link #pumpFrame}; blit with {@link #blitViewport} when the body is visible.
+ * <p>
+ * <strong>Threading:</strong> The Rust host is {@code thread_local} and must stay on Minecraft’s
+ * client thread, so each {@link #pumpFrame} adds work to the same thread that draws the game. That
+ * tends to couple Minecraft FPS to xos update cost. Use {@link #setMaxPumpsPerSecond(int)} to cap how
+ * often tick+upload run so Minecraft can reach higher FPS while the panel shows slightly staler frames.
+ * Fully decoupling (1000+ MC FPS while xos simulates flat-out on another core) needs a larger change
+ * (e.g. a {@code Send}-safe engine + mutex, or a separate process).
  */
 @OnlyIn(Dist.CLIENT)
 public final class XosViewportRuntime {
@@ -82,7 +89,34 @@ public final class XosViewportRuntime {
     /** Set each frame before {@link #pumpFrame} (chat) or background pump (not hovered). */
     private static boolean panelHovered;
 
+    /**
+     * Caps how often {@link #pumpFrame} runs the native {@link XosNative#tick} + texture upload.
+     * <ul>
+     *   <li>{@code 0} (default): every Minecraft frame that calls {@link #pumpFrame} — can cap Minecraft
+     *       FPS because JNI work runs on the client thread (see class javadoc).</li>
+     *   <li>{@code 120}–{@code 240}: xos updates at most that many times per second; Minecraft can often
+     *       reach much higher FPS since most frames skip the heavy pump. The viewport still blits the
+     *       last uploaded frame.</li>
+     * </ul>
+     * True “full speed xos + uncapped MC FPS” in parallel is not possible on one thread; use this knob
+     * to favour Minecraft, or plan a future Rust change (off-thread host / subprocess).
+     */
+    private static volatile int maxPumpsPerSecond;
+
+    private static long lastPumpNanos;
+
     private XosViewportRuntime() {}
+
+    /**
+     * @param max 0 = no limit (pump every caller frame). Otherwise clamped to 1–2000 pumps/s.
+     */
+    public static void setMaxPumpsPerSecond(int max) {
+        maxPumpsPerSecond = Math.max(0, Math.min(max, 2000));
+    }
+
+    public static int getMaxPumpsPerSecond() {
+        return maxPumpsPerSecond;
+    }
 
     /** Whether the mouse is over the xos panel (minimized strip or full window). Drives viewport α 60%/80%. */
     public static void setPanelHovered(boolean hovered) {
@@ -176,7 +210,22 @@ public final class XosViewportRuntime {
 
         int fbW = framebufferWidth(mc, guiBodyW);
         int fbH = framebufferHeight(mc, guiBodyH);
+
+        boolean mustPump =
+                !engineRunning || fbW != texW || fbH != texH;
         ensureEngineAndTexture(mc, fbW, fbH);
+
+        int cap = maxPumpsPerSecond;
+        if (!mustPump && cap > 0) {
+            long minNs = 1_000_000_000L / (long) cap;
+            long now = System.nanoTime();
+            if (lastPumpNanos != 0L && now - lastPumpNanos < minNs) {
+                return;
+            }
+            lastPumpNanos = now;
+        } else if (cap > 0) {
+            lastPumpNanos = System.nanoTime();
+        }
 
         XosNative.setMinecraftViewportAlpha(panelHovered ? VIEWPORT_ALPHA_HOVER : VIEWPORT_ALPHA_IDLE);
         XosNative.tick();
@@ -313,6 +362,7 @@ public final class XosViewportRuntime {
         }
         panelHovered = false;
         prewarmAttempted = false;
+        lastPumpNanos = 0L;
     }
 
     private static void ensureEngineAndTexture(Minecraft mc, int fbW, int fbH) {
