@@ -72,6 +72,16 @@ public final class XosViewportOverlay {
     private static int panelW;
     /** Black viewport height (not including title bar). */
     private static int contentH;
+
+    /**
+     * Panel geometry as fractions of current GUI width/height so resizing the Minecraft window keeps
+     * the window pinned in the same relative place (updated whenever pixels change and after clamp).
+     */
+    private static float normPanelLeft;
+    private static float normPanelTop;
+    private static float normPanelWidth;
+    private static float normContentH;
+
     private static boolean layoutReady;
     /** Start with the panel collapsed so xos does not run until the user clicks Run. */
     private static boolean minimized = true;
@@ -81,10 +91,10 @@ public final class XosViewportOverlay {
 
     /** Double-click title bar: nearly full screen with a thin margin; double-click again restores. */
     private static boolean maximized;
-    private static int restorePanelX;
-    private static int restorePanelY;
-    private static int restorePanelW;
-    private static int restoreContentH;
+    private static float restoreNormLeft;
+    private static float restoreNormTop;
+    private static float restoreNormWidth;
+    private static float restoreNormContentH;
     private static boolean restoreMinimized;
 
     private static boolean titleBarAwaitingSecondClick;
@@ -274,7 +284,45 @@ public final class XosViewportOverlay {
         panelY = margin;
         panelW = Math.max(MIN_PANEL_W, (int) (sw * DEFAULT_BODY_FRAC));
         contentH = Math.max(MIN_CONTENT_H, (int) (sh * DEFAULT_BODY_FRAC));
+        syncNormalizedFromPixels(sw, sh);
         layoutReady = true;
+    }
+
+    private static void applyPixelsFromNormalized(int sw, int sh) {
+        if (sw < 1 || sh < 1) {
+            return;
+        }
+        panelX = Math.round(normPanelLeft * sw);
+        panelY = Math.round(normPanelTop * sh);
+        panelW = Math.max(MIN_PANEL_W, Math.round(normPanelWidth * sw));
+        contentH = Math.max(MIN_CONTENT_H, Math.round(normContentH * sh));
+    }
+
+    private static void syncNormalizedFromPixels(int sw, int sh) {
+        if (sw < 1 || sh < 1) {
+            return;
+        }
+        normPanelLeft = panelX / (float) sw;
+        normPanelTop = panelY / (float) sh;
+        normPanelWidth = panelW / (float) sw;
+        normContentH = contentH / (float) sh;
+    }
+
+    /**
+     * When chat is closed, still map normalized layout to the current window so resize does not leave
+     * the panel stuck in old pixel coordinates.
+     */
+    private static void syncLayoutToWindow(Minecraft mc) {
+        if (dragMode != DragMode.NONE || mc == null || mc.getWindow() == null) {
+            return;
+        }
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        if (sw < 1 || sh < 1 || !layoutReady) {
+            return;
+        }
+        applyPixelsFromNormalized(sw, sh);
+        clampPartialOnScreen(sw, sh);
     }
 
     private static int totalPanelH() {
@@ -291,6 +339,7 @@ public final class XosViewportOverlay {
         int th = totalPanelH();
 
         if (minimized) {
+            syncNormalizedFromPixels(sw, sh);
             return;
         }
 
@@ -304,15 +353,17 @@ public final class XosViewportOverlay {
 
         panelX = Mth.clamp(panelX, minX, maxX);
         panelY = Mth.clamp(panelY, minY, maxY);
+        syncNormalizedFromPixels(sw, sh);
     }
 
     private static void toggleMaximizedLayout(int sw, int sh) {
         clearTitleBarDoubleClickState();
         if (!maximized) {
-            restorePanelX = panelX;
-            restorePanelY = panelY;
-            restorePanelW = panelW;
-            restoreContentH = contentH;
+            syncNormalizedFromPixels(sw, sh);
+            restoreNormLeft = normPanelLeft;
+            restoreNormTop = normPanelTop;
+            restoreNormWidth = normPanelWidth;
+            restoreNormContentH = normContentH;
             restoreMinimized = minimized;
             minimized = false;
             int insetX = Math.max(2, (int) Math.round(sw * MAXIMIZE_MARGIN_FRAC));
@@ -322,14 +373,16 @@ public final class XosViewportOverlay {
             panelW = Math.max(MIN_PANEL_W, sw - 2 * insetX);
             int innerH = Math.max(TITLE_BAR_H + MIN_CONTENT_H, (int) Math.round(sh - 2 * insetY));
             contentH = Math.max(MIN_CONTENT_H, innerH - TITLE_BAR_H);
+            syncNormalizedFromPixels(sw, sh);
             maximized = true;
         } else {
-            panelX = restorePanelX;
-            panelY = restorePanelY;
-            panelW = restorePanelW;
-            contentH = restoreContentH;
+            normPanelLeft = restoreNormLeft;
+            normPanelTop = restoreNormTop;
+            normPanelWidth = restoreNormWidth;
+            normContentH = restoreNormContentH;
             minimized = restoreMinimized;
             maximized = false;
+            applyPixelsFromNormalized(sw, sh);
         }
         clampPartialOnScreen(sw, sh);
     }
@@ -687,6 +740,11 @@ public final class XosViewportOverlay {
         int sh = event.getScreen().height;
         ensureLayout(sw, sh);
 
+        if (dragMode == DragMode.NONE) {
+            applyPixelsFromNormalized(sw, sh);
+            clampPartialOnScreen(sw, sh);
+        }
+
         applyDragOrResize(mc, sw, sh);
 
         double mx = scaledMouseX(mc, sw);
@@ -933,21 +991,24 @@ public final class XosViewportOverlay {
         }
         XosViewportRuntime.onMouseUpLeft();
         DragMode prev = dragMode;
+        int sw = event.getScreen().width;
+        int sh = event.getScreen().height;
+        syncNormalizedFromPixels(sw, sh);
         if (maximized) {
             if (prev == DragMode.MOVE) {
                 if (panelX != moveGrabPanelX || panelY != moveGrabPanelY) {
-                    restorePanelX = panelX;
-                    restorePanelY = panelY;
-                    restorePanelW = panelW;
-                    restoreContentH = contentH;
+                    restoreNormLeft = normPanelLeft;
+                    restoreNormTop = normPanelTop;
+                    restoreNormWidth = normPanelWidth;
+                    restoreNormContentH = normContentH;
                     restoreMinimized = minimized;
                     clearTitleBarDoubleClickState();
                 }
             } else if (isResizeDragMode(prev)) {
-                restorePanelX = panelX;
-                restorePanelY = panelY;
-                restorePanelW = panelW;
-                restoreContentH = contentH;
+                restoreNormLeft = normPanelLeft;
+                restoreNormTop = normPanelTop;
+                restoreNormWidth = normPanelWidth;
+                restoreNormContentH = normContentH;
                 restoreMinimized = minimized;
                 clearTitleBarDoubleClickState();
             }
@@ -992,6 +1053,7 @@ public final class XosViewportOverlay {
         if (mc.screen instanceof ChatScreen) {
             return;
         }
+        syncLayoutToWindow(mc);
         if (!XosViewportRuntime.isRunSession() || !layoutReady || panelW < 1 || contentH < 1) {
             return;
         }
