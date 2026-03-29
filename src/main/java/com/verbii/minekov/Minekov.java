@@ -1,5 +1,7 @@
 package com.verbii.minekov;
 
+import ai.xlate.xos.XosNative;
+
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -258,6 +260,20 @@ public class Minekov {
                 )
                 .then(Commands.literal("play")
                     .executes(ctx -> runPlayCommand(ctx.getSource().getPlayerOrException(), ctx.getSource().getLevel()))
+                )
+                .then(Commands.literal("xos")
+                    .executes(ctx -> {
+                        try {
+                            XosNative.initLibraryFromPath();
+                            String msg = XosNative.ping();
+                            ctx.getSource().sendSuccess(() -> Component.literal(msg), false);
+                            return 1;
+                        } catch (Throwable t) {
+                            ctx.getSource().sendFailure(Component.literal(
+                                "xos-java failed: " + t));
+                            return 0;
+                        }
+                    })
                 )
                 .then(Commands.literal("scoreboard")
                     .then(Commands.literal("clear")
