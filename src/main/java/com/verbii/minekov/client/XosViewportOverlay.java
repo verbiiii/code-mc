@@ -76,7 +76,10 @@ public final class XosViewportOverlay {
     /** Start with the panel collapsed so xos does not run until the user clicks Run. */
     private static boolean minimized = true;
 
-    /** Double-click title bar: nearly full screen with 10% inset; double-click again restores. */
+    /** Margin from each screen edge when maximized (title-bar double-click / maximize button). */
+    private static final float MAXIMIZE_MARGIN_FRAC = 0.01f;
+
+    /** Double-click title bar: nearly full screen with a thin margin; double-click again restores. */
     private static boolean maximized;
     private static int restorePanelX;
     private static int restorePanelY;
@@ -312,12 +315,12 @@ public final class XosViewportOverlay {
             restoreContentH = contentH;
             restoreMinimized = minimized;
             minimized = false;
-            int insetX = Math.max(1, (int) Math.round(sw * 0.10));
-            int insetY = Math.max(1, (int) Math.round(sh * 0.10));
+            int insetX = Math.max(2, (int) Math.round(sw * MAXIMIZE_MARGIN_FRAC));
+            int insetY = Math.max(2, (int) Math.round(sh * MAXIMIZE_MARGIN_FRAC));
             panelX = insetX;
             panelY = insetY;
             panelW = Math.max(MIN_PANEL_W, sw - 2 * insetX);
-            int innerH = Math.max(TITLE_BAR_H + MIN_CONTENT_H, (int) Math.round(sh * 0.80));
+            int innerH = Math.max(TITLE_BAR_H + MIN_CONTENT_H, (int) Math.round(sh - 2 * insetY));
             contentH = Math.max(MIN_CONTENT_H, innerH - TITLE_BAR_H);
             maximized = true;
         } else {
@@ -621,6 +624,11 @@ public final class XosViewportOverlay {
         }
         int key = event.getKeyCode();
         if (key == GLFW.GLFW_KEY_ESCAPE) {
+            return;
+        }
+        if (key == GLFW.GLFW_KEY_F3) {
+            XosViewportRuntime.sendF3ToEngine();
+            event.setCanceled(true);
             return;
         }
         if (isModifierOrToggleKey(key)) {
@@ -961,6 +969,7 @@ public final class XosViewportOverlay {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        XosViewportRuntime.prewarmEngine(mc);
         boolean chatOpen = mc.screen instanceof ChatScreen;
 
         if (!chatOpen) {

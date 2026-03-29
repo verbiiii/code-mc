@@ -14,12 +14,18 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
+
+import org.lwjgl.system.MemoryUtil;
 
 /**
  * Runs the xos engine (ball app via JNI) when {@link #setRunSession(boolean) run session} is on;
- * copies each frame into a {@link DynamicTexture}. Pump the engine every frame with
- * {@link #pumpFrame}; blit into the panel with {@link #blitViewport} when the body is visible.
+ * uploads each packed frame into a {@link DynamicTexture}. Native code premultiplies and packs
+ * pixels for {@link NativeImage#setPixelRGBA}; Java does one int per pixel (not four byte gets +
+ * premultiply). Pump with {@link #pumpFrame}; blit with {@link #blitViewport} when the body is visible.
  */
 @OnlyIn(Dist.CLIENT)
 public final class XosViewportRuntime {
@@ -38,6 +44,9 @@ public final class XosViewportRuntime {
     private static boolean libraryOk;
     private static boolean engineRunning;
 
+    /** Forge 1.20.1 has no reliable client-stop event on the classpath; hook ensures Rust/JNI teardown on JVM exit. */
+    private static volatile boolean jvmExitHookRegistered;
+
     /** User chose Run; cleared on Close or when leaving chat. */
     private static boolean runSession;
 
@@ -46,6 +55,29 @@ public final class XosViewportRuntime {
 
     private static NativeImage nativeImage;
     private static DynamicTexture dynamicTexture;
+
+    /**
+     * Reuse one direct buffer view from JNI — {@link XosNative#getFrameBuffer()} allocates a new
+     * wrapper each call; caching avoids per-frame JNI allocation. Refresh after init/resize only.
+     */
+    private static ByteBuffer cachedPackedFrameBuffer;
+
+    /**
+     * Mojang 1.20.1 {@link NativeImage} stores pixels at native {@code long pointer} (see mappings.dev).
+     * Used for one {@link MemoryUtil#memCopy} instead of millions of {@code setPixelRGBA} calls.
+     */
+    private static Field nativeImagePointerField;
+
+    static {
+        try {
+            Field f = NativeImage.class.getDeclaredField("pointer");
+            f.setAccessible(true);
+            nativeImagePointerField = f;
+        } catch (ReflectiveOperationException e) {
+            nativeImagePointerField = null;
+            LOGGER.warn("NativeImage.pointer not accessible; xos viewport copy falls back to slow path", e);
+        }
+    }
 
     /** Set each frame before {@link #pumpFrame} (chat) or background pump (not hovered). */
     private static boolean panelHovered;
@@ -61,15 +93,18 @@ public final class XosViewportRuntime {
         return runSession;
     }
 
+    /** Native library loaded and {@link XosNative#init} completed (e.g. after {@link #prewarmEngine}). */
+    public static boolean isEngineReady() {
+        return libraryOk && engineRunning;
+    }
+
     /**
-     * Starts or stops the JNI session. Stopping calls {@link #disposeEngine()} to release native
-     * state and the GPU texture.
+     * Starts or pauses the xos simulation. Pausing does <strong>not</strong> tear down the native
+     * engine (library stays loaded, {@link XosNative#init} state kept) so Run resumes instantly.
+     * Full GPU + native release: {@link #disposeEngine()} (optional; JVM exit also calls {@link XosNative#shutdown()} via a hook).
      */
     public static void setRunSession(boolean active) {
         runSession = active;
-        if (!active) {
-            disposeEngine();
-        }
     }
 
     private static void tryLoadLibrary() {
@@ -80,10 +115,50 @@ public final class XosViewportRuntime {
         try {
             XosNative.initLibraryFromPath();
             libraryOk = true;
+            registerJvmExitHook();
         } catch (Throwable t) {
             libraryOk = false;
             LOGGER.warn("xos_java not loaded (java.library.path); viewport stays black", t);
         }
+    }
+
+    private static void registerJvmExitHook() {
+        if (jvmExitHookRegistered) {
+            return;
+        }
+        jvmExitHookRegistered = true;
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        new Thread(
+                                () -> {
+                                    try {
+                                        XosNative.shutdown();
+                                    } catch (Throwable ignored) {
+                                    }
+                                },
+                                "xos-java-shutdown"));
+    }
+
+    private static boolean prewarmAttempted;
+
+    /**
+     * Allocates the native engine + GPU texture early (e.g. first client tick) so the first Run only
+     * starts ticking, not loading DLLs or running {@link XosNative#init}.
+     */
+    public static void prewarmEngine(Minecraft mc) {
+        if (prewarmAttempted || mc == null || mc.getWindow() == null) {
+            return;
+        }
+        prewarmAttempted = true;
+        tryLoadLibrary();
+        if (!libraryOk) {
+            return;
+        }
+        int gw = mc.getWindow().getGuiScaledWidth();
+        int gh = mc.getWindow().getGuiScaledHeight();
+        int fbW = framebufferWidth(mc, gw);
+        int fbH = framebufferHeight(mc, gh);
+        ensureEngineAndTexture(mc, fbW, fbH);
     }
 
     /**
@@ -103,9 +178,10 @@ public final class XosViewportRuntime {
         int fbH = framebufferHeight(mc, guiBodyH);
         ensureEngineAndTexture(mc, fbW, fbH);
 
+        XosNative.setMinecraftViewportAlpha(panelHovered ? VIEWPORT_ALPHA_HOVER : VIEWPORT_ALPHA_IDLE);
         XosNative.tick();
 
-        ByteBuffer buf = XosNative.getFrameBuffer();
+        ByteBuffer buf = cachedPackedFrameBuffer;
         if (buf == null || nativeImage == null) {
             return;
         }
@@ -115,7 +191,7 @@ public final class XosViewportRuntime {
             return;
         }
 
-        copyRgbaToImage(buf, fbW, fbH);
+        copyPackedToNativeImage(buf, fbW, fbH);
         dynamicTexture.upload();
     }
 
@@ -181,6 +257,18 @@ public final class XosViewportRuntime {
         XosNative.onKeyChar(codepoint);
     }
 
+    /** F3 → global FPS overlay toggle (matches desktop xos; not a text character). */
+    public static void sendF3ToEngine() {
+        if (!runSession) {
+            return;
+        }
+        tryLoadLibrary();
+        if (!libraryOk || !engineRunning) {
+            return;
+        }
+        XosNative.onF3();
+    }
+
     /**
      * Wheel / trackpad scroll into the native app (matches framebuffer scale like {@link #syncPointer}).
      * Minecraft typically reports ~±1.0 per notch; we scale into engine space so momentum feels right.
@@ -200,7 +288,10 @@ public final class XosViewportRuntime {
                 (float) (deltaY * s * notchToEngine));
     }
 
-    /** Call when chat closes so the native engine and GPU texture can be released. */
+    /**
+     * Full teardown: native shutdown, texture release. Panel close only pauses ({@link #setRunSession(boolean)});
+     * use this if you need to free VRAM without exiting the game. JVM shutdown also runs {@link XosNative#shutdown()}.
+     */
     public static void disposeEngine() {
         runSession = false;
         if (!libraryOk || !engineRunning) {
@@ -212,6 +303,7 @@ public final class XosViewportRuntime {
         }
         dynamicTexture = null;
         nativeImage = null;
+        cachedPackedFrameBuffer = null;
         texW = -1;
         texH = -1;
         engineRunning = false;
@@ -220,6 +312,7 @@ public final class XosViewportRuntime {
         } catch (Throwable ignored) {
         }
         panelHovered = false;
+        prewarmAttempted = false;
     }
 
     private static void ensureEngineAndTexture(Minecraft mc, int fbW, int fbH) {
@@ -263,33 +356,48 @@ public final class XosViewportRuntime {
         nativeImage = new NativeImage(w, h, false);
         dynamicTexture = new DynamicTexture(nativeImage);
         mc.getTextureManager().register(TEX_LOC, dynamicTexture);
+        refreshCachedFrameBuffer();
+    }
+
+    /** Must run after {@link XosNative#init}/{@link XosNative#resize} reallocates the native upload buffer. */
+    private static void refreshCachedFrameBuffer() {
+        cachedPackedFrameBuffer = XosNative.getFrameBuffer();
+        if (cachedPackedFrameBuffer != null) {
+            cachedPackedFrameBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        }
     }
 
     /**
-     * {@link NativeImage#setPixelRGBA} expects <strong>ABGR</strong> (Minecraft’s convention).
+     * Buffer from JNI is packed in native code (premultiply + uniform viewport alpha + ABGR int as LE
+     * bytes). One {@link IntBuffer} read per pixel — much cheaper than the old per-byte RGBA path.
+     * <p>
+     * Fast path: one native memcpy from the JNI direct buffer into {@link NativeImage}'s pixel pointer.
+     * Fallback: int-at-a-time {@code setPixelRGBA} (very slow on large viewports).
+     * <p>
+     * Further gains: async PBO {@code glTexSubImage2D}, or upload straight from Rust with a JNI GL
+     * hook (bypasses {@link DynamicTexture} but couples tightly to render thread + GL state).
      */
-    private static int packAbgr(int a, int r, int g, int b) {
-        return ((a & 0xFF) << 24) | (b << 16) | (g << 8) | r;
-    }
-
-    /**
-     * Ignore xos alpha for <em>window</em> opacity — only {@link #VIEWPORT_ALPHA_IDLE} /
-     * {@link #VIEWPORT_ALPHA_HOVER} apply. Use xos alpha only to composite RGB onto black (glyph edges +
-     * “empty” = black), then store that RGB with uniform output alpha.
-     */
-    private static void copyRgbaToImage(ByteBuffer buf, int w, int h) {
-        int aOut = panelHovered ? VIEWPORT_ALPHA_HOVER : VIEWPORT_ALPHA_IDLE;
+    private static void copyPackedToNativeImage(ByteBuffer buf, int w, int h) {
+        int nbytes = w * h * 4;
+        buf.clear();
+        if (nativeImagePointerField != null && buf.isDirect()) {
+            try {
+                long dst = nativeImagePointerField.getLong(nativeImage);
+                if (dst != 0L) {
+                    long src = MemoryUtil.memAddress(buf);
+                    MemoryUtil.memCopy(src, dst, nbytes);
+                    return;
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // fall through
+            }
+        }
+        buf.order(ByteOrder.LITTLE_ENDIAN);
+        IntBuffer ib = buf.asIntBuffer();
         for (int y = 0; y < h; y++) {
+            int row = y * w;
             for (int x = 0; x < w; x++) {
-                int base = (y * w + x) * 4;
-                int r = buf.get(base) & 0xFF;
-                int g = buf.get(base + 1) & 0xFF;
-                int b = buf.get(base + 2) & 0xFF;
-                int aIn = buf.get(base + 3) & 0xFF;
-                int rp = (r * aIn + 127) / 255;
-                int gp = (g * aIn + 127) / 255;
-                int bp = (b * aIn + 127) / 255;
-                nativeImage.setPixelRGBA(x, y, packAbgr(aOut, rp, gp, bp));
+                nativeImage.setPixelRGBA(x, y, ib.get(row + x));
             }
         }
     }
