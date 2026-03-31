@@ -33,7 +33,7 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 // xos-java: `ai.xlate.xos` sources and native build live in the xos repo (override with -Pxos_root=...).
 def xosRoot = file(findProperty('xos_root') ?: '../xos')
-sourceSets.main.java.srcDir(file("${xosRoot}/crates/xos-java/java"))
+sourceSets.main.java.srcDir(file("${xosRoot}/src/core/crates/xos-java/java"))
 
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 minecraft {
