@@ -33,7 +33,18 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 // xos-java: `ai.xlate.xos` sources and native build live in the xos repo (override with -Pxos_root=...).
 def xosRoot = file(findProperty('xos_root') ?: '../xos')
-sourceSets.main.java.srcDir(file("${xosRoot}/src/core/crates/xos-java/java"))
+def xosJavaSourceDir = file("${xosRoot}/src/core/crates/xos-java/java")
+if (!xosJavaSourceDir.exists()) {
+    // Newer xos layout
+    xosJavaSourceDir = file("${xosRoot}/src/crates/xos-java/java")
+}
+if (!xosJavaSourceDir.exists()) {
+    throw new GradleException(
+            "Could not find xos-java Java sources under ${xosRoot}. " +
+            "Expected either src/core/crates/xos-java/java or src/crates/xos-java/java. " +
+            "Set -Pxos_root=<path-to-xos> if needed.")
+}
+sourceSets.main.java.srcDir(xosJavaSourceDir)
 
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 minecraft {
@@ -358,6 +369,17 @@ tasks.register('buildXosJava', Exec) {
             environment 'Path', combined
         } else {
             environment 'PATH', combined
+        }
+    }
+    // ct2rs on Windows can emit static CRT objects; align Rust codegen to avoid MT/MD linker mismatch.
+    def isWindows = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('win')
+    if (isWindows) {
+        def rustflags = (System.getenv('RUSTFLAGS') ?: '').trim()
+        if (!rustflags.contains('target-feature=+crt-static')) {
+            def mergedRustflags = rustflags.isEmpty()
+                    ? '-C target-feature=+crt-static'
+                    : "${rustflags} -C target-feature=+crt-static"
+            environment 'RUSTFLAGS', mergedRustflags
         }
     }
     commandLine resolveCargoExecutable, 'build', '-p', 'xos-java', '--release'
