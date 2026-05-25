@@ -22,6 +22,7 @@ import java.nio.IntBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.io.InputStream;
 
 import org.lwjgl.system.MemoryUtil;
 
@@ -51,6 +52,7 @@ public final class XosViewportRuntime {
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
     private static final String STARTER_SCRIPT_NAME = "balls_many.py";
+    private static final String STARTER_SCRIPT_RESOURCE = "/xos/examples/" + STARTER_SCRIPT_NAME;
     private static final Path DEV_STARTER_SCRIPT_PATH =
             Path.of("src", "xos", "examples", STARTER_SCRIPT_NAME);
 
@@ -389,13 +391,22 @@ public final class XosViewportRuntime {
         if (Files.exists(starterFile)) {
             return;
         }
-        Path source = DEV_STARTER_SCRIPT_PATH.toAbsolutePath().normalize();
-        if (!Files.exists(source)) {
-            LOGGER.warn("xos starter script not found at {}", source);
-            return;
+        try (InputStream resourceStream = XosViewportRuntime.class.getResourceAsStream(STARTER_SCRIPT_RESOURCE)) {
+            if (resourceStream != null) {
+                Files.copy(resourceStream, starterFile, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Failed to copy xos starter script from classpath resource {}", STARTER_SCRIPT_RESOURCE, e);
         }
+
+        Path source = DEV_STARTER_SCRIPT_PATH.toAbsolutePath().normalize();
         try {
-            Files.copy(source, starterFile, StandardCopyOption.REPLACE_EXISTING);
+            if (Files.exists(source)) {
+                Files.copy(source, starterFile, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                LOGGER.warn("xos starter script not found in resource or dev path ({})", source);
+            }
         } catch (Exception e) {
             LOGGER.warn("Failed to copy xos starter script to {}", starterFile, e);
         }
