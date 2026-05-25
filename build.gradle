@@ -355,9 +355,34 @@ def resolveCargoExecutable = {
     return 'cargo'
 }()
 
+// xos CLI executable to drive `xos compile --java` (override: -Pxos_cli_exe=C:\path\to\xos.exe).
+def resolveXosCliExecutable = {
+    def o = findProperty('xos_cli_exe')
+    if (o != null) {
+        def f = file(o.toString())
+        if (f.isFile()) {
+            return f.absolutePath
+        }
+    }
+    def win = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('win')
+    def exeName = win ? 'xos.exe' : 'xos'
+    def releaseExe = file("${xosRoot}/target/release/${exeName}")
+    if (releaseExe.isFile()) {
+        return releaseExe.absolutePath
+    }
+    def debugExe = file("${xosRoot}/target/debug/${exeName}")
+    if (debugExe.isFile()) {
+        return debugExe.absolutePath
+    }
+    throw new GradleException(
+            "Could not find xos CLI executable under ${xosRoot}/target/{release,debug}. " +
+            "Build xos once first (e.g. from xos repo: cargo build -p xos-cli --bin xos --release), " +
+            "or set -Pxos_cli_exe=<absolute-path-to-xos.exe>.")
+}()
+
 tasks.register('buildXosJava', Exec) {
     group = 'build'
-    description = 'Runs cargo build -p xos-java --release in the xos repo'
+    description = 'Runs xos compile --java in the xos repo'
     workingDir xosRoot
     def cargoBin = new File(resolveCargoExecutable).parentFile
     if (cargoBin != null && cargoBin.exists()) {
@@ -371,18 +396,7 @@ tasks.register('buildXosJava', Exec) {
             environment 'PATH', combined
         }
     }
-    // ct2rs on Windows can emit static CRT objects; align Rust codegen to avoid MT/MD linker mismatch.
-    def isWindows = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('win')
-    if (isWindows) {
-        def rustflags = (System.getenv('RUSTFLAGS') ?: '').trim()
-        if (!rustflags.contains('target-feature=+crt-static')) {
-            def mergedRustflags = rustflags.isEmpty()
-                    ? '-C target-feature=+crt-static'
-                    : "${rustflags} -C target-feature=+crt-static"
-            environment 'RUSTFLAGS', mergedRustflags
-        }
-    }
-    commandLine resolveCargoExecutable, 'build', '-p', 'xos-java', '--release'
+    commandLine resolveXosCliExecutable, 'compile', '--java'
 }
 
 tasks.register('copyXosJavaNative', Copy) {
