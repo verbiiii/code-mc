@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
@@ -18,6 +19,9 @@ import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 import org.lwjgl.system.MemoryUtil;
 
@@ -46,6 +50,9 @@ public final class XosViewportRuntime {
     private static final int VIEWPORT_ALPHA_IDLE = Math.round(255 * 0.6f);
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
+    private static final String STARTER_SCRIPT_NAME = "balls_many.py";
+    private static final Path DEV_STARTER_SCRIPT_PATH =
+            Path.of("src", "xos", "examples", STARTER_SCRIPT_NAME);
 
     private static boolean libraryTried;
     private static boolean libraryOk;
@@ -365,8 +372,57 @@ public final class XosViewportRuntime {
         lastPumpNanos = 0L;
     }
 
+    private static Path resolvePlayerCoderScriptsDirectory(Minecraft mc) {
+        if (mc == null || mc.player == null || mc.getSingleplayerServer() == null) {
+            return null;
+        }
+        Path worldRoot = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT);
+        if (worldRoot == null) {
+            return null;
+        }
+        String playerUuid = mc.player.getUUID().toString();
+        return worldRoot.resolve("xos").resolve(playerUuid);
+    }
+
+    private static void ensureStarterScripts(Path scriptsDir) {
+        Path starterFile = scriptsDir.resolve(STARTER_SCRIPT_NAME);
+        if (Files.exists(starterFile)) {
+            return;
+        }
+        Path source = DEV_STARTER_SCRIPT_PATH.toAbsolutePath().normalize();
+        if (!Files.exists(source)) {
+            LOGGER.warn("xos starter script not found at {}", source);
+            return;
+        }
+        try {
+            Files.copy(source, starterFile, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            LOGGER.warn("Failed to copy xos starter script to {}", starterFile, e);
+        }
+    }
+
+    private static boolean configureCoderScriptsDirectory(Minecraft mc) {
+        Path scriptsDir = resolvePlayerCoderScriptsDirectory(mc);
+        if (scriptsDir == null) {
+            return false;
+        }
+        try {
+            Files.createDirectories(scriptsDir);
+            ensureStarterScripts(scriptsDir);
+            XosNative.setCoderScriptsDirectory(scriptsDir.toAbsolutePath().normalize().toString());
+            return true;
+        } catch (Throwable t) {
+            LOGGER.warn("Failed to configure xos coder scripts directory", t);
+            return false;
+        }
+    }
+
     private static void ensureEngineAndTexture(Minecraft mc, int fbW, int fbH) {
         if (!engineRunning) {
+            // Delay first native init until we have a concrete world/player scripts directory.
+            if (!configureCoderScriptsDirectory(mc)) {
+                return;
+            }
             XosNative.init(fbW, fbH);
             engineRunning = true;
             texW = fbW;
