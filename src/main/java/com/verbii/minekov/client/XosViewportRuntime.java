@@ -536,7 +536,92 @@ public final class XosViewportRuntime {
         return 0.1;
     }
 
+    private static Vec3 forwardFromRotation(float yawDeg, float pitchDeg) {
+        double yaw = Math.toRadians(yawDeg);
+        double pitch = Math.toRadians(pitchDeg);
+        double x = -Math.sin(yaw) * Math.cos(pitch);
+        double y = -Math.sin(pitch);
+        double z = Math.cos(yaw) * Math.cos(pitch);
+        return new Vec3(x, y, z).normalize();
+    }
+
+    private static Vec3 rightFromYaw(float yawDeg) {
+        double yaw = Math.toRadians(yawDeg);
+        // Horizontal right vector from yaw only, stable near vertical pitch.
+        return new Vec3(-Math.cos(yaw), 0.0, -Math.sin(yaw)).normalize();
+    }
+
+    private static Vec3 upFromBasis(Vec3 right, Vec3 forward) {
+        Vec3 up = right.cross(forward);
+        if (up.lengthSqr() < 1.0e-8) {
+            return new Vec3(0.0, 1.0, 0.0);
+        }
+        return up.normalize();
+    }
+
+    private static Vec3 worldToLookingVelocity(Vec3 worldVel, float yawDeg, float pitchDeg) {
+        Vec3 forward = forwardFromRotation(yawDeg, pitchDeg);
+        Vec3 right = rightFromYaw(yawDeg);
+        Vec3 up = upFromBasis(right, forward);
+        return new Vec3(worldVel.dot(right), worldVel.dot(up), worldVel.dot(forward));
+    }
+
+    private static Vec3 lookingToWorldVelocity(Vec3 localVel, float yawDeg, float pitchDeg) {
+        Vec3 forward = forwardFromRotation(yawDeg, pitchDeg);
+        Vec3 right = rightFromYaw(yawDeg);
+        Vec3 up = upFromBasis(right, forward);
+        return right.scale(localVel.x).add(up.scale(localVel.y)).add(forward.scale(localVel.z));
+    }
+
+    private static Entity resolveServerMirrorEntity(Minecraft mc, Entity clientEntity) {
+        if (mc == null || mc.level == null || clientEntity == null) {
+            return null;
+        }
+        var server = mc.getSingleplayerServer();
+        if (server == null) {
+            return null;
+        }
+        var serverLevel = server.getLevel(mc.level.dimension());
+        if (serverLevel == null) {
+            return null;
+        }
+        return serverLevel.getEntity(clientEntity.getUUID());
+    }
+
+    private static void setEntityVelocityWithServerMirror(Minecraft mc, Entity entity, Vec3 velocity) {
+        if (entity == null || velocity == null) {
+            return;
+        }
+        entity.setDeltaMovement(velocity);
+        entity.hurtMarked = true;
+        Entity mirror = resolveServerMirrorEntity(mc, entity);
+        if (mirror != null && mirror != entity) {
+            mirror.setDeltaMovement(velocity);
+            mirror.hurtMarked = true;
+        }
+    }
+
     private static void applyMovementImpulse(Entity entity, double forward, double strafe) {
+        if (entity instanceof RLOperator rl) {
+            double speed = movementImpulseFor(rl);
+            if (forward > 0.0) {
+                rl.moveTowards(0.0f, (float) speed);
+                return;
+            }
+            if (forward < 0.0) {
+                rl.moveTowards(180.0f, (float) speed);
+                return;
+            }
+            if (strafe < 0.0) {
+                rl.moveTowards(-90.0f, (float) speed);
+                return;
+            }
+            if (strafe > 0.0) {
+                rl.moveTowards(90.0f, (float) speed);
+                return;
+            }
+        }
+
         double speed = movementImpulseFor(entity);
         double yawRad = Math.toRadians(entity.getYRot());
         double fx = -Math.sin(yawRad);
@@ -559,6 +644,15 @@ public final class XosViewportRuntime {
         if (entity instanceof LivingEntity living) {
             living.setYHeadRot(nextYaw);
             living.setYBodyRot(nextYaw);
+        }
+    }
+
+    private static void applyEntityActionWithServerMirror(
+            Minecraft mc, Entity entity, String action, String payload) {
+        applyEntityAction(entity, action, payload);
+        Entity mirror = resolveServerMirrorEntity(mc, entity);
+        if (mirror != null && mirror != entity) {
+            applyEntityAction(mirror, action, payload);
         }
     }
 
@@ -904,6 +998,15 @@ class Player:
         __module__._host_call("player_set_velocity", _format_position(value))
 
     @property
+    def looking_velocity(self):
+        raw = __module__._host_call("player_looking_velocity", "")
+        return _parse_position(raw)
+
+    @looking_velocity.setter
+    def looking_velocity(self, value):
+        __module__._host_call("player_set_looking_velocity", _format_position(value))
+
+    @property
     def actions(self):
         return self._actions
 
@@ -954,6 +1057,15 @@ class Agent:
     @velocity.setter
     def velocity(self, value):
         __module__._host_call("agent_set_velocity", f"{self._id};{_format_position(value)}")
+
+    @property
+    def looking_velocity(self):
+        raw = __module__._host_call("agent_looking_velocity", self._id)
+        return _parse_position(raw)
+
+    @looking_velocity.setter
+    def looking_velocity(self, value):
+        __module__._host_call("agent_set_looking_velocity", f"{self._id};{_format_position(value)}")
 
     @property
     def actions(self):
@@ -1102,8 +1214,31 @@ __module__.agents = Agents()
                         }
                         Vec3 cur = mc.player.getDeltaMovement();
                         double[] v = parseTriple(arg, cur.x, cur.y, cur.z);
-                        mc.player.setDeltaMovement(v[0], v[1], v[2]);
-                        mc.player.hurtMarked = true;
+                        setEntityVelocityWithServerMirror(mc, mc.player, new Vec3(v[0], v[1], v[2]));
+                    });
+                    yield null;
+                }
+                case "player_looking_velocity" -> {
+                    if (mc.player == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    Vec3 local =
+                            worldToLookingVelocity(
+                                    mc.player.getDeltaMovement(), mc.player.getYRot(), mc.player.getXRot());
+                    yield encodeVelocity(local);
+                }
+                case "player_set_looking_velocity" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        double[] lv = parseTriple(arg, 0.0, 0.0, 0.0);
+                        Vec3 world =
+                                lookingToWorldVelocity(
+                                        new Vec3(lv[0], lv[1], lv[2]),
+                                        mc.player.getYRot(),
+                                        mc.player.getXRot());
+                        setEntityVelocityWithServerMirror(mc, mc.player, world);
                     });
                     yield null;
                 }
@@ -1230,8 +1365,39 @@ __module__.agents = Agents()
                         }
                         Vec3 cur = agent.getDeltaMovement();
                         double[] v = parseTriple(velRaw, cur.x, cur.y, cur.z);
-                        agent.setDeltaMovement(v[0], v[1], v[2]);
-                        agent.hurtMarked = true;
+                        setEntityVelocityWithServerMirror(mc, agent, new Vec3(v[0], v[1], v[2]));
+                    });
+                    yield null;
+                }
+                case "agent_looking_velocity" -> {
+                    RLOperator agent = findAgentById(mc, arg);
+                    if (agent == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    Vec3 local =
+                            worldToLookingVelocity(
+                                    agent.getDeltaMovement(), agent.getYRot(), agent.getXRot());
+                    yield encodeVelocity(local);
+                }
+                case "agent_set_looking_velocity" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String velRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        double[] lv = parseTriple(velRaw, 0.0, 0.0, 0.0);
+                        Vec3 world =
+                                lookingToWorldVelocity(
+                                        new Vec3(lv[0], lv[1], lv[2]),
+                                        agent.getYRot(),
+                                        agent.getXRot());
+                        setEntityVelocityWithServerMirror(mc, agent, world);
                     });
                     yield null;
                 }
@@ -1253,7 +1419,7 @@ __module__.agents = Agents()
                         if (entity == null || action.isEmpty()) {
                             return;
                         }
-                        applyEntityAction(entity, action, payload);
+                        applyEntityActionWithServerMirror(mc, entity, action, payload);
                     });
                     yield null;
                 }
@@ -1347,6 +1513,8 @@ __module__.agents = Agents()
                         "player_set_pitch",
                         "player_velocity",
                         "player_set_velocity",
+                        "player_looking_velocity",
+                        "player_set_looking_velocity",
                         "agent_ids",
                         "agent_position",
                         "agent_set_position",
@@ -1356,6 +1524,8 @@ __module__.agents = Agents()
                         "agent_set_pitch",
                         "agent_velocity",
                         "agent_set_velocity",
+                        "agent_looking_velocity",
+                        "agent_set_looking_velocity",
                         "entity_action",
                         "agents_positions",
                         "agents_rotations",
