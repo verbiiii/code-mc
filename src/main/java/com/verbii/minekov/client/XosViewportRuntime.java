@@ -605,11 +605,11 @@ public final class XosViewportRuntime {
         if (entity instanceof RLOperator rl) {
             double speed = movementImpulseFor(rl);
             if (forward > 0.0) {
-                rl.moveTowards(0.0f, (float) speed);
+                rl.moveTowards(180.0f, (float) speed);
                 return;
             }
             if (forward < 0.0) {
-                rl.moveTowards(180.0f, (float) speed);
+                rl.moveTowards(0.0f, (float) speed);
                 return;
             }
             if (strafe < 0.0) {
