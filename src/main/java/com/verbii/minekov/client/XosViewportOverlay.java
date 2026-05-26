@@ -1055,6 +1055,9 @@ public final class XosViewportOverlay {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) {
+            XosViewportRuntime.setRunSession(false);
+        }
         XosViewportRuntime.prewarmEngine(mc);
         boolean chatOpen = mc.screen instanceof ChatScreen;
 

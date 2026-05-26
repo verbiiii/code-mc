@@ -160,7 +160,22 @@ public final class XosViewportRuntime {
      * Full GPU + native release: {@link #disposeEngine()} (optional; JVM exit also calls {@link XosNative#shutdown()} via a hook).
      */
     public static void setRunSession(boolean active) {
+        if (!active && runSession) {
+            stopActiveExecution();
+            forcedAgentRotations.clear();
+        }
         runSession = active;
+    }
+
+    /** Stops currently running Coder execution(s) inside xos, if engine is initialized. */
+    public static void stopActiveExecution() {
+        if (!libraryOk || !engineRunning) {
+            return;
+        }
+        try {
+            XosNative.onStopExecution();
+        } catch (Throwable ignored) {
+        }
     }
 
     private static void tryLoadLibrary() {
@@ -365,6 +380,8 @@ public final class XosViewportRuntime {
      * use this if you need to free VRAM without exiting the game. JVM shutdown also runs {@link XosNative#shutdown()}.
      */
     public static void disposeEngine() {
+        stopActiveExecution();
+        forcedAgentRotations.clear();
         runSession = false;
         if (!libraryOk || !engineRunning) {
             return;
@@ -878,6 +895,10 @@ __module__.agents = Agents()
                             mc.player.displayClientMessage(Component.literal(arg), false);
                         }
                     });
+                    yield null;
+                }
+                case "execution_stopped" -> {
+                    forcedAgentRotations.clear();
                     yield null;
                 }
                 case "player_position" -> {

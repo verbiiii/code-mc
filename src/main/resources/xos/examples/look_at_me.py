@@ -4,9 +4,8 @@ import xos
 agent_positions = mc.agents.positions
 num_agents = int(agent_positions.shape[0]) if len(agent_positions.shape) > 0 else 0
 
-if num_agents == 0:
-    print("no agents found")
-else:
+
+while True:
     # Batch player position to (N,3) tensor, index-aligned to mc.agents
     p = mc.player.position
     player_positions = (
@@ -28,3 +27,4 @@ else:
     mc.agents.rotations = rotations_tensor
 
     print("updated", num_agents, "agent rotations to look at player")
+    xos.sleep(0.1)
