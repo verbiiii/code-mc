@@ -7,6 +7,7 @@ import com.verbii.minekov.Minekov;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.api.distmarker.Dist;
@@ -23,6 +24,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.io.InputStream;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.lwjgl.system.MemoryUtil;
 
@@ -51,10 +56,7 @@ public final class XosViewportRuntime {
     private static final int VIEWPORT_ALPHA_IDLE = Math.round(255 * 0.6f);
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
-    private static final String STARTER_SCRIPT_NAME = "balls_many.py";
-    private static final String STARTER_SCRIPT_RESOURCE = "/xos/examples/" + STARTER_SCRIPT_NAME;
-    private static final Path DEV_STARTER_SCRIPT_PATH =
-            Path.of("src", "xos", "examples", STARTER_SCRIPT_NAME);
+    private static final List<String> STARTER_SCRIPT_NAMES = List.of("balls_many.py", "demo_mod.py");
 
     private static boolean libraryTried;
     private static boolean libraryOk;
@@ -113,6 +115,7 @@ public final class XosViewportRuntime {
     private static volatile int maxPumpsPerSecond;
 
     private static long lastPumpNanos;
+    private static boolean hostBindingsRegistered;
 
     private XosViewportRuntime() {}
 
@@ -386,30 +389,94 @@ public final class XosViewportRuntime {
         return worldRoot.resolve("xos").resolve(playerUuid);
     }
 
-    private static void ensureStarterScripts(Path scriptsDir) {
-        Path starterFile = scriptsDir.resolve(STARTER_SCRIPT_NAME);
+    private static void ensureStarterScript(Path scriptsDir, String scriptName) {
+        Path starterFile = scriptsDir.resolve(scriptName);
         if (Files.exists(starterFile)) {
             return;
         }
-        try (InputStream resourceStream = XosViewportRuntime.class.getResourceAsStream(STARTER_SCRIPT_RESOURCE)) {
+        String resourcePath = "/xos/examples/" + scriptName;
+        try (InputStream resourceStream = XosViewportRuntime.class.getResourceAsStream(resourcePath)) {
             if (resourceStream != null) {
                 Files.copy(resourceStream, starterFile, StandardCopyOption.REPLACE_EXISTING);
                 return;
             }
         } catch (Exception e) {
-            LOGGER.warn("Failed to copy xos starter script from classpath resource {}", STARTER_SCRIPT_RESOURCE, e);
+            LOGGER.warn("Failed to copy xos starter script from classpath resource {}", resourcePath, e);
         }
 
-        Path source = DEV_STARTER_SCRIPT_PATH.toAbsolutePath().normalize();
+        Path source = Path.of("src", "xos", "examples", scriptName).toAbsolutePath().normalize();
         try {
             if (Files.exists(source)) {
                 Files.copy(source, starterFile, StandardCopyOption.REPLACE_EXISTING);
             } else {
-                LOGGER.warn("xos starter script not found in resource or dev path ({})", source);
+                LOGGER.warn("xos starter script '{}' not found in resource or dev path ({})", scriptName, source);
             }
         } catch (Exception e) {
             LOGGER.warn("Failed to copy xos starter script to {}", starterFile, e);
         }
+    }
+
+    private static void ensureStarterScripts(Path scriptsDir) {
+        for (String scriptName : STARTER_SCRIPT_NAMES) {
+            ensureStarterScript(scriptsDir, scriptName);
+        }
+    }
+
+    private static void runOnClientThreadSync(Minecraft mc, Runnable action) throws Exception {
+        if (mc == null) {
+            return;
+        }
+        if (mc.isSameThread()) {
+            action.run();
+            return;
+        }
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        mc.execute(() -> {
+            try {
+                action.run();
+            } catch (Throwable t) {
+                errorRef.set(t);
+            } finally {
+                done.countDown();
+            }
+        });
+        if (!done.await(3, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Timed out waiting for Minecraft client thread.");
+        }
+        Throwable t = errorRef.get();
+        if (t != null) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    private static String invokeHostBinding(Minecraft mc, String moduleName, String functionName, String arg0) {
+        if ("mc".equals(moduleName) && "chat".equals(functionName)) {
+            String message = arg0 != null ? arg0 : "";
+            try {
+                runOnClientThreadSync(mc, () -> {
+                    if (mc.player != null && !message.isBlank()) {
+                        mc.player.displayClientMessage(Component.literal(message), false);
+                    }
+                });
+                return null;
+            } catch (Exception e) {
+                throw new RuntimeException("mc.chat failed: " + e.getMessage(), e);
+            }
+        }
+        throw new IllegalArgumentException("Unknown host binding: " + moduleName + "." + functionName);
+    }
+
+    private static void configureHostBindings(Minecraft mc) {
+        if (hostBindingsRegistered) {
+            return;
+        }
+        XosNative.setHostBindingCallback(
+                (moduleName, functionName, arg0) ->
+                        invokeHostBinding(mc, moduleName, functionName, arg0));
+        XosNative.clearHostPythonModules();
+        XosNative.registerHostPythonModule("mc", new String[] {"chat"});
+        hostBindingsRegistered = true;
     }
 
     private static boolean configureCoderScriptsDirectory(Minecraft mc) {
@@ -421,6 +488,7 @@ public final class XosViewportRuntime {
             Files.createDirectories(scriptsDir);
             ensureStarterScripts(scriptsDir);
             XosNative.setCoderScriptsDirectory(scriptsDir.toAbsolutePath().normalize().toString());
+            configureHostBindings(mc);
             return true;
         } catch (Throwable t) {
             LOGGER.warn("Failed to configure xos coder scripts directory", t);
