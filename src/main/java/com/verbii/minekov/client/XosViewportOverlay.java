@@ -1,5 +1,6 @@
 package com.verbii.minekov.client;
 
+import ai.xlate.xos.XosNative;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.verbii.minekov.Minekov;
 import net.minecraft.client.Minecraft;
@@ -574,6 +575,20 @@ public final class XosViewportOverlay {
         };
     }
 
+    /** Maps Ctrl+key combos to xos ShortcutAction codes (see XosNative.onShortcut docs). */
+    private static int ctrlShortcutToActionCode(int key, int modifiers) {
+        boolean shiftDown = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        return switch (key) {
+            case GLFW.GLFW_KEY_A -> 4; // SelectAll
+            case GLFW.GLFW_KEY_C -> 1; // Copy
+            case GLFW.GLFW_KEY_V -> 3; // Paste
+            case GLFW.GLFW_KEY_X -> 2; // Cut
+            case GLFW.GLFW_KEY_Z -> shiftDown ? 6 : 5; // Redo / Undo
+            case GLFW.GLFW_KEY_Y -> 6; // Redo
+            default -> -1;
+        };
+    }
+
     private static double scaledMouseX(Minecraft mc, int sw) {
         return mc.mouseHandler.xpos() * (double) sw / (double) mc.getWindow().getScreenWidth();
     }
@@ -676,6 +691,16 @@ public final class XosViewportOverlay {
             return;
         }
         int key = event.getKeyCode();
+        int modifiers = event.getModifiers();
+        boolean ctrlDown = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        if (ctrlDown) {
+            int actionCode = ctrlShortcutToActionCode(key, modifiers);
+            if (actionCode != -1) {
+                XosNative.onShortcut(actionCode);
+                event.setCanceled(true);
+                return;
+            }
+        }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             return;
         }

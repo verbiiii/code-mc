@@ -394,9 +394,6 @@ public final class XosViewportRuntime {
 
     private static void ensureStarterScript(Path scriptsDir, String scriptName) {
         Path starterFile = scriptsDir.resolve(scriptName);
-        if (Files.exists(starterFile)) {
-            return;
-        }
         String resourcePath = "/xos/examples/" + scriptName;
         try (InputStream resourceStream = XosViewportRuntime.class.getResourceAsStream(resourcePath)) {
             if (resourceStream != null) {
@@ -510,8 +507,114 @@ public final class XosViewportRuntime {
         return null;
     }
 
+    private static List<RLOperator> collectAgents(Minecraft mc) {
+        java.util.ArrayList<RLOperator> out = new java.util.ArrayList<>();
+        if (mc == null || mc.level == null) {
+            return out;
+        }
+        for (var entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof RLOperator operator) {
+                out.add(operator);
+            }
+        }
+        return out;
+    }
+
+    private static String encodeAgentPositions(Minecraft mc) {
+        StringBuilder out = new StringBuilder();
+        for (RLOperator agent : collectAgents(mc)) {
+            if (!out.isEmpty()) {
+                out.append("|");
+            }
+            out.append(encodePosition(agent.getX(), agent.getY(), agent.getZ()));
+        }
+        return out.toString();
+    }
+
+    private static String encodeAgentRotations(Minecraft mc) {
+        StringBuilder out = new StringBuilder();
+        for (RLOperator agent : collectAgents(mc)) {
+            if (!out.isEmpty()) {
+                out.append("|");
+            }
+            out.append(encodeRotation(agent.getYRot(), agent.getXRot()));
+        }
+        return out.toString();
+    }
+
+    private static String encodeAgentYaws(Minecraft mc) {
+        StringBuilder out = new StringBuilder();
+        for (RLOperator agent : collectAgents(mc)) {
+            if (!out.isEmpty()) {
+                out.append("|");
+            }
+            out.append(String.format(Locale.US, "%.6f", (double) agent.getYRot()));
+        }
+        return out.toString();
+    }
+
+    private static String encodeAgentPitches(Minecraft mc) {
+        StringBuilder out = new StringBuilder();
+        for (RLOperator agent : collectAgents(mc)) {
+            if (!out.isEmpty()) {
+                out.append("|");
+            }
+            out.append(String.format(Locale.US, "%.6f", (double) agent.getXRot()));
+        }
+        return out.toString();
+    }
+
+    private static List<double[]> parseRows(String raw, int width) {
+        java.util.ArrayList<double[]> rows = new java.util.ArrayList<>();
+        if (raw == null || raw.isBlank() || width < 1) {
+            return rows;
+        }
+        String[] rowStrings = raw.split("\\|");
+        for (String row : rowStrings) {
+            String trimmed = row.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] parts = trimmed.split(",");
+            double[] vals = new double[width];
+            for (int i = 0; i < width; i++) {
+                if (i < parts.length) {
+                    try {
+                        vals[i] = Double.parseDouble(parts[i].trim());
+                    } catch (Exception ignored) {
+                        vals[i] = 0.0;
+                    }
+                }
+            }
+            rows.add(vals);
+        }
+        return rows;
+    }
+
+    private static List<Float> parseScalars(String raw) {
+        java.util.ArrayList<Float> out = new java.util.ArrayList<>();
+        if (raw == null || raw.isBlank()) {
+            return out;
+        }
+        String[] parts = raw.split("\\|");
+        for (String part : parts) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(Float.parseFloat(trimmed));
+            } catch (Exception ignored) {
+                out.add(0.0f);
+            }
+        }
+        return out;
+    }
+
     private static String buildMcBootstrapSource() {
         return """
+import xos
+
 def _parse_position(raw):
     if not raw:
         return (0.0, 0.0, 0.0)
@@ -533,6 +636,51 @@ def _parse_rotation(raw):
         return (float(parts[0]), float(parts[1]))
     except Exception:
         return (0.0, 0.0)
+
+def _tensor_flat_values(t):
+    if hasattr(t, "__getitem__"):
+        try:
+            data_dict = t[:]
+            if isinstance(data_dict, dict) and "_data" in data_dict:
+                return list(data_dict["_data"])
+        except Exception:
+            pass
+    if isinstance(t, dict) and "_data" in t:
+        return list(t["_data"])
+    return []
+
+def _tensor_to_rows(t, width):
+    flat = _tensor_flat_values(t)
+    if width <= 0 or not flat:
+        return ""
+    rows = len(flat) // width
+    return "|".join(
+        ",".join(str(float(flat[i * width + j])) for j in range(width))
+        for i in range(rows)
+    )
+
+def _tensor_to_scalars(t):
+    flat = _tensor_flat_values(t)
+    if not flat:
+        return ""
+    return "|".join(str(float(v)) for v in flat)
+
+def _rows_to_tensor(raw, width):
+    if not raw:
+        return xos.zeros((0, width))
+    rows = [r for r in str(raw).split("|") if r]
+    flat = [
+        float(v)
+        for r in rows
+        for v in r.split(",")[:width]
+    ]
+    return xos.tensor(flat, (len(rows), width))
+
+def _scalars_to_tensor(raw):
+    if not raw:
+        return xos.zeros((0,))
+    vals = [float(v) for v in str(raw).split("|") if v]
+    return xos.tensor(vals, (len(vals),))
 
 def _format_position(value):
     if hasattr(value, "__iter__"):
@@ -648,6 +796,42 @@ class Agents:
     def __getitem__(self, index):
         return self._list()[index]
 
+    @property
+    def positions(self):
+        raw = __module__._host_call("agents_positions", "")
+        return _rows_to_tensor(raw, 3)
+
+    @positions.setter
+    def positions(self, tensor):
+        __module__._host_call("agents_set_positions", _tensor_to_rows(tensor, 3))
+
+    @property
+    def rotations(self):
+        raw = __module__._host_call("agents_rotations", "")
+        return _rows_to_tensor(raw, 2)
+
+    @rotations.setter
+    def rotations(self, tensor):
+        __module__._host_call("agents_set_rotations", _tensor_to_rows(tensor, 2))
+
+    @property
+    def yaws(self):
+        raw = __module__._host_call("agents_yaws", "")
+        return _scalars_to_tensor(raw)
+
+    @yaws.setter
+    def yaws(self, tensor):
+        __module__._host_call("agents_set_yaws", _tensor_to_scalars(tensor))
+
+    @property
+    def pitches(self):
+        raw = __module__._host_call("agents_pitches", "")
+        return _scalars_to_tensor(raw)
+
+    @pitches.setter
+    def pitches(self, tensor):
+        __module__._host_call("agents_set_pitches", _tensor_to_scalars(tensor))
+
 __module__.player = Player()
 __module__.agents = Agents()
 """;
@@ -725,14 +909,12 @@ __module__.agents = Agents()
                     yield null;
                 }
                 case "agent_ids" -> {
-                    if (mc.level == null) {
+                    List<RLOperator> agents = collectAgents(mc);
+                    if (agents.isEmpty()) {
                         yield "";
                     }
                     StringBuilder out = new StringBuilder();
-                    for (var entity : mc.level.entitiesForRendering()) {
-                        if (!(entity instanceof RLOperator operator)) {
-                            continue;
-                        }
+                    for (RLOperator operator : agents) {
                         if (!out.isEmpty()) {
                             out.append("|");
                         }
@@ -830,6 +1012,66 @@ __module__.agents = Agents()
                     });
                     yield null;
                 }
+                case "agents_positions" -> encodeAgentPositions(mc);
+                case "agents_rotations" -> encodeAgentRotations(mc);
+                case "agents_yaws" -> encodeAgentYaws(mc);
+                case "agents_pitches" -> encodeAgentPitches(mc);
+                case "agents_set_positions" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<double[]> rows = parseRows(arg, 3);
+                        int n = Math.min(agents.size(), rows.size());
+                        for (int i = 0; i < n; i++) {
+                            RLOperator agent = agents.get(i);
+                            double[] xyz = rows.get(i);
+                            agent.setPos(xyz[0], xyz[1], xyz[2]);
+                        }
+                    });
+                    yield null;
+                }
+                case "agents_set_rotations" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<double[]> rows = parseRows(arg, 2);
+                        int n = Math.min(agents.size(), rows.size());
+                        for (int i = 0; i < n; i++) {
+                            RLOperator agent = agents.get(i);
+                            float yaw = (float) rows.get(i)[0];
+                            float pitch = (float) rows.get(i)[1];
+                            agent.setYRot(yaw);
+                            agent.setXRot(pitch);
+                            agent.setYHeadRot(yaw);
+                            agent.setYBodyRot(yaw);
+                        }
+                    });
+                    yield null;
+                }
+                case "agents_set_yaws" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<Float> vals = parseScalars(arg);
+                        int n = Math.min(agents.size(), vals.size());
+                        for (int i = 0; i < n; i++) {
+                            RLOperator agent = agents.get(i);
+                            float yaw = vals.get(i);
+                            agent.setYRot(yaw);
+                            agent.setYHeadRot(yaw);
+                            agent.setYBodyRot(yaw);
+                        }
+                    });
+                    yield null;
+                }
+                case "agents_set_pitches" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<Float> vals = parseScalars(arg);
+                        int n = Math.min(agents.size(), vals.size());
+                        for (int i = 0; i < n; i++) {
+                            agents.get(i).setXRot(vals.get(i));
+                        }
+                    });
+                    yield null;
+                }
                 case "__bootstrap__" -> buildMcBootstrapSource();
                 default -> throw new IllegalArgumentException("Unknown host binding: " + moduleName + "." + functionName);
             };
@@ -865,6 +1107,14 @@ __module__.agents = Agents()
                         "agent_set_rotation",
                         "agent_set_yaw",
                         "agent_set_pitch",
+                        "agents_positions",
+                        "agents_rotations",
+                        "agents_yaws",
+                        "agents_pitches",
+                        "agents_set_positions",
+                        "agents_set_rotations",
+                        "agents_set_yaws",
+                        "agents_set_pitches",
                         "__bootstrap__"
                 });
         hostBindingsRegistered = true;
