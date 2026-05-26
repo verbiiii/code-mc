@@ -25,8 +25,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.io.InputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -119,6 +121,11 @@ public final class XosViewportRuntime {
 
     private static long lastPumpNanos;
     private static boolean hostBindingsRegistered;
+    /**
+     * Rotation lock requested from mc Python bindings. Values are [yaw, pitch] and are re-applied each
+     * frame so Minecraft AI/network updates do not drift agents off target.
+     */
+    private static final Map<String, float[]> forcedAgentRotations = new HashMap<>();
 
     private XosViewportRuntime() {}
 
@@ -242,6 +249,7 @@ public final class XosViewportRuntime {
             lastPumpNanos = System.nanoTime();
         }
 
+        applyForcedAgentRotations(mc);
         XosNative.setMinecraftViewportAlpha(panelHovered ? VIEWPORT_ALPHA_HOVER : VIEWPORT_ALPHA_IDLE);
         XosNative.tick();
 
@@ -505,6 +513,26 @@ public final class XosViewportRuntime {
             }
         }
         return null;
+    }
+
+    private static void applyAgentRotation(RLOperator agent, float yaw, float pitch) {
+        agent.setYRot(yaw);
+        agent.setXRot(pitch);
+        agent.setYHeadRot(yaw);
+        agent.setYBodyRot(yaw);
+    }
+
+    private static void applyForcedAgentRotations(Minecraft mc) {
+        if (forcedAgentRotations.isEmpty()) {
+            return;
+        }
+        for (RLOperator agent : collectAgents(mc)) {
+            float[] rot = forcedAgentRotations.get(agent.getStringUUID());
+            if (rot == null || rot.length < 2) {
+                continue;
+            }
+            applyAgentRotation(agent, rot[0], rot[1]);
+        }
     }
 
     private static List<RLOperator> collectAgents(Minecraft mc) {
@@ -969,10 +997,8 @@ __module__.agents = Agents()
                             return;
                         }
                         float[] yp = parsePair(ypRaw, agent.getYRot(), agent.getXRot());
-                        agent.setYRot(yp[0]);
-                        agent.setXRot(yp[1]);
-                        agent.setYHeadRot(yp[0]);
-                        agent.setYBodyRot(yp[0]);
+                        applyAgentRotation(agent, yp[0], yp[1]);
+                        forcedAgentRotations.put(agent.getStringUUID(), new float[] {yp[0], yp[1]});
                     });
                     yield null;
                 }
@@ -989,9 +1015,8 @@ __module__.agents = Agents()
                             return;
                         }
                         float yaw = parsePair(yawRaw + ",0", agent.getYRot(), agent.getXRot())[0];
-                        agent.setYRot(yaw);
-                        agent.setYHeadRot(yaw);
-                        agent.setYBodyRot(yaw);
+                        applyAgentRotation(agent, yaw, agent.getXRot());
+                        forcedAgentRotations.put(agent.getStringUUID(), new float[] {yaw, agent.getXRot()});
                     });
                     yield null;
                 }
@@ -1008,7 +1033,8 @@ __module__.agents = Agents()
                             return;
                         }
                         float pitch = parsePair("0," + pitchRaw, agent.getYRot(), agent.getXRot())[1];
-                        agent.setXRot(pitch);
+                        applyAgentRotation(agent, agent.getYRot(), pitch);
+                        forcedAgentRotations.put(agent.getStringUUID(), new float[] {agent.getYRot(), pitch});
                     });
                     yield null;
                 }
@@ -1038,10 +1064,8 @@ __module__.agents = Agents()
                             RLOperator agent = agents.get(i);
                             float yaw = (float) rows.get(i)[0];
                             float pitch = (float) rows.get(i)[1];
-                            agent.setYRot(yaw);
-                            agent.setXRot(pitch);
-                            agent.setYHeadRot(yaw);
-                            agent.setYBodyRot(yaw);
+                            applyAgentRotation(agent, yaw, pitch);
+                            forcedAgentRotations.put(agent.getStringUUID(), new float[] {yaw, pitch});
                         }
                     });
                     yield null;
@@ -1054,9 +1078,8 @@ __module__.agents = Agents()
                         for (int i = 0; i < n; i++) {
                             RLOperator agent = agents.get(i);
                             float yaw = vals.get(i);
-                            agent.setYRot(yaw);
-                            agent.setYHeadRot(yaw);
-                            agent.setYBodyRot(yaw);
+                            applyAgentRotation(agent, yaw, agent.getXRot());
+                            forcedAgentRotations.put(agent.getStringUUID(), new float[] {yaw, agent.getXRot()});
                         }
                     });
                     yield null;
@@ -1067,7 +1090,10 @@ __module__.agents = Agents()
                         List<Float> vals = parseScalars(arg);
                         int n = Math.min(agents.size(), vals.size());
                         for (int i = 0; i < n; i++) {
-                            agents.get(i).setXRot(vals.get(i));
+                            RLOperator agent = agents.get(i);
+                            float pitch = vals.get(i);
+                            applyAgentRotation(agent, agent.getYRot(), pitch);
+                            forcedAgentRotations.put(agent.getStringUUID(), new float[] {agent.getYRot(), pitch});
                         }
                     });
                     yield null;
