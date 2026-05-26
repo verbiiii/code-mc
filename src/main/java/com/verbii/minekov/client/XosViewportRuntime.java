@@ -162,7 +162,6 @@ public final class XosViewportRuntime {
     public static void setRunSession(boolean active) {
         if (!active && runSession) {
             stopActiveExecution();
-            forcedAgentRotations.clear();
         }
         runSession = active;
     }
@@ -381,7 +380,6 @@ public final class XosViewportRuntime {
      */
     public static void disposeEngine() {
         stopActiveExecution();
-        forcedAgentRotations.clear();
         runSession = false;
         if (!libraryOk || !engineRunning) {
             return;
@@ -550,6 +548,16 @@ public final class XosViewportRuntime {
             }
             applyAgentRotation(agent, rot[0], rot[1]);
         }
+    }
+
+    /** Keep locked rotations applied even when no script is currently running. */
+    public static void maintainForcedAgentRotations(Minecraft mc) {
+        applyForcedAgentRotations(mc);
+    }
+
+    /** Clear all rotation locks (used on world unload/disconnect). */
+    public static void clearForcedAgentRotations() {
+        forcedAgentRotations.clear();
     }
 
     private static List<RLOperator> collectAgents(Minecraft mc) {
@@ -898,7 +906,6 @@ __module__.agents = Agents()
                     yield null;
                 }
                 case "execution_stopped" -> {
-                    forcedAgentRotations.clear();
                     yield null;
                 }
                 case "player_position" -> {

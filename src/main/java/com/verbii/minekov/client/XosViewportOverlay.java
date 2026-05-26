@@ -1057,7 +1057,10 @@ public final class XosViewportOverlay {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
             XosViewportRuntime.setRunSession(false);
+            XosViewportRuntime.clearForcedAgentRotations();
+            return;
         }
+        XosViewportRuntime.maintainForcedAgentRotations(mc);
         XosViewportRuntime.prewarmEngine(mc);
         boolean chatOpen = mc.screen instanceof ChatScreen;
 
