@@ -10,7 +10,11 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
@@ -481,6 +485,10 @@ public final class XosViewportRuntime {
         return String.format(Locale.US, "%.6f,%.6f", (double) yaw, (double) pitch);
     }
 
+    private static String encodeVelocity(Vec3 v) {
+        return encodePosition(v.x, v.y, v.z);
+    }
+
     private static double[] parseTriple(String raw, double fallbackX, double fallbackY, double fallbackZ) {
         if (raw == null || raw.isBlank()) {
             return new double[] {fallbackX, fallbackY, fallbackZ};
@@ -515,6 +523,66 @@ public final class XosViewportRuntime {
             };
         } catch (Exception ignored) {
             return new float[] {fallbackA, fallbackB};
+        }
+    }
+
+    private static double movementImpulseFor(Entity entity) {
+        if (entity instanceof LivingEntity living) {
+            var attr = living.getAttribute(Attributes.MOVEMENT_SPEED);
+            if (attr != null) {
+                return attr.getValue();
+            }
+        }
+        return 0.1;
+    }
+
+    private static void applyMovementImpulse(Entity entity, double forward, double strafe) {
+        double speed = movementImpulseFor(entity);
+        double yawRad = Math.toRadians(entity.getYRot());
+        double fx = -Math.sin(yawRad);
+        double fz = Math.cos(yawRad);
+        double lx = -fz;
+        double lz = fx;
+
+        Vec3 cur = entity.getDeltaMovement();
+        double vx = cur.x + (fx * forward + lx * strafe) * speed;
+        double vz = cur.z + (fz * forward + lz * strafe) * speed;
+        entity.setDeltaMovement(vx, cur.y, vz);
+        entity.hurtMarked = true;
+    }
+
+    private static void applyLookDelta(Entity entity, float pitchDelta, float yawDelta) {
+        float nextPitch = entity.getXRot() + pitchDelta;
+        float nextYaw = entity.getYRot() + yawDelta;
+        entity.setXRot(nextPitch);
+        entity.setYRot(nextYaw);
+        if (entity instanceof LivingEntity living) {
+            living.setYHeadRot(nextYaw);
+            living.setYBodyRot(nextYaw);
+        }
+    }
+
+    private static void applyEntityAction(Entity entity, String action, String payload) {
+        switch (action) {
+            case "w" -> applyMovementImpulse(entity, 1.0, 0.0);
+            case "s" -> applyMovementImpulse(entity, -1.0, 0.0);
+            case "a" -> applyMovementImpulse(entity, 0.0, -1.0);
+            case "d" -> applyMovementImpulse(entity, 0.0, 1.0);
+            case "jump" -> {
+                if (entity instanceof RLOperator rl) {
+                    rl.jumpEntity();
+                } else {
+                    Vec3 cur = entity.getDeltaMovement();
+                    entity.setDeltaMovement(cur.x, Math.max(cur.y, 0.42), cur.z);
+                    entity.hurtMarked = true;
+                }
+            }
+            case "look" -> {
+                float[] delta = parsePair(payload, 0.0f, 0.0f);
+                // API order is look(pitch, yaw)
+                applyLookDelta(entity, delta[0], delta[1]);
+            }
+            default -> {}
         }
     }
 
@@ -761,7 +829,37 @@ def _parse_ids(raw):
         return []
     return [x for x in text.split("|") if x]
 
+class Actions:
+    def __init__(self, entity_kind, entity_id=""):
+        self._kind = str(entity_kind)
+        self._id = str(entity_id)
+
+    def _call(self, action_name, payload=""):
+        arg = f"{self._kind};{self._id};{action_name};{payload}"
+        __module__._host_call("entity_action", arg)
+
+    def w(self):
+        self._call("w", "")
+
+    def a(self):
+        self._call("a", "")
+
+    def s(self):
+        self._call("s", "")
+
+    def d(self):
+        self._call("d", "")
+
+    def jump(self):
+        self._call("jump", "")
+
+    def look(self, pitch, yaw):
+        self._call("look", f"{float(pitch)},{float(yaw)}")
+
 class Player:
+    def __init__(self):
+        self._actions = Actions("player", "")
+
     @property
     def position(self):
         raw = __module__._host_call("player_position", "")
@@ -796,9 +894,23 @@ class Player:
     def pitch(self, value):
         __module__._host_call("player_set_pitch", str(float(value)))
 
+    @property
+    def velocity(self):
+        raw = __module__._host_call("player_velocity", "")
+        return _parse_position(raw)
+
+    @velocity.setter
+    def velocity(self, value):
+        __module__._host_call("player_set_velocity", _format_position(value))
+
+    @property
+    def actions(self):
+        return self._actions
+
 class Agent:
     def __init__(self, agent_id):
         self._id = str(agent_id)
+        self._actions = Actions("agent", self._id)
 
     @property
     def position(self):
@@ -833,6 +945,19 @@ class Agent:
     @pitch.setter
     def pitch(self, value):
         __module__._host_call("agent_set_pitch", f"{self._id};{float(value)}")
+
+    @property
+    def velocity(self):
+        raw = __module__._host_call("agent_velocity", self._id)
+        return _parse_position(raw)
+
+    @velocity.setter
+    def velocity(self, value):
+        __module__._host_call("agent_set_velocity", f"{self._id};{_format_position(value)}")
+
+    @property
+    def actions(self):
+        return self._actions
 
 class Agents:
     def _list(self):
@@ -964,6 +1089,24 @@ __module__.agents = Agents()
                     });
                     yield null;
                 }
+                case "player_velocity" -> {
+                    if (mc.player == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    yield encodeVelocity(mc.player.getDeltaMovement());
+                }
+                case "player_set_velocity" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        Vec3 cur = mc.player.getDeltaMovement();
+                        double[] v = parseTriple(arg, cur.x, cur.y, cur.z);
+                        mc.player.setDeltaMovement(v[0], v[1], v[2]);
+                        mc.player.hurtMarked = true;
+                    });
+                    yield null;
+                }
                 case "agent_ids" -> {
                     List<RLOperator> agents = collectAgents(mc);
                     if (agents.isEmpty()) {
@@ -1066,6 +1209,54 @@ __module__.agents = Agents()
                     });
                     yield null;
                 }
+                case "agent_velocity" -> {
+                    RLOperator agent = findAgentById(mc, arg);
+                    if (agent == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    yield encodeVelocity(agent.getDeltaMovement());
+                }
+                case "agent_set_velocity" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String velRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        Vec3 cur = agent.getDeltaMovement();
+                        double[] v = parseTriple(velRaw, cur.x, cur.y, cur.z);
+                        agent.setDeltaMovement(v[0], v[1], v[2]);
+                        agent.hurtMarked = true;
+                    });
+                    yield null;
+                }
+                case "entity_action" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        String[] parts = arg.split(";", 4);
+                        if (parts.length < 3) {
+                            return;
+                        }
+                        String kind = parts[0].trim();
+                        String id = parts[1].trim();
+                        String action = parts[2].trim();
+                        String payload = parts.length >= 4 ? parts[3] : "";
+                        Entity entity = switch (kind) {
+                            case "player" -> mc.player;
+                            case "agent" -> findAgentById(mc, id);
+                            default -> null;
+                        };
+                        if (entity == null || action.isEmpty()) {
+                            return;
+                        }
+                        applyEntityAction(entity, action, payload);
+                    });
+                    yield null;
+                }
                 case "agents_positions" -> encodeAgentPositions(mc);
                 case "agents_rotations" -> encodeAgentRotations(mc);
                 case "agents_yaws" -> encodeAgentYaws(mc);
@@ -1154,6 +1345,8 @@ __module__.agents = Agents()
                         "player_set_rotation",
                         "player_set_yaw",
                         "player_set_pitch",
+                        "player_velocity",
+                        "player_set_velocity",
                         "agent_ids",
                         "agent_position",
                         "agent_set_position",
@@ -1161,6 +1354,9 @@ __module__.agents = Agents()
                         "agent_set_rotation",
                         "agent_set_yaw",
                         "agent_set_pitch",
+                        "agent_velocity",
+                        "agent_set_velocity",
+                        "entity_action",
                         "agents_positions",
                         "agents_rotations",
                         "agents_yaws",
