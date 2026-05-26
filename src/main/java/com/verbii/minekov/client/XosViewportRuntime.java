@@ -59,7 +59,7 @@ public final class XosViewportRuntime {
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
     private static final List<String> STARTER_SCRIPT_NAMES =
-            List.of("balls_many.py", "demo_mod.py", "agent_controller.py");
+            List.of("balls_many.py", "demo_mod.py", "agent_controller.py", "look_at_me.py");
 
     private static boolean libraryTried;
     private static boolean libraryOk;
@@ -457,6 +457,59 @@ public final class XosViewportRuntime {
         return String.format(Locale.US, "%.6f,%.6f,%.6f", x, y, z);
     }
 
+    private static String encodeRotation(float yaw, float pitch) {
+        return String.format(Locale.US, "%.6f,%.6f", (double) yaw, (double) pitch);
+    }
+
+    private static double[] parseTriple(String raw, double fallbackX, double fallbackY, double fallbackZ) {
+        if (raw == null || raw.isBlank()) {
+            return new double[] {fallbackX, fallbackY, fallbackZ};
+        }
+        String[] parts = raw.split(",");
+        if (parts.length < 3) {
+            return new double[] {fallbackX, fallbackY, fallbackZ};
+        }
+        try {
+            return new double[] {
+                    Double.parseDouble(parts[0].trim()),
+                    Double.parseDouble(parts[1].trim()),
+                    Double.parseDouble(parts[2].trim())
+            };
+        } catch (Exception ignored) {
+            return new double[] {fallbackX, fallbackY, fallbackZ};
+        }
+    }
+
+    private static float[] parsePair(String raw, float fallbackA, float fallbackB) {
+        if (raw == null || raw.isBlank()) {
+            return new float[] {fallbackA, fallbackB};
+        }
+        String[] parts = raw.split(",");
+        if (parts.length < 2) {
+            return new float[] {fallbackA, fallbackB};
+        }
+        try {
+            return new float[] {
+                    Float.parseFloat(parts[0].trim()),
+                    Float.parseFloat(parts[1].trim())
+            };
+        } catch (Exception ignored) {
+            return new float[] {fallbackA, fallbackB};
+        }
+    }
+
+    private static RLOperator findAgentById(Minecraft mc, String id) {
+        if (mc == null || mc.level == null || id == null || id.isBlank()) {
+            return null;
+        }
+        for (var entity : mc.level.entitiesForRendering()) {
+            if (entity instanceof RLOperator operator && id.equals(operator.getStringUUID())) {
+                return operator;
+            }
+        }
+        return null;
+    }
+
     private static String buildMcBootstrapSource() {
         return """
 def _parse_position(raw):
@@ -469,6 +522,35 @@ def _parse_position(raw):
         return (float(parts[0]), float(parts[1]), float(parts[2]))
     except Exception:
         return (0.0, 0.0, 0.0)
+
+def _parse_rotation(raw):
+    if not raw:
+        return (0.0, 0.0)
+    parts = [p.strip() for p in str(raw).split(",")]
+    if len(parts) < 2:
+        return (0.0, 0.0)
+    try:
+        return (float(parts[0]), float(parts[1]))
+    except Exception:
+        return (0.0, 0.0)
+
+def _format_position(value):
+    if hasattr(value, "__iter__"):
+        vals = list(value)
+    else:
+        vals = [value]
+    if len(vals) < 3:
+        vals = vals + [0.0] * (3 - len(vals))
+    return f"{float(vals[0])},{float(vals[1])},{float(vals[2])}"
+
+def _format_rotation(value):
+    if hasattr(value, "__iter__"):
+        vals = list(value)
+    else:
+        vals = [value]
+    if len(vals) < 2:
+        vals = vals + [0.0] * (2 - len(vals))
+    return f"{float(vals[0])},{float(vals[1])}"
 
 def _parse_ids(raw):
     if not raw:
@@ -484,6 +566,35 @@ class Player:
         raw = __module__._host_call("player_position", "")
         return _parse_position(raw)
 
+    @position.setter
+    def position(self, value):
+        __module__._host_call("player_set_position", _format_position(value))
+
+    @property
+    def rotation(self):
+        raw = __module__._host_call("player_rotation", "")
+        return _parse_rotation(raw)
+
+    @rotation.setter
+    def rotation(self, value):
+        __module__._host_call("player_set_rotation", _format_rotation(value))
+
+    @property
+    def yaw(self):
+        return self.rotation[0]
+
+    @yaw.setter
+    def yaw(self, value):
+        __module__._host_call("player_set_yaw", str(float(value)))
+
+    @property
+    def pitch(self):
+        return self.rotation[1]
+
+    @pitch.setter
+    def pitch(self, value):
+        __module__._host_call("player_set_pitch", str(float(value)))
+
 class Agent:
     def __init__(self, agent_id):
         self._id = str(agent_id)
@@ -492,6 +603,35 @@ class Agent:
     def position(self):
         raw = __module__._host_call("agent_position", self._id)
         return _parse_position(raw)
+
+    @position.setter
+    def position(self, value):
+        __module__._host_call("agent_set_position", f"{self._id};{_format_position(value)}")
+
+    @property
+    def rotation(self):
+        raw = __module__._host_call("agent_rotation", self._id)
+        return _parse_rotation(raw)
+
+    @rotation.setter
+    def rotation(self, value):
+        __module__._host_call("agent_set_rotation", f"{self._id};{_format_rotation(value)}")
+
+    @property
+    def yaw(self):
+        return self.rotation[0]
+
+    @yaw.setter
+    def yaw(self, value):
+        __module__._host_call("agent_set_yaw", f"{self._id};{float(value)}")
+
+    @property
+    def pitch(self):
+        return self.rotation[1]
+
+    @pitch.setter
+    def pitch(self, value):
+        __module__._host_call("agent_set_pitch", f"{self._id};{float(value)}")
 
 class Agents:
     def _list(self):
@@ -534,6 +674,56 @@ __module__.agents = Agents()
                     }
                     yield encodePosition(mc.player.getX(), mc.player.getY(), mc.player.getZ());
                 }
+                case "player_set_position" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        double[] xyz =
+                                parseTriple(arg, mc.player.getX(), mc.player.getY(), mc.player.getZ());
+                        mc.player.setPos(xyz[0], xyz[1], xyz[2]);
+                    });
+                    yield null;
+                }
+                case "player_rotation" -> {
+                    if (mc.player == null) {
+                        yield "0.0,0.0";
+                    }
+                    yield encodeRotation(mc.player.getYRot(), mc.player.getXRot());
+                }
+                case "player_set_rotation" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        float[] yp = parsePair(arg, mc.player.getYRot(), mc.player.getXRot());
+                        mc.player.setYRot(yp[0]);
+                        mc.player.setXRot(yp[1]);
+                        mc.player.setYHeadRot(yp[0]);
+                    });
+                    yield null;
+                }
+                case "player_set_yaw" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        float yaw = parsePair(arg + ",0", mc.player.getYRot(), mc.player.getXRot())[0];
+                        mc.player.setYRot(yaw);
+                        mc.player.setYHeadRot(yaw);
+                    });
+                    yield null;
+                }
+                case "player_set_pitch" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player == null) {
+                            return;
+                        }
+                        float pitch = parsePair("0," + arg, mc.player.getYRot(), mc.player.getXRot())[1];
+                        mc.player.setXRot(pitch);
+                    });
+                    yield null;
+                }
                 case "agent_ids" -> {
                     if (mc.level == null) {
                         yield "";
@@ -554,20 +744,91 @@ __module__.agents = Agents()
                     if (mc.level == null || arg.isBlank()) {
                         yield "0.0,0.0,0.0";
                     }
-                    RLOperator found = null;
-                    for (var entity : mc.level.entitiesForRendering()) {
-                        if (!(entity instanceof RLOperator operator)) {
-                            continue;
-                        }
-                        if (arg.equals(operator.getStringUUID())) {
-                            found = operator;
-                            break;
-                        }
-                    }
+                    RLOperator found = findAgentById(mc, arg);
                     if (found == null) {
                         yield "0.0,0.0,0.0";
                     }
                     yield encodePosition(found.getX(), found.getY(), found.getZ());
+                }
+                case "agent_set_position" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String xyzRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        double[] xyz = parseTriple(xyzRaw, agent.getX(), agent.getY(), agent.getZ());
+                        agent.setPos(xyz[0], xyz[1], xyz[2]);
+                    });
+                    yield null;
+                }
+                case "agent_rotation" -> {
+                    RLOperator agent = findAgentById(mc, arg);
+                    if (agent == null) {
+                        yield "0.0,0.0";
+                    }
+                    yield encodeRotation(agent.getYRot(), agent.getXRot());
+                }
+                case "agent_set_rotation" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String ypRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        float[] yp = parsePair(ypRaw, agent.getYRot(), agent.getXRot());
+                        agent.setYRot(yp[0]);
+                        agent.setXRot(yp[1]);
+                        agent.setYHeadRot(yp[0]);
+                        agent.setYBodyRot(yp[0]);
+                    });
+                    yield null;
+                }
+                case "agent_set_yaw" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String yawRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        float yaw = parsePair(yawRaw + ",0", agent.getYRot(), agent.getXRot())[0];
+                        agent.setYRot(yaw);
+                        agent.setYHeadRot(yaw);
+                        agent.setYBodyRot(yaw);
+                    });
+                    yield null;
+                }
+                case "agent_set_pitch" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        int idx = arg.indexOf(';');
+                        if (idx <= 0) {
+                            return;
+                        }
+                        String id = arg.substring(0, idx);
+                        String pitchRaw = arg.substring(idx + 1);
+                        RLOperator agent = findAgentById(mc, id);
+                        if (agent == null) {
+                            return;
+                        }
+                        float pitch = parsePair("0," + pitchRaw, agent.getYRot(), agent.getXRot())[1];
+                        agent.setXRot(pitch);
+                    });
+                    yield null;
                 }
                 case "__bootstrap__" -> buildMcBootstrapSource();
                 default -> throw new IllegalArgumentException("Unknown host binding: " + moduleName + "." + functionName);
@@ -589,7 +850,23 @@ __module__.agents = Agents()
         XosNative.clearHostPythonModules();
         XosNative.registerHostPythonModule(
                 "mc",
-                new String[] {"chat", "player_position", "agent_ids", "agent_position", "__bootstrap__"});
+                new String[] {
+                        "chat",
+                        "player_position",
+                        "player_set_position",
+                        "player_rotation",
+                        "player_set_rotation",
+                        "player_set_yaw",
+                        "player_set_pitch",
+                        "agent_ids",
+                        "agent_position",
+                        "agent_set_position",
+                        "agent_rotation",
+                        "agent_set_rotation",
+                        "agent_set_yaw",
+                        "agent_set_pitch",
+                        "__bootstrap__"
+                });
         hostBindingsRegistered = true;
     }
 
