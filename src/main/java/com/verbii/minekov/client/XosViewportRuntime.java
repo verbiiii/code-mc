@@ -4,6 +4,7 @@ import ai.xlate.xos.XosNative;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.verbii.minekov.Minekov;
+import com.verbii.minekov.entities.RLOperator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -25,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,7 +58,8 @@ public final class XosViewportRuntime {
     private static final int VIEWPORT_ALPHA_IDLE = Math.round(255 * 0.6f);
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
-    private static final List<String> STARTER_SCRIPT_NAMES = List.of("balls_many.py", "demo_mod.py");
+    private static final List<String> STARTER_SCRIPT_NAMES =
+            List.of("balls_many.py", "demo_mod.py", "agent_controller.py");
 
     private static boolean libraryTried;
     private static boolean libraryOk;
@@ -450,21 +453,130 @@ public final class XosViewportRuntime {
         }
     }
 
+    private static String encodePosition(double x, double y, double z) {
+        return String.format(Locale.US, "%.6f,%.6f,%.6f", x, y, z);
+    }
+
+    private static String buildMcBootstrapSource() {
+        return """
+def _parse_position(raw):
+    if not raw:
+        return (0.0, 0.0, 0.0)
+    parts = [p.strip() for p in str(raw).split(",")]
+    if len(parts) < 3:
+        return (0.0, 0.0, 0.0)
+    try:
+        return (float(parts[0]), float(parts[1]), float(parts[2]))
+    except Exception:
+        return (0.0, 0.0, 0.0)
+
+def _parse_ids(raw):
+    if not raw:
+        return []
+    text = str(raw).strip()
+    if not text:
+        return []
+    return [x for x in text.split("|") if x]
+
+class Player:
+    @property
+    def position(self):
+        raw = __module__._host_call("player_position", "")
+        return _parse_position(raw)
+
+class Agent:
+    def __init__(self, agent_id):
+        self._id = str(agent_id)
+
+    @property
+    def position(self):
+        raw = __module__._host_call("agent_position", self._id)
+        return _parse_position(raw)
+
+class Agents:
+    def _list(self):
+        raw = __module__._host_call("agent_ids", "")
+        ids = _parse_ids(raw)
+        return [Agent(agent_id) for agent_id in ids]
+
+    def __iter__(self):
+        return iter(self._list())
+
+    def __len__(self):
+        return len(self._list())
+
+    def __getitem__(self, index):
+        return self._list()[index]
+
+__module__.player = Player()
+__module__.agents = Agents()
+""";
+    }
+
     private static String invokeHostBinding(Minecraft mc, String moduleName, String functionName, String arg0) {
-        if ("mc".equals(moduleName) && "chat".equals(functionName)) {
-            String message = arg0 != null ? arg0 : "";
-            try {
-                runOnClientThreadSync(mc, () -> {
-                    if (mc.player != null && !message.isBlank()) {
-                        mc.player.displayClientMessage(Component.literal(message), false);
-                    }
-                });
-                return null;
-            } catch (Exception e) {
-                throw new RuntimeException("mc.chat failed: " + e.getMessage(), e);
-            }
+        if (!"mc".equals(moduleName)) {
+            throw new IllegalArgumentException("Unknown host binding module: " + moduleName);
         }
-        throw new IllegalArgumentException("Unknown host binding: " + moduleName + "." + functionName);
+        String arg = arg0 != null ? arg0 : "";
+        try {
+            return switch (functionName) {
+                case "chat" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        if (mc.player != null && !arg.isBlank()) {
+                            mc.player.displayClientMessage(Component.literal(arg), false);
+                        }
+                    });
+                    yield null;
+                }
+                case "player_position" -> {
+                    if (mc.player == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    yield encodePosition(mc.player.getX(), mc.player.getY(), mc.player.getZ());
+                }
+                case "agent_ids" -> {
+                    if (mc.level == null) {
+                        yield "";
+                    }
+                    StringBuilder out = new StringBuilder();
+                    for (var entity : mc.level.entitiesForRendering()) {
+                        if (!(entity instanceof RLOperator operator)) {
+                            continue;
+                        }
+                        if (!out.isEmpty()) {
+                            out.append("|");
+                        }
+                        out.append(operator.getStringUUID());
+                    }
+                    yield out.toString();
+                }
+                case "agent_position" -> {
+                    if (mc.level == null || arg.isBlank()) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    RLOperator found = null;
+                    for (var entity : mc.level.entitiesForRendering()) {
+                        if (!(entity instanceof RLOperator operator)) {
+                            continue;
+                        }
+                        if (arg.equals(operator.getStringUUID())) {
+                            found = operator;
+                            break;
+                        }
+                    }
+                    if (found == null) {
+                        yield "0.0,0.0,0.0";
+                    }
+                    yield encodePosition(found.getX(), found.getY(), found.getZ());
+                }
+                case "__bootstrap__" -> buildMcBootstrapSource();
+                default -> throw new IllegalArgumentException("Unknown host binding: " + moduleName + "." + functionName);
+            };
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("host binding call failed: " + e.getMessage(), e);
+        }
     }
 
     private static void configureHostBindings(Minecraft mc) {
@@ -475,7 +587,9 @@ public final class XosViewportRuntime {
                 (moduleName, functionName, arg0) ->
                         invokeHostBinding(mc, moduleName, functionName, arg0));
         XosNative.clearHostPythonModules();
-        XosNative.registerHostPythonModule("mc", new String[] {"chat"});
+        XosNative.registerHostPythonModule(
+                "mc",
+                new String[] {"chat", "player_position", "agent_ids", "agent_position", "__bootstrap__"});
         hostBindingsRegistered = true;
     }
 
