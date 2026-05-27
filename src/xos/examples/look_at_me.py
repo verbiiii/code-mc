@@ -1,11 +1,11 @@
 import mc
 import xos
 
-agent_positions = mc.agents.positions
-num_agents = int(agent_positions.shape[0]) if len(agent_positions.shape) > 0 else 0
-
 
 while True:
+    agent_positions = mc.agents.positions
+    num_agents = int(agent_positions.shape[0]) if len(agent_positions.shape) > 0 else 0
+
     # Batch player position to (N,3) tensor, index-aligned to mc.agents
     p = mc.player.position
     player_positions = (

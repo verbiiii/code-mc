@@ -65,7 +65,14 @@ public final class XosViewportRuntime {
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
     private static final List<String> STARTER_SCRIPT_NAMES =
-            List.of("balls_many.py", "demo_mod.py", "agent_controller.py", "look_at_me.py");
+            List.of(
+                    "balls_many.py",
+                    "demo_mod.py",
+                    "agent_controller.py",
+                    "look_at_me.py",
+                    "walk_towards_me.py",
+                    "jump.py",
+                    "agent_jump.py");
 
     private static boolean libraryTried;
     private static boolean libraryOk;
