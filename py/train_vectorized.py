@@ -196,7 +196,7 @@ class VectorizedTrainer:
             import wandb
 
             run = wandb.init(
-                project="minekov-rl",
+                project="code-mc-rl",
                 name=self.experiment_name,
                 config={"num_agents": self.num_agents},
             )

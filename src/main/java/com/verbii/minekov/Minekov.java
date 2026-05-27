@@ -126,7 +126,7 @@ public class Minekov {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 
         dispatcher.register(
-            Commands.literal("minekov")
+            Commands.literal("code")
                 .then(Commands.literal("loot")
                     .then(Commands.argument("table", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
@@ -397,7 +397,7 @@ public class Minekov {
         if (pythonController != null && pythonController.isConnected()) {
             pythonController.sendToPython(message);
         } else {
-            System.err.println("[Minekov] Python WebSocket is not open.");
+            System.err.println("[code-mc] Python WebSocket is not open.");
         }
     }
 
