@@ -897,6 +897,50 @@ def _scalars_to_tensor(raw):
     vals = [float(v) for v in str(raw).split("|") if v]
     return xos.tensor(vals, (len(vals),))
 
+def _value_to_rows(value, width, count):
+    if width <= 0:
+        return []
+    rows = []
+    if hasattr(value, "__getitem__"):
+        try:
+            data_dict = value[:]
+            if isinstance(data_dict, dict) and "_data" in data_dict:
+                flat = list(data_dict["_data"])
+                if len(flat) == width:
+                    rows = [tuple(float(flat[j]) for j in range(width))]
+                elif len(flat) % width == 0:
+                    n = len(flat) // width
+                    rows = [
+                        tuple(float(flat[i * width + j]) for j in range(width))
+                        for i in range(n)
+                    ]
+        except Exception:
+            pass
+    if not rows:
+        if isinstance(value, (list, tuple)):
+            if len(value) == width and all(not isinstance(v, (list, tuple)) for v in value):
+                rows = [tuple(float(v) for v in value)]
+            elif len(value) > 0 and all(isinstance(v, (list, tuple)) for v in value):
+                rows = [
+                    tuple(float(v[j]) if j < len(v) else 0.0 for j in range(width))
+                    for v in value
+                ]
+    if not rows:
+        return []
+    if len(rows) == 1 and count > 1:
+        rows = rows * count
+    if count > 0:
+        rows = rows[:count]
+    return rows
+
+def _rows_to_wire(rows, width):
+    if not rows or width <= 0:
+        return ""
+    return "|".join(
+        ",".join(str(float(row[j])) for j in range(width))
+        for row in rows
+    )
+
 def _format_position(value):
     if hasattr(value, "__iter__"):
         vals = list(value)
@@ -1085,6 +1129,16 @@ class Agents:
 
     def __getitem__(self, index):
         return self._list()[index]
+
+    def look(self, value):
+        count = len(self)
+        rows = _value_to_rows(value, 2, count)
+        __module__._host_call("agents_look", _rows_to_wire(rows, 2))
+
+    def move(self, value):
+        count = len(self)
+        rows = _value_to_rows(value, 4, count)
+        __module__._host_call("agents_move", _rows_to_wire(rows, 4))
 
     @property
     def positions(self):
@@ -1423,6 +1477,45 @@ __module__.agents = Agents()
                     });
                     yield null;
                 }
+                case "agents_look" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<double[]> rows = parseRows(arg, 2);
+                        int n = Math.min(agents.size(), rows.size());
+                        for (int i = 0; i < n; i++) {
+                            RLOperator agent = agents.get(i);
+                            double[] row = rows.get(i);
+                            // API order is (pitch_delta, yaw_delta)
+                            applyEntityActionWithServerMirror(
+                                    mc, agent, "look", row[0] + "," + row[1]);
+                        }
+                    });
+                    yield null;
+                }
+                case "agents_move" -> {
+                    runOnClientThreadSync(mc, () -> {
+                        List<RLOperator> agents = collectAgents(mc);
+                        List<double[]> rows = parseRows(arg, 4);
+                        int n = Math.min(agents.size(), rows.size());
+                        for (int i = 0; i < n; i++) {
+                            RLOperator agent = agents.get(i);
+                            double[] row = rows.get(i);
+                            if (row[0] > 0.5) {
+                                applyEntityActionWithServerMirror(mc, agent, "w", "");
+                            }
+                            if (row[1] > 0.5) {
+                                applyEntityActionWithServerMirror(mc, agent, "a", "");
+                            }
+                            if (row[2] > 0.5) {
+                                applyEntityActionWithServerMirror(mc, agent, "s", "");
+                            }
+                            if (row[3] > 0.5) {
+                                applyEntityActionWithServerMirror(mc, agent, "d", "");
+                            }
+                        }
+                    });
+                    yield null;
+                }
                 case "agents_positions" -> encodeAgentPositions(mc);
                 case "agents_rotations" -> encodeAgentRotations(mc);
                 case "agents_yaws" -> encodeAgentYaws(mc);
@@ -1527,6 +1620,8 @@ __module__.agents = Agents()
                         "agent_looking_velocity",
                         "agent_set_looking_velocity",
                         "entity_action",
+                        "agents_look",
+                        "agents_move",
                         "agents_positions",
                         "agents_rotations",
                         "agents_yaws",

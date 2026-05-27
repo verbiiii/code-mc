@@ -1,5 +1,5 @@
 
-# Escape from Minekov
+# xos-mc
 
 Minecraft Forge mod + Python backend that controls in-game AI operators over a WebSocket API.
 
