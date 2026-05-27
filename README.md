@@ -2,10 +2,10 @@
 # code-mc
 Write python inside of minecraft.
 
-Modrinth Download: https://modrinth.com/mod/code-mc
-CurseForge Download: https://www.curseforge.com/minecraft/mc-mods/code-mc
-Release Video: https://youtu.be/GAXOnJ4zLIU
-XOS Codebase: https://github.com/xlateai/xos
+- Modrinth Download: https://modrinth.com/mod/code-mc
+- CurseForge Download: https://www.curseforge.com/minecraft/mc-mods/code-mc
+- Release Video: https://youtu.be/GAXOnJ4zLIU
+- XOS Codebase: https://github.com/xlateai/xos
 
 ## Super basic in-game usage
 
