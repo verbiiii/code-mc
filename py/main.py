@@ -25,7 +25,7 @@ TRAINER = None
 TRANSPORT = None
 
 # FastAPI app - minimal setup
-app = FastAPI(title="Minekov Vectorized RL Server")
+app = FastAPI(title="code-mc Vectorized RL Server")
 
 # Track connected clients
 connected_clients = set()
@@ -152,7 +152,7 @@ async def main():
     global event_loop
     import uvicorn
     
-    logger.info("🚀 Starting Minekov Vectorized RL Server...")
+    logger.info("🚀 Starting code-mc Vectorized RL Server...")
     
     config = uvicorn.Config(
         app, 
