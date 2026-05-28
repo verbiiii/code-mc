@@ -8,11 +8,14 @@ import com.verbii.minekov.entities.RLOperator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -64,10 +67,13 @@ public final class XosViewportRuntime {
     private static final int VIEWPORT_ALPHA_IDLE = Math.round(255 * 0.6f);
     /** Viewport texture opacity when the xos panel is hovered. */
     private static final int VIEWPORT_ALPHA_HOVER = Math.round(255 * 0.8f);
+    private static final String ITEM_FIELD_SEPARATOR = "\u001f";
+    private static final String ITEM_ROW_SEPARATOR = "\u001e";
     private static final List<String> STARTER_SCRIPT_NAMES =
             List.of(
                     "balls_many.py",
                     "demo_mod.py",
+                    "inventory.py",
                     "agent_controller.py",
                     "look_at_me.py",
                     "walk_towards_me.py",
@@ -494,6 +500,102 @@ public final class XosViewportRuntime {
 
     private static String encodeVelocity(Vec3 v) {
         return encodePosition(v.x, v.y, v.z);
+    }
+
+    private static String sanitizeItemWireValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        return value
+                .replace(ITEM_FIELD_SEPARATOR, " ")
+                .replace(ITEM_ROW_SEPARATOR, " ");
+    }
+
+    private static String encodeItemStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "minecraft:air" + ITEM_FIELD_SEPARATOR + "0" + ITEM_FIELD_SEPARATOR + ITEM_FIELD_SEPARATOR;
+        }
+        String type = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        int count = stack.getCount();
+        String durability = "";
+        if (stack.isDamageableItem()) {
+            durability = Integer.toString(Math.max(0, stack.getMaxDamage() - stack.getDamageValue()));
+        }
+        String meta = stack.getTag() != null ? stack.getTag().toString() : "{}";
+        return sanitizeItemWireValue(type)
+                + ITEM_FIELD_SEPARATOR
+                + count
+                + ITEM_FIELD_SEPARATOR
+                + sanitizeItemWireValue(durability)
+                + ITEM_FIELD_SEPARATOR
+                + sanitizeItemWireValue(meta);
+    }
+
+    private static String encodeItemStackList(Iterable<ItemStack> stacks) {
+        if (stacks == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        for (ItemStack stack : stacks) {
+            if (!out.isEmpty()) {
+                out.append(ITEM_ROW_SEPARATOR);
+            }
+            out.append(encodeItemStack(stack));
+        }
+        return out.toString();
+    }
+
+    private static String encodePlayerInventoryContents(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return "";
+        }
+        Inventory inventory = mc.player.getInventory();
+        return encodeItemStackList(inventory.items);
+    }
+
+    private static String encodePlayerInventoryHotbar(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return "";
+        }
+        Inventory inventory = mc.player.getInventory();
+        int hotbarSize = Math.min(9, inventory.items.size());
+        return encodeItemStackList(inventory.items.subList(0, hotbarSize));
+    }
+
+    private static String encodePlayerInventoryArmor(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return "";
+        }
+        return encodeItemStackList(mc.player.getInventory().armor);
+    }
+
+    private static String encodePlayerInventoryOffhand(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return encodeItemStack(ItemStack.EMPTY);
+        }
+        return encodeItemStack(mc.player.getOffhandItem());
+    }
+
+    private static String encodePlayerInventoryHand(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return encodeItemStack(ItemStack.EMPTY);
+        }
+        return encodeItemStack(mc.player.getMainHandItem());
+    }
+
+    private static String encodePlayerInventoryEnderChest(Minecraft mc) {
+        if (mc == null || mc.player == null) {
+            return "";
+        }
+        var chest = mc.player.getEnderChestInventory();
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < chest.getContainerSize(); i++) {
+            if (!out.isEmpty()) {
+                out.append(ITEM_ROW_SEPARATOR);
+            }
+            out.append(encodeItemStack(chest.getItem(i)));
+        }
+        return out.toString();
     }
 
     private static double[] parseTriple(String raw, double fallbackX, double fallbackY, double fallbackZ) {
@@ -974,6 +1076,34 @@ def _parse_ids(raw):
         return []
     return [x for x in text.split("|") if x]
 
+def _parse_item(raw):
+    text = "" if raw is None else str(raw)
+    parts = text.split("\\x1f")
+    while len(parts) < 4:
+        parts.append("")
+    item_type = parts[0] or "minecraft:air"
+    try:
+        count = int(parts[1] or "0")
+    except Exception:
+        count = 0
+    durability_text = parts[2]
+    durability = None
+    if durability_text:
+        try:
+            durability = int(durability_text)
+        except Exception:
+            durability = None
+    meta = parts[3] if parts[3] else "{}"
+    return Item(item_type=item_type, count=count, durability=durability, meta=meta)
+
+def _parse_item_list(raw):
+    if raw is None:
+        return []
+    text = str(raw)
+    if not text:
+        return []
+    return [_parse_item(part) for part in text.split("\\x1e")]
+
 class Actions:
     def __init__(self, entity_kind, entity_id=""):
         self._kind = str(entity_kind)
@@ -1001,9 +1131,54 @@ class Actions:
     def look(self, pitch, yaw):
         self._call("look", f"{float(pitch)},{float(yaw)}")
 
+class Item:
+    def __init__(self, item_type="minecraft:air", count=0, durability=None, meta="{}"):
+        self.type = str(item_type)
+        self.count = int(count)
+        self.durability = durability
+        self.meta = str(meta) if meta is not None else "{}"
+
+    def __repr__(self):
+        return f"mc.Item(type={{{self.type}}}, count={self.count}, meta={self.meta})"
+
+    def __str__(self):
+        return self.__repr__()
+
+class Inventory:
+    @property
+    def armor(self):
+        raw = __module__._host_call("player_inventory_armor", "")
+        return _parse_item_list(raw)
+
+    @property
+    def contents(self):
+        raw = __module__._host_call("player_inventory_contents", "")
+        return _parse_item_list(raw)
+
+    @property
+    def hotbar(self):
+        raw = __module__._host_call("player_inventory_hotbar", "")
+        return _parse_item_list(raw)
+
+    @property
+    def offhand(self):
+        raw = __module__._host_call("player_inventory_offhand", "")
+        return _parse_item(raw)
+
+    @property
+    def hand(self):
+        raw = __module__._host_call("player_inventory_hand", "")
+        return _parse_item(raw)
+
+    @property
+    def enderchest(self):
+        raw = __module__._host_call("player_inventory_enderchest", "")
+        return _parse_item_list(raw)
+
 class Player:
     def __init__(self):
         self._actions = Actions("player", "")
+        self._inventory = Inventory()
 
     @property
     def position(self):
@@ -1060,6 +1235,10 @@ class Player:
     @property
     def actions(self):
         return self._actions
+
+    @property
+    def inventory(self):
+        return self._inventory
 
 class Agent:
     def __init__(self, agent_id):
@@ -1303,6 +1482,12 @@ __module__.agents = Agents()
                     });
                     yield null;
                 }
+                case "player_inventory_armor" -> encodePlayerInventoryArmor(mc);
+                case "player_inventory_contents" -> encodePlayerInventoryContents(mc);
+                case "player_inventory_hotbar" -> encodePlayerInventoryHotbar(mc);
+                case "player_inventory_offhand" -> encodePlayerInventoryOffhand(mc);
+                case "player_inventory_hand" -> encodePlayerInventoryHand(mc);
+                case "player_inventory_enderchest" -> encodePlayerInventoryEnderChest(mc);
                 case "agent_ids" -> {
                     List<RLOperator> agents = collectAgents(mc);
                     if (agents.isEmpty()) {
@@ -1615,6 +1800,12 @@ __module__.agents = Agents()
                         "player_set_velocity",
                         "player_looking_velocity",
                         "player_set_looking_velocity",
+                        "player_inventory_armor",
+                        "player_inventory_contents",
+                        "player_inventory_hotbar",
+                        "player_inventory_offhand",
+                        "player_inventory_hand",
+                        "player_inventory_enderchest",
                         "agent_ids",
                         "agent_position",
                         "agent_set_position",
