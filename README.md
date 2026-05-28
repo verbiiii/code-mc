@@ -7,6 +7,9 @@ Write python inside of minecraft.
 - Release Video: https://youtu.be/GAXOnJ4zLIU
 - XOS Codebase: https://github.com/xlateai/xos
 
+<img width="2558" height="1347" alt="image" src="https://github.com/user-attachments/assets/5cb0c459-2cd4-4f78-8c12-6436b7622c59" />
+
+
 ## Super basic in-game usage
 
 Open in-game chat and in the top left you should see a button saying "open xos".
