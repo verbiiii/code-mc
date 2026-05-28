@@ -2,13 +2,16 @@ package com.verbii.minekov.client;
 
 import ai.xlate.xos.XosNative;
 
+import com.google.gson.JsonElement;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.serialization.JsonOps;
 import com.verbii.minekov.Minekov;
 import com.verbii.minekov.entities.RLOperator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
@@ -521,7 +524,15 @@ public final class XosViewportRuntime {
         if (stack.isDamageableItem()) {
             durability = Integer.toString(Math.max(0, stack.getMaxDamage() - stack.getDamageValue()));
         }
-        String meta = stack.getTag() != null ? stack.getTag().toString() : "{}";
+        String meta = "{}";
+        if (stack.getTag() != null) {
+            try {
+                JsonElement asJson = NbtOps.INSTANCE.convertTo(JsonOps.INSTANCE, stack.getTag());
+                meta = asJson.toString();
+            } catch (Throwable ignored) {
+                meta = stack.getTag().toString();
+            }
+        }
         return sanitizeItemWireValue(type)
                 + ITEM_FIELD_SEPARATOR
                 + count
@@ -1093,8 +1104,28 @@ def _parse_item(raw):
             durability = int(durability_text)
         except Exception:
             durability = None
-    meta = parts[3] if parts[3] else "{}"
+    meta_raw = parts[3] if parts[3] else "{}"
+    try:
+        meta_obj = xos.json.loads(meta_raw)
+    except Exception:
+        meta_obj = {}
+    meta = _normalize_meta(meta_obj)
     return Item(item_type=item_type, count=count, durability=durability, meta=meta)
+
+def _normalize_meta(value):
+    if isinstance(value, dict):
+        out = {}
+        for key, sub in value.items():
+            out[str(key)] = _normalize_meta(sub)
+        return out
+    if isinstance(value, list):
+        out = {}
+        for i, sub in enumerate(value):
+            out[str(i)] = _normalize_meta(sub)
+        return out
+    if value is None:
+        return "null"
+    return str(value)
 
 def _parse_item_list(raw):
     if raw is None:
@@ -1132,11 +1163,11 @@ class Actions:
         self._call("look", f"{float(pitch)},{float(yaw)}")
 
 class Item:
-    def __init__(self, item_type="minecraft:air", count=0, durability=None, meta="{}"):
+    def __init__(self, item_type="minecraft:air", count=0, durability=None, meta=None):
         self.type = str(item_type)
         self.count = int(count)
         self.durability = durability
-        self.meta = str(meta) if meta is not None else "{}"
+        self.meta = meta if isinstance(meta, dict) else {}
 
     def __repr__(self):
         return f"mc.Item(type={{{self.type}}}, count={self.count}, meta={self.meta})"
