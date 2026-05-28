@@ -509,6 +509,13 @@ public final class XosViewportOverlay {
 
     /** Horizontal inset from the pill’s right edge for the online (green) / offline (gray) status dot. */
     private static final int MINIMIZED_STATUS_DOT_INSET = 10;
+    /** Private-use codepoints used to preserve modifier-aware editor keys over Java host char events. */
+    private static final int XOS_KEY_SHIFT_TAB = 0xE100;
+    private static final int XOS_KEY_SHIFT_LEFT = 0xE101;
+    private static final int XOS_KEY_SHIFT_RIGHT = 0xE102;
+    private static final int XOS_KEY_SHIFT_UP = 0xE103;
+    private static final int XOS_KEY_SHIFT_DOWN = 0xE104;
+    private static final int XOS_KEY_TOGGLE_COMMENT = 0xE105;
 
     private static boolean shouldRouteKeyboardToXos(Minecraft mc) {
         if (!(mc.screen instanceof ChatScreen)) {
@@ -561,16 +568,17 @@ public final class XosViewportOverlay {
      * {@link ScreenEvent.CharacterTyped.Pre}. Returns -1 for keys that should only come through character
      * events.
      */
-    private static int navigationKeyToCodePoint(int key) {
+    private static int navigationKeyToCodePoint(int key, int modifiers) {
+        boolean shiftDown = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         return switch (key) {
             case GLFW.GLFW_KEY_BACKSPACE -> '\b';
             case GLFW.GLFW_KEY_DELETE -> 0x7F;
             case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> '\n';
-            case GLFW.GLFW_KEY_TAB -> '\t';
-            case GLFW.GLFW_KEY_LEFT -> 0x2190;
-            case GLFW.GLFW_KEY_RIGHT -> 0x2192;
-            case GLFW.GLFW_KEY_UP -> 0x2191;
-            case GLFW.GLFW_KEY_DOWN -> 0x2193;
+            case GLFW.GLFW_KEY_TAB -> shiftDown ? XOS_KEY_SHIFT_TAB : '\t';
+            case GLFW.GLFW_KEY_LEFT -> shiftDown ? XOS_KEY_SHIFT_LEFT : 0x2190;
+            case GLFW.GLFW_KEY_RIGHT -> shiftDown ? XOS_KEY_SHIFT_RIGHT : 0x2192;
+            case GLFW.GLFW_KEY_UP -> shiftDown ? XOS_KEY_SHIFT_UP : 0x2191;
+            case GLFW.GLFW_KEY_DOWN -> shiftDown ? XOS_KEY_SHIFT_DOWN : 0x2193;
             default -> -1;
         };
     }
@@ -692,8 +700,13 @@ public final class XosViewportOverlay {
         }
         int key = event.getKeyCode();
         int modifiers = event.getModifiers();
-        boolean ctrlDown = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        if (ctrlDown) {
+        boolean commandDown = (modifiers & (GLFW.GLFW_MOD_CONTROL | GLFW.GLFW_MOD_SUPER)) != 0;
+        if (commandDown && (key == GLFW.GLFW_KEY_SLASH || key == GLFW.GLFW_KEY_KP_DIVIDE)) {
+            XosViewportRuntime.sendKeyCharToEngine(XOS_KEY_TOGGLE_COMMENT);
+            event.setCanceled(true);
+            return;
+        }
+        if (commandDown) {
             int actionCode = ctrlShortcutToActionCode(key, modifiers);
             if (actionCode != -1) {
                 XosNative.onShortcut(actionCode);
@@ -713,7 +726,7 @@ public final class XosViewportOverlay {
             event.setCanceled(true);
             return;
         }
-        int nav = navigationKeyToCodePoint(key);
+        int nav = navigationKeyToCodePoint(key, modifiers);
         if (nav != -1) {
             XosViewportRuntime.sendKeyCharToEngine(nav);
             event.setCanceled(true);
